@@ -4,7 +4,7 @@
     "kind": "host",
     "computerName": "WKS-HR-004",
     "schemaVersion": 1,
-    "collectorVersion": "1.2",
+    "collectorVersion": "1.0",
     "synthetic": true,
     "collectedAtUtc": "2026-10-01T08:00:00Z",
     "collectedBy": "CORP\\jdoe",
@@ -311,6 +311,16 @@
       "account": "NT AUTHORITY\\NetworkService",
       "pathName": "C:\\Windows\\system32\\svchost.exe -k NetworkService -p",
       "executable": "C:\\Windows\\system32\\svchost.exe",
+      "writableBy": []
+    },
+    {
+      "name": "CSFalconService",
+      "displayName": "CSFalconService",
+      "startMode": "Auto",
+      "state": "Running",
+      "account": "LocalSystem",
+      "pathName": "\"C:\\Program Files\\CrowdStrike\\CSFalconService.exe\"",
+      "executable": "C:\\Program Files\\CrowdStrike\\CSFalconService.exe",
       "writableBy": []
     },
     {

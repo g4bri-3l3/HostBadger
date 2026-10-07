@@ -68,11 +68,11 @@ Respond with one JSON object only, no markdown fences:
   "triage": [ { "rank": 1, "checks": ["..."], "objects": ["..."], "rationale": "..." } ] }
 
 === USER ===
-Fleet: 5 host(s) (1 dc, 1 server, 3 workstation). Average hardening score 72/100. Findings: 0 critical, 28 high, 64 medium, 50 low.
+Fleet: 5 host(s) (1 dc, 1 server, 3 workstation). Average hardening score 72/100. Findings: 0 critical, 29 high, 64 medium, 51 low.
 
 Hosts (name, role, operating system, score, findings, checks not evaluated):
-- HOST-1: workstation, Microsoft Windows 10 Pro 22H2 (build 19045.6093), score F 4/100, 132 finding(s), 0 not evaluated.
-- HOST-2: dc, Microsoft Windows Server 2016 Standard 1607 (build 14393.8422), score C 65/100, 3 finding(s), 0 not evaluated.
+- HOST-1: workstation, Microsoft Windows 10 Pro 22H2 (build 19045.6093), score F 4/100, 133 finding(s), 0 not evaluated.
+- HOST-2: dc, Microsoft Windows Server 2016 Standard 1607 (build 14393.8422), score C 65/100, 4 finding(s), 0 not evaluated.
 - HOST-3: workstation, Microsoft Windows 11 Enterprise 23H2 (build 22631.5909), score A 97/100, 3 finding(s), 0 not evaluated.
 - HOST-4: server, Microsoft Windows Server 2022 Standard 21H2 (build 20348.4171), score A 98/100, 2 finding(s), 0 not evaluated.
 - HOST-5: workstation, Microsoft Windows 11 Enterprise 24H2 (build 26100.6584), score A 98/100, 2 finding(s), 22 not evaluated.
@@ -107,66 +107,61 @@ Findings grouped by check (severity, host, object, detail):
 - [High] HOST-1 | path: PATH-8 | Broad or user-writable folder excluded from scanning.
 - [High] HOST-1 | process: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe | Files opened by a scripting host or system tool are not scanned.
 - [Low] HOST-3 | path: PATH-2 | Folder or file excluded from scanning.
-- [Low] HOST-1 | path: PATH-3 | Folder or file excluded from scanning.
+- [Low] HOST-1 | path: PATH-4 | Folder or file excluded from scanning.
 ## [High] user_rights_excessive: User right granted to more principals than the baseline (4 finding(s) on 1 host(s))
 - [High] HOST-1 | right: SeDebugPrivilege | Also held by Users (CIS 2.2.15 expects Administrators).
 - [High] HOST-1 | right: SeTcbPrivilege | Also held by Administrators (CIS 2.2.3 expects no one).
 - [Medium] HOST-1 | right: SeBackupPrivilege | Also held by Backup Operators (CIS 2.2.7 expects Administrators).
 - [Medium] HOST-1 | right: SeNetworkLogonRight | Also held by Everyone, Users (CIS 2.2.2 expects Administrators, Remote Desktop Users).
-## [High] service_binary_writable: Service program writable by users (2 finding(s) on 1 host(s))
-- [High] HOST-1 | service: SERVICE-2 | PATH-5, runs as LocalSystem (Running): writable by Authenticated Users on the file (Modify, Synchronize); BUILTIN\Users on the folder (Write).
-- [Medium] HOST-1 | service: SERVICE-3 | PATH-6, runs as LocalSystem (Stopped): writable by BUILTIN\Users on the folder (AppendData, Synchronize).
 ## [High] smb_server_signing_not_required: SMB server signing not required (2 finding(s) on 2 host(s))
 - [High] HOST-2 | SMB server | RequireSecuritySignature = False.
 - [Medium] HOST-1 | SMB server | RequireSecuritySignature = False.
+## [High] service_binary_writable: Service program writable by users (2 finding(s) on 1 host(s))
+- [High] HOST-1 | service: SERVICE-2 | PATH-5, runs as LocalSystem (Running): writable by Authenticated Users on the file (Modify, Synchronize); BUILTIN\Users on the folder (Write).
+- [Medium] HOST-1 | service: SERVICE-3 | PATH-6, runs as LocalSystem (Stopped): writable by BUILTIN\Users on the folder (AppendData, Synchronize).
 ## [High] local_account_password_not_required: Enabled local account allowed an empty password (2 finding(s) on 1 host(s))
 - [High] HOST-1 | account: Guest | PASSWD_NOTREQD set on an enabled account.
 - [High] HOST-1 | account: USER-2 | PASSWD_NOTREQD set on an enabled account.
-## [High] smb1_server_enabled: SMBv1 server enabled (1 finding(s) on 1 host(s))
-- [High] HOST-1 | SMB server | EnableSMB1Protocol = True.
-## [High] firewall_profile_disabled: Windows Firewall profile disabled (1 finding(s) on 1 host(s))
-- [High] HOST-1 | profile: Public | Profile disabled.
-## [High] firewall_default_inbound_allow: Firewall allows inbound by default (1 finding(s) on 1 host(s))
-- [High] HOST-1 | profile: Domain | Default inbound action Allow.
 ## [High] os_unsupported: Windows version out of USER-2 (1 finding(s) on 1 host(s))
 - [High] HOST-1 | Windows 10 22H2 Home/Pro | Support ended 2025-10-14 (353 days before collection).
-## [High] laps_not_configured: LAPS not configured (1 finding(s) on 1 host(s))
-- [High] HOST-1 | LAPS | Windows LAPS BackupDirectory: not set; legacy LAPS: not enabled.
-## [High] rdp_nla_disabled: RDP without Network Level Authentication (1 finding(s) on 1 host(s))
-- [High] HOST-1 | RDP | RDP enabled, UserAuthentication = 0.
-## [High] defender_realtime_off: Defender real-time protection off (1 finding(s) on 1 host(s))
-- [High] HOST-1 | Microsoft Defender | Antivirus enabled: True; real-time protection: False.
 ## [High] lm_hash_stored: LM hashes stored (1 finding(s) on 1 host(s))
 - [High] HOST-1 | NoLMHash | NoLMHash = 0.
-## [High] smb_plaintext_password: Unencrypted passwords sent to third-party SMB servers (1 finding(s) on 1 host(s))
-- [High] HOST-1 | SMB client | EnablePlainTextPassword = 1 (CIS 2.3.8.3 expects 0).
+## [High] defender_realtime_off: Defender real-time protection off (1 finding(s) on 1 host(s))
+- [High] HOST-1 | Microsoft Defender | Antivirus enabled: True; real-time protection: False.
+## [High] rdp_nla_disabled: RDP without Network Level Authentication (1 finding(s) on 1 host(s))
+- [High] HOST-1 | RDP | RDP enabled, UserAuthentication = 0.
+## [High] firewall_default_inbound_allow: Firewall allows inbound by default (1 finding(s) on 1 host(s))
+- [High] HOST-1 | profile: Domain | Default inbound action Allow.
 ## [High] force_guest_sharing_model: Network logons are forced to the Guest account (1 finding(s) on 1 host(s))
 - [High] HOST-1 | ForceGuest | ForceGuest = 1, "Guest only" (CIS 2.3.10.12 expects 0, Classic).
+## [High] laps_not_configured: LAPS not configured (1 finding(s) on 1 host(s))
+- [High] HOST-1 | LAPS | Windows LAPS BackupDirectory: not set; legacy LAPS: not enabled.
+## [High] smb_plaintext_password: Unencrypted passwords sent to third-party SMB servers (1 finding(s) on 1 host(s))
+- [High] HOST-1 | SMB client | EnablePlainTextPassword = 1 (CIS 2.3.8.3 expects 0).
 ## [High] guest_enabled: Guest account enabled (1 finding(s) on 1 host(s))
 - [High] HOST-1 | account: Guest | Guest account enabled.
-## [High] task_binary_writable: Privileged scheduled task runs a user-writable program (1 finding(s) on 1 host(s))
-- [High] HOST-1 | task: TASK-1 -> PATH-7 | Runs as SYSTEM (run level Highest): writable by Everyone on the file (FullControl).
 ## [High] bitlocker_os_volume_off: Operating system volume not encrypted (1 finding(s) on 1 host(s))
 - [High] HOST-1 | OS volume C: | Protection Off, FullyDecrypted.
+## [High] task_binary_writable: Privileged scheduled task runs a user-writable program (1 finding(s) on 1 host(s))
+- [High] HOST-1 | task: TASK-1 -> PATH-7 | Runs as SYSTEM (run level Highest): writable by Everyone on the file (FullControl).
+## [High] autorun_writable: Machine-wide autorun points to a user-writable program (1 finding(s) on 1 host(s))
+- [High] HOST-1 | autorun: HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run AUTORUN-1 | PATH-3: writable by BUILTIN\Users on the file (Modify, Synchronize).
 ## [High] uac_disabled: UAC disabled (1 finding(s) on 1 host(s))
 - [High] HOST-1 | UAC | EnableLUA = 0.
-## [High] autorun_writable: Machine-wide autorun points to a user-writable program (1 finding(s) on 1 host(s))
-- [High] HOST-1 | autorun: HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run AUTORUN-1 | PATH-4: writable by BUILTIN\Users on the file (Modify, Synchronize).
 ## [High] autologon_enabled: Automatic logon configured (1 finding(s) on 1 host(s))
 - [High] HOST-1 | Winlogon | AutoAdminLogon = 1; the password is stored in the registry (DefaultPassword) (CIS 18.5.1 expects 0).
+## [High] firewall_profile_disabled: Windows Firewall profile disabled (1 finding(s) on 1 host(s))
+- [High] HOST-1 | profile: Public | Profile disabled.
 ## [High] updates_stale: No update installed recently (1 finding(s) on 1 host(s))
 - [High] HOST-1 | Windows Update | Last Windows update installed 2026-05-14 (hotfix list), 140 days before collection (limit 45).
 ## [High] wdigest_cleartext: WDigest stores cleartext passwords (1 finding(s) on 1 host(s))
 - [High] HOST-1 | WDigest | UseLogonCredential = 1.
 ## [High] always_install_elevated: AlwaysInstallElevated enabled (1 finding(s) on 1 host(s))
 - [High] HOST-1 | Windows Installer | AlwaysInstallElevated = 1 in the machine policy.
-## [Medium] password_policy_weak: Local password policy weaker than the baseline (6 finding(s) on 1 host(s))
-- [Medium] HOST-1 | Maximum password age | MaximumPasswordAge = never expires (CIS 1.1.2 expects 1 to 365 days).
-- [Medium] HOST-1 | Minimum password age | MinimumPasswordAge = 0 days (CIS 1.1.3 expects 1 or more).
-- [Medium] HOST-1 | Minimum password length | MinimumPasswordLength = 0 (CIS 1.1.4 expects 14 or more).
-- [Medium] HOST-1 | Password complexity | PasswordComplexity = 0 (CIS 1.1.5 expects 1).
-- [Medium] HOST-1 | Password history | PasswordHistorySize = 0 (CIS 1.1.1 expects 24 or more).
-- [Medium] HOST-1 | Reversible encryption | ClearTextPassword = 1: passwords are stored reversibly (CIS 1.1.7 expects 0).
+## [High] smb1_server_enabled: SMBv1 server enabled (1 finding(s) on 1 host(s))
+- [High] HOST-1 | SMB server | EnableSMB1Protocol = True.
+## [High] edr_agent_stopped: EDR agent installed but not running (1 finding(s) on 1 host(s))
+- [High] HOST-2 | agent: CrowdStrike Falcon | Not running: CSFalconService (Stopped, start mode Auto).
 ## [Medium] secure_channel_unprotected: Domain secure channel not protected (6 finding(s) on 1 host(s))
 - [Medium] HOST-1 | Netlogon: DisablePasswordChange | DisablePasswordChange = 1: the machine account password is never rotated (CIS 2.3.6.4 expects 0).
 - [Medium] HOST-1 | Netlogon: MaximumPasswordAge | MaximumPasswordAge = 90 days (CIS 2.3.6.5 expects 1 to 30).
@@ -174,160 +169,169 @@ Findings grouped by check (severity, host, object, detail):
 - [Medium] HOST-1 | Netlogon: RequireStrongKey | RequireStrongKey = 0 (CIS 2.3.6.6 expects 1).
 - [Medium] HOST-1 | Netlogon: SealSecureChannel | SealSecureChannel = 0 (CIS 2.3.6.2 expects 1).
 - [Medium] HOST-1 | Netlogon: SignSecureChannel | SignSecureChannel = 0 (CIS 2.3.6.3 expects 1).
-## [Medium] winrm_insecure_auth: WinRM allows Basic, Digest or unencrypted traffic (5 finding(s) on 1 host(s))
-- [Medium] HOST-1 | WinRM client: Basic authentication | AllowBasic = 1 (CIS 18.10.88.1.1 expects 0).
-- [Medium] HOST-1 | WinRM client: Digest authentication | AllowDigest = 1 (CIS 18.10.88.1.3 expects 0).
-- [Medium] HOST-1 | WinRM client: unencrypted traffic | AllowUnencryptedTraffic = 1 (CIS 18.10.88.1.2 expects 0).
-- [Medium] HOST-1 | WinRM service: Basic authentication | AllowBasic = 1 (CIS 18.10.88.2.1 expects 0).
-- [Medium] HOST-1 | WinRM service: unencrypted traffic | AllowUnencryptedTraffic = 1 (CIS 18.10.88.2.3 expects 0).
+## [Medium] password_policy_weak: Local password policy weaker than the baseline (6 finding(s) on 1 host(s))
+- [Medium] HOST-1 | Maximum password age | MaximumPasswordAge = never expires (CIS 1.1.2 expects 1 to 365 days).
+- [Medium] HOST-1 | Minimum password age | MinimumPasswordAge = 0 days (CIS 1.1.3 expects 1 or more).
+- [Medium] HOST-1 | Minimum password length | MinimumPasswordLength = 0 (CIS 1.1.4 expects 14 or more).
+- [Medium] HOST-1 | Password complexity | PasswordComplexity = 0 (CIS 1.1.5 expects 1).
+- [Medium] HOST-1 | Password history | PasswordHistorySize = 0 (CIS 1.1.1 expects 24 or more).
+- [Medium] HOST-1 | Reversible encryption | ClearTextPassword = 1: passwords are stored reversibly (CIS 1.1.7 expects 0).
 ## [Medium] uac_hardening_gaps: UAC settings weaker than the baseline (5 finding(s) on 1 host(s))
 - [Medium] HOST-1 | Secure desktop for prompts | PromptOnSecureDesktop = 0: elevation prompts can be spoofed or clicked by other programs (CIS 2.3.17.7 expects 1).
 - [Low] HOST-1 | Admin Approval Mode for the built-in Administrator | FilterAdministratorToken = 0 (CIS 2.3.17.1 expects 1).
 - [Low] HOST-1 | File and registry virtualization | EnableVirtualization = 0 (CIS 2.3.17.8 expects 1).
 - [Low] HOST-1 | Installer detection | EnableInstallerDetection = 0 (CIS 2.3.17.4 expects 1).
 - [Low] HOST-1 | Secure UIAccess paths | EnableSecureUIAPaths = 0 (CIS 2.3.17.5 expects 1).
+## [Medium] winrm_insecure_auth: WinRM allows Basic, Digest or unencrypted traffic (5 finding(s) on 1 host(s))
+- [Medium] HOST-1 | WinRM client: Basic authentication | AllowBasic = 1 (CIS 18.10.88.1.1 expects 0).
+- [Medium] HOST-1 | WinRM client: Digest authentication | AllowDigest = 1 (CIS 18.10.88.1.3 expects 0).
+- [Medium] HOST-1 | WinRM client: unencrypted traffic | AllowUnencryptedTraffic = 1 (CIS 18.10.88.1.2 expects 0).
+- [Medium] HOST-1 | WinRM service: Basic authentication | AllowBasic = 1 (CIS 18.10.88.2.1 expects 0).
+- [Medium] HOST-1 | WinRM service: unencrypted traffic | AllowUnencryptedTraffic = 1 (CIS 18.10.88.2.3 expects 0).
 ## [Medium] local_admin_member: Extra member of local Administrators (4 finding(s) on 2 host(s))
 - [Medium] HOST-1 | member: NETBIOS-1/USER-3 | domain account (SID-1) in the local Administrators group.
 - [Medium] HOST-1 | member: HOST-1/USER-2 | local account (SID-2) in the local Administrators group.
 - [Low] HOST-4 | member: NETBIOS-1/GROUP-1 | domain group (SID-3) in the local Administrators group.
 - [Low] HOST-1 | member: NETBIOS-1/GROUP-2 | domain group (SID-4) in the local Administrators group.
-## [Medium] risky_listener: Risky service listening on the network (3 finding(s) on 1 host(s))
-- [Medium] HOST-1 | tcp/5900 (VNC) | Listening on 0.0.0.0 by PROC-1.
-- [Medium] HOST-1 | tcp/5985 (WinRM over HTTP) | Listening on 0.0.0.0 by System.
-- [Medium] HOST-1 | udp/161 (SNMP) | Listening on 0.0.0.0 by PROC-2.
-## [Medium] account_lockout_weak: Account lockout missing or too lenient (3 finding(s) on 1 host(s))
-- [Medium] HOST-1 | Lockout counter reset | ResetLockoutCount = 5 minutes (CIS 1.2.4 expects 15 or more).
-- [Medium] HOST-1 | Lockout duration | LockoutDuration = 5 minutes (CIS 1.2.1 expects 15 or more).
-- [Medium] HOST-1 | Lockout threshold | LockoutBadCount = 10 (CIS 1.2.2 expects 1 to 5).
-## [Medium] service_should_be_disabled: Service the baseline says to disable is running or automatic (3 finding(s) on 1 host(s))
-- [Medium] HOST-1 | service: SSDPSRV | Running, start mode Auto (CIS 5.30 expects disabled).
-- [Low] HOST-1 | service: LxssManager | Running, start mode Auto (CIS 5.9 expects disabled).
-- [Low] HOST-1 | service: XblAuthManager | Running, start mode Auto (CIS 5.42 expects disabled).
-## [Medium] builtin_admin_enabled: Built-in Administrator enabled (3 finding(s) on 3 host(s))
-- [Medium] HOST-1 | account: Administrator | Enabled, no LAPS.
-- [Low] HOST-4 | account: USER-1 | Enabled; LAPS manages its password.
-- [Low] HOST-5 | account: USER-1 | Enabled; LAPS manages its password.
 ## [Medium] null_session_access: Shares or pipes reachable without authentication (3 finding(s) on 1 host(s))
 - [Medium] HOST-1 | NullSessionPipes | 1 named pipe(s) listed as accessible anonymously (CIS 2.3.10.6 expects none).
 - [Medium] HOST-1 | NullSessionShares | 2 share(s) listed as accessible anonymously (CIS 2.3.10.11 expects none).
 - [Medium] HOST-1 | RestrictNullSessAccess | RestrictNullSessAccess = 0 (CIS 2.3.10.9 expects 1).
-## [Medium] lsa_weak_auth_options: LocalSystem NULL session fallback or PKU2U online identities allowed (2 finding(s) on 1 host(s))
-- [Medium] HOST-1 | LocalSystem NULL session fallback | AllowNullSessionFallback = 1 (CIS 2.3.11.2 expects 0).
-- [Medium] HOST-1 | PKU2U online identities | AllowOnlineID = 1 (CIS 2.3.11.3 expects 0).
+## [Medium] risky_listener: Risky service listening on the network (3 finding(s) on 1 host(s))
+- [Medium] HOST-1 | tcp/5900 (VNC) | Listening on 0.0.0.0 by PROC-1.
+- [Medium] HOST-1 | tcp/5985 (WinRM over HTTP) | Listening on 0.0.0.0 by System.
+- [Medium] HOST-1 | udp/161 (SNMP) | Listening on 0.0.0.0 by PROC-2.
+## [Medium] service_should_be_disabled: Service the baseline says to disable is running or automatic (3 finding(s) on 1 host(s))
+- [Medium] HOST-1 | service: SSDPSRV | Running, start mode Auto (CIS 5.30 expects disabled).
+- [Low] HOST-1 | service: LxssManager | Running, start mode Auto (CIS 5.9 expects disabled).
+- [Low] HOST-1 | service: XblAuthManager | Running, start mode Auto (CIS 5.42 expects disabled).
+## [Medium] account_lockout_weak: Account lockout missing or too lenient (3 finding(s) on 1 host(s))
+- [Medium] HOST-1 | Lockout counter reset | ResetLockoutCount = 5 minutes (CIS 1.2.4 expects 15 or more).
+- [Medium] HOST-1 | Lockout duration | LockoutDuration = 5 minutes (CIS 1.2.1 expects 15 or more).
+- [Medium] HOST-1 | Lockout threshold | LockoutBadCount = 10 (CIS 1.2.2 expects 1 to 5).
+## [Medium] builtin_admin_enabled: Built-in Administrator enabled (3 finding(s) on 3 host(s))
+- [Medium] HOST-1 | account: Administrator | Enabled, no LAPS.
+- [Low] HOST-4 | account: USER-1 | Enabled; LAPS manages its password.
+- [Low] HOST-5 | account: USER-1 | Enabled; LAPS manages its password.
 ## [Medium] audit_policy_gaps: Audit policy gaps (2 finding(s) on 2 host(s))
 - [Medium] HOST-2 | Advanced audit policy | 3 subcategories short: Kerberos Authentication Service (needs Success and Failure, has none); Kerberos Service Ticket Operations (needs Success and Failure, has none); Directory Service Changes (needs Success, has none).
 - [Medium] HOST-1 | Advanced audit policy | 13 subcategories short: Credential Validation (needs Success and Failure, has Success); Security Group Management (needs Success, has none); User Account Management (needs Success and Failure, has none); Process Creation (needs Success, has none); Logon (needs Success and Failure, has Success); Account Lockout (needs Failure, has none); Special Logon (needs Success, has none); Other Object Access Events (needs Success and Failure, has none); Audit Policy Change (needs Success, has none); Authentication Policy Change (needs Success, has none); Sensitive Privilege Use (needs Success and Failure, has none); Security System Extension (needs Success, has none); System Integrity (needs Success and Failure, has none).
-## [Medium] safe_dll_search_off: Safe DLL search mode disabled (1 finding(s) on 1 host(s))
-- [Medium] HOST-1 | SafeDllSearchMode | SafeDllSearchMode = 0 (CIS 18.5.9 expects 1).
-## [Medium] sehop_disabled: SEHOP exploit mitigation disabled (1 finding(s) on 1 host(s))
-- [Medium] HOST-1 | SEHOP | DisableExceptionChainValidation = 1 (CIS 18.4.6 expects 0).
-## [Medium] service_unquoted_path: Service path with spaces and no quotes (1 finding(s) on 1 host(s))
-- [Medium] HOST-1 | service: SERVICE-1 | Runs as LocalSystem: PATH-1
+## [Medium] lsa_weak_auth_options: LocalSystem NULL session fallback or PKU2U online identities allowed (2 finding(s) on 1 host(s))
+- [Medium] HOST-1 | LocalSystem NULL session fallback | AllowNullSessionFallback = 1 (CIS 2.3.11.2 expects 0).
+- [Medium] HOST-1 | PKU2U online identities | AllowOnlineID = 1 (CIS 2.3.11.3 expects 0).
 ## [Medium] remote_uac_token_filter_off: Remote UAC filtering disabled for local accounts (1 finding(s) on 1 host(s))
 - [Medium] HOST-1 | UAC | LocalAccountTokenFilterPolicy = 1.
+## [Medium] safe_dll_search_off: Safe DLL search mode disabled (1 finding(s) on 1 host(s))
+- [Medium] HOST-1 | SafeDllSearchMode | SafeDllSearchMode = 0 (CIS 18.5.9 expects 1).
+## [Medium] secure_boot_off: Secure Boot off (1 finding(s) on 1 host(s))
+- [Medium] HOST-1 | Firmware | Legacy BIOS boot: Secure Boot unavailable.
+## [Medium] credential_guard_off: Credential Guard not running (1 finding(s) on 1 host(s))
+- [Medium] HOST-1 | Credential Guard | Not running (VBS status 0: 0 off, 1 configured, 2 running).
+## [Medium] sehop_disabled: SEHOP exploit mitigation disabled (1 finding(s) on 1 host(s))
+- [Medium] HOST-1 | SEHOP | DisableExceptionChainValidation = 1 (CIS 18.4.6 expects 0).
+## [Medium] cmdline_audit_off: Command lines missing from process events (1 finding(s) on 1 host(s))
+- [Medium] HOST-1 | Process creation events | ProcessCreationIncludeCmdLine_Enabled not set to 1.
+## [Medium] service_unquoted_path: Service path with spaces and no quotes (1 finding(s) on 1 host(s))
+- [Medium] HOST-1 | service: SERVICE-1 | Runs as LocalSystem: PATH-1
 ## [Medium] smartscreen_off: Microsoft Defender SmartScreen turned off by policy (1 finding(s) on 1 host(s))
 - [Medium] HOST-1 | SmartScreen | EnableSmartScreen = 0 (CIS 18.10.75.2.1 expects 1).
 ## [Medium] smb_insecure_guest_auth: Insecure SMB guest logons allowed (1 finding(s) on 1 host(s))
 - [Medium] HOST-1 | SMB client | AllowInsecureGuestAuth = 1 (CIS 18.6.8.1 expects 0).
-## [Medium] powershell_v2_enabled: PowerShell 2.0 engine installed (1 finding(s) on 1 host(s))
-- [Medium] HOST-1 | PowerShell 2.0 | The 2.0 engine is registered (optional feature installed).
+## [Medium] blank_password_network_logon: Blank passwords allowed outside the console (1 finding(s) on 1 host(s))
+- [Medium] HOST-1 | LimitBlankPasswordUse | LimitBlankPasswordUse = 0 (CIS 2.3.1.3 expects 1).
 ## [Medium] spooler_on_dc: Print Spooler running on a domain controller (1 finding(s) on 1 host(s))
 - [Medium] HOST-2 | service: Spooler | Running, start mode Auto.
 ## [Medium] uac_admin_no_prompt: UAC elevates administrators without asking (1 finding(s) on 1 host(s))
 - [Medium] HOST-1 | UAC | ConsentPromptBehaviorAdmin = 0.
-## [Medium] powershell_scriptblock_logging_off: PowerShell script block logging off (1 finding(s) on 1 host(s))
-- [Medium] HOST-1 | PowerShell | EnableScriptBlockLogging not set to 1.
-## [Medium] secure_boot_off: Secure Boot off (1 finding(s) on 1 host(s))
-- [Medium] HOST-1 | Firmware | Legacy BIOS boot: Secure Boot unavailable.
-## [Medium] wu_auto_updates_disabled: Automatic Windows Update turned off by policy (1 finding(s) on 1 host(s))
-- [Medium] HOST-1 | Automatic Updates | NoAutoUpdate = 1 (CIS 18.10.92.2.1 expects 0).
-## [Medium] cmdline_audit_off: Command lines missing from process events (1 finding(s) on 1 host(s))
-- [Medium] HOST-1 | Process creation events | ProcessCreationIncludeCmdLine_Enabled not set to 1.
-## [Medium] credential_guard_off: Credential Guard not running (1 finding(s) on 1 host(s))
-- [Medium] HOST-1 | Credential Guard | Not running (VBS status 0: 0 off, 1 configured, 2 running).
-## [Medium] defender_network_protection_off: Defender Network Protection not enabled (1 finding(s) on 1 host(s))
-- [Medium] HOST-1 | Network Protection | Network Protection is disabled (CIS 18.10.42.6.3.1 expects enabled).
-## [Medium] lsa_not_protected: LSASS not running as a protected process (1 finding(s) on 1 host(s))
-- [Medium] HOST-1 | LSA | RunAsPPL = not set.
-## [Medium] anonymous_sam_enum: Anonymous enumeration of accounts allowed (1 finding(s) on 1 host(s))
-- [Medium] HOST-1 | RestrictAnonymousSAM | RestrictAnonymousSAM = 0.
-## [Medium] defender_signatures_stale: Defender signatures out of date (1 finding(s) on 1 host(s))
-- [Medium] HOST-1 | Microsoft Defender | Signatures 41 days old (limit 7).
-## [Medium] defender_tamper_off: Defender tamper protection off (1 finding(s) on 1 host(s))
-- [Medium] HOST-1 | Microsoft Defender | Tamper protection is off.
-## [Medium] llmnr_enabled: LLMNR not disabled (1 finding(s) on 1 host(s))
-- [Medium] HOST-1 | DNS client | EnableMulticast policy not set (LLMNR on by default).
-## [Medium] ldap_client_signing_off: LDAP client signing disabled (1 finding(s) on 1 host(s))
-- [Medium] HOST-1 | LDAP client | LDAPClientIntegrity = 0 (CIS 2.3.11.8 expects 1 or 2).
-## [Medium] ntlm_weak_lmcompat: LM / NTLMv1 not refused (1 finding(s) on 1 host(s))
-- [Medium] HOST-1 | LmCompatibilityLevel | Level 2.
-## [Medium] blank_password_network_logon: Blank passwords allowed outside the console (1 finding(s) on 1 host(s))
-- [Medium] HOST-1 | LimitBlankPasswordUse | LimitBlankPasswordUse = 0 (CIS 2.3.1.3 expects 1).
 ## [Medium] asr_standard_rules_missing: Standard ASR rules not in block mode (1 finding(s) on 1 host(s))
 - [Medium] HOST-1 | ASR | 3 of 3 not blocking: Block credential stealing from the Windows local security authority subsystem (lsass.exe) [action 2]; Block abuse of exploited vulnerable signed drivers [not set]; Block persistence through WMI event subscription [not set].
+## [Medium] anonymous_sam_enum: Anonymous enumeration of accounts allowed (1 finding(s) on 1 host(s))
+- [Medium] HOST-1 | RestrictAnonymousSAM | RestrictAnonymousSAM = 0.
+## [Medium] defender_network_protection_off: Defender Network Protection not enabled (1 finding(s) on 1 host(s))
+- [Medium] HOST-1 | Network Protection | Network Protection is disabled (CIS 18.10.42.6.3.1 expects enabled).
+## [Medium] powershell_v2_enabled: PowerShell 2.0 engine installed (1 finding(s) on 1 host(s))
+- [Medium] HOST-1 | PowerShell 2.0 | The 2.0 engine is registered (optional feature installed).
+## [Medium] wu_auto_updates_disabled: Automatic Windows Update turned off by policy (1 finding(s) on 1 host(s))
+- [Medium] HOST-1 | Automatic Updates | NoAutoUpdate = 1 (CIS 18.10.92.2.1 expects 0).
+## [Medium] ldap_client_signing_off: LDAP client signing disabled (1 finding(s) on 1 host(s))
+- [Medium] HOST-1 | LDAP client | LDAPClientIntegrity = 0 (CIS 2.3.11.8 expects 1 or 2).
+## [Medium] llmnr_enabled: LLMNR not disabled (1 finding(s) on 1 host(s))
+- [Medium] HOST-1 | DNS client | EnableMulticast policy not set (LLMNR on by default).
+## [Medium] powershell_scriptblock_logging_off: PowerShell script block logging off (1 finding(s) on 1 host(s))
+- [Medium] HOST-1 | PowerShell | EnableScriptBlockLogging not set to 1.
+## [Medium] lsa_not_protected: LSASS not running as a protected process (1 finding(s) on 1 host(s))
+- [Medium] HOST-1 | LSA | RunAsPPL = not set.
+## [Medium] ntlm_weak_lmcompat: LM / NTLMv1 not refused (1 finding(s) on 1 host(s))
+- [Medium] HOST-1 | LmCompatibilityLevel | Level 2.
+## [Medium] defender_tamper_off: Defender tamper protection off (1 finding(s) on 1 host(s))
+- [Medium] HOST-1 | Microsoft Defender | Tamper protection is off.
 ## [Medium] everyone_includes_anonymous: Everyone permissions apply to anonymous users (1 finding(s) on 1 host(s))
 - [Medium] HOST-1 | EveryoneIncludesAnonymous | EveryoneIncludesAnonymous = 1 (CIS 2.3.10.5 expects 0).
+## [Medium] defender_signatures_stale: Defender signatures out of date (1 finding(s) on 1 host(s))
+- [Medium] HOST-1 | Microsoft Defender | Signatures 41 days old (limit 7).
 ## [Low] rdp_policy_gaps: Remote Desktop policy weaker than the baseline (5 finding(s) on 1 host(s))
 - [Low] HOST-1 | Drive redirection | fDisableCdm = not set (CIS 18.10.56.3.3.3 expects 1).
 - [Low] HOST-1 | Encryption level | MinEncryptionLevel = 2 (CIS 18.10.56.3.9.5 expects 3, High).
 - [Low] HOST-1 | Password prompt | fPromptForPassword = 0 (CIS 18.10.56.3.9.1 expects 1).
 - [Low] HOST-1 | Secure RPC | fEncryptRPCTraffic = 0 (CIS 18.10.56.3.9.2 expects 1).
 - [Low] HOST-1 | Security layer | SecurityLayer = 0 (CIS 18.10.56.3.9.3 expects 2, SSL/TLS).
-## [Low] ip_stack_hardening_gaps: IP stack accepts source routing or ICMP redirects (3 finding(s) on 1 host(s))
-- [Low] HOST-1 | ICMP redirects | EnableICMPRedirect = 1 (CIS 18.5.5 expects 0).
-- [Low] HOST-1 | IPv4 source routing | DisableIPSourceRouting = 0 (CIS 18.5.3 expects 2).
-- [Low] HOST-1 | IPv6 source routing | DisableIPSourceRouting = 1 (CIS 18.5.2 expects 2).
 ## [Low] autoplay_enabled: AutoPlay / AutoRun not fully turned off (3 finding(s) on 1 host(s))
 - [Low] HOST-1 | NoAutoplayfornonVolume | NoAutoplayfornonVolume = not set (CIS 18.10.7.1 expects 1).
 - [Low] HOST-1 | NoAutorun | NoAutorun = not set (CIS 18.10.7.2 expects 1).
 - [Low] HOST-1 | NoDriveTypeAutoRun | NoDriveTypeAutoRun = 145 (CIS 18.10.7.3 expects 255, all drives).
+## [Low] ip_stack_hardening_gaps: IP stack accepts source routing or ICMP redirects (3 finding(s) on 1 host(s))
+- [Low] HOST-1 | ICMP redirects | EnableICMPRedirect = 1 (CIS 18.5.5 expects 0).
+- [Low] HOST-1 | IPv4 source routing | DisableIPSourceRouting = 0 (CIS 18.5.3 expects 2).
+- [Low] HOST-1 | IPv6 source routing | DisableIPSourceRouting = 1 (CIS 18.5.2 expects 2).
 ## [Low] deny_logon_rights_missing: Guests or local accounts not denied network or remote logon (2 finding(s) on 1 host(s))
 - [Low] HOST-1 | right: SeDenyNetworkLogonRight | Missing: Guests, Local account (CIS 2.2.16).
 - [Low] HOST-1 | right: SeDenyRemoteInteractiveLogonRight | Missing: Local account (CIS 2.2.20).
-## [Low] interactive_logon_gaps: Logon screen shows the last user or skips CTRL+ALT+DEL (2 finding(s) on 1 host(s))
-- [Low] HOST-1 | CTRL+ALT+DEL not required | DisableCAD = 1 (CIS 2.3.7.1 expects 0).
-- [Low] HOST-1 | Last signed-in user shown | DontDisplayLastUserName = 0 (CIS 2.3.7.2 expects 1).
-## [Low] rdp_enabled_workstation: RDP enabled on a workstation (2 finding(s) on 2 host(s))
-- [Low] HOST-1 | RDP | fDenyTSConnections = 0.
-- [Low] HOST-5 | RDP | fDenyTSConnections = 0.
 ## [Low] local_account_password_never_expires: Local account password never expires (2 finding(s) on 1 host(s))
 - [Low] HOST-1 | account: Administrator | Password never expires; last set 2403 days ago.
 - [Low] HOST-1 | account: USER-2 | Password never expires; last set 1947 days ago.
-## [Low] netbios_enabled: NetBIOS over TCP/IP enabled (2 finding(s) on 1 host(s))
-- [Low] HOST-1 | adapter: ADAPTER-1 | Default (enabled unless DHCP disables it).
-- [Low] HOST-1 | adapter: ADAPTER-2 | Enabled.
 ## [Low] ntlm_min_session_security_weak: NTLM session security below NTLMv2 with 128-bit encryption (2 finding(s) on 1 host(s))
 - [Low] HOST-1 | NTLM client | NTLMMinClientSec = 0x20000000 (CIS 2.3.11.9 expects 0x20080000: NTLMv2 and 128-bit).
 - [Low] HOST-1 | NTLM server | NTLMMinServerSec = 0x20000000 (CIS 2.3.11.10 expects 0x20080000: NTLMv2 and 128-bit).
+## [Low] netbios_enabled: NetBIOS over TCP/IP enabled (2 finding(s) on 1 host(s))
+- [Low] HOST-1 | adapter: ADAPTER-1 | Default (enabled unless DHCP disables it).
+- [Low] HOST-1 | adapter: ADAPTER-2 | Enabled.
+## [Low] rdp_enabled_workstation: RDP enabled on a workstation (2 finding(s) on 2 host(s))
+- [Low] HOST-1 | RDP | fDenyTSConnections = 0.
+- [Low] HOST-5 | RDP | fDenyTSConnections = 0.
 ## [Low] event_logs_small: Application or System event log too small (2 finding(s) on 1 host(s))
 - [Low] HOST-1 | Application log | Maximum size 20480 KB (CIS 18.10.25.1.2 expects at least 32768 KB).
 - [Low] HOST-1 | System log | Maximum size 20480 KB (CIS 18.10.25.4.2 expects at least 32768 KB).
-## [Low] bitlocker_data_volume_off: Fixed data volume not encrypted (1 finding(s) on 1 host(s))
-- [Low] HOST-1 | volume D: | Protection Off.
-## [Low] bitlocker_tpm_only: BitLocker without pre-boot PIN (1 finding(s) on 1 host(s))
-- [Low] HOST-3 | OS volume C: | Protectors: Tpm, RecoveryPassword.
-## [Low] anonymous_shares_enum: Anonymous enumeration of accounts and shares allowed (1 finding(s) on 1 host(s))
-- [Low] HOST-1 | RestrictAnonymous | RestrictAnonymous = 0 (CIS 2.3.10.3 expects 1).
-## [Low] os_support_ending: Windows USER-2 ends soon (1 finding(s) on 1 host(s))
-- [Low] HOST-3 | Windows 11 23H2 Enterprise/Education | Support ends 2026-11-10, 39 days after collection.
-## [Low] smb1_client_driver_enabled: SMBv1 client driver enabled (1 finding(s) on 1 host(s))
-- [Low] HOST-1 | mrxsmb10 driver | Start = 2 (CIS 18.4.3 expects 4, disabled).
-## [Low] defender_pua_off: Defender blocking of potentially unwanted apps off (1 finding(s) on 1 host(s))
-- [Low] HOST-1 | PUA protection | PUA protection is disabled (CIS 18.10.42.16 expects enabled).
-## [Low] smb_client_signing_not_required: SMB client signing not required (1 finding(s) on 1 host(s))
-- [Low] HOST-1 | SMB client | RequireSecuritySignature = False.
-## [Low] security_log_small: Security event log too small (1 finding(s) on 1 host(s))
-- [Low] HOST-1 | Security log | Maximum size 20480 KB (minimum 196608 KB).
+## [Low] interactive_logon_gaps: Logon screen shows the last user or skips CTRL+ALT+DEL (2 finding(s) on 1 host(s))
+- [Low] HOST-1 | CTRL+ALT+DEL not required | DisableCAD = 1 (CIS 2.3.7.1 expects 0).
+- [Low] HOST-1 | Last signed-in user shown | DontDisplayLastUserName = 0 (CIS 2.3.7.2 expects 1).
 ## [Low] firewall_drop_logging_off: Dropped packets not logged (1 finding(s) on 1 host(s))
 - [Low] HOST-1 | Windows Firewall | Profiles not logging dropped packets: Domain, Private.
-## [Low] inactivity_lock_missing: No machine inactivity lock within 15 minutes (1 finding(s) on 1 host(s))
-- [Low] HOST-1 | InactivityTimeoutSecs | Not set (CIS 2.3.7.4 expects 1 to 900 seconds).
-## [Low] powershell_transcription_off: PowerShell transcription off (1 finding(s) on 1 host(s))
-- [Low] HOST-1 | PowerShell transcription | EnableTranscripting not set to 1 (CIS 18.10.86.2, Level 2).
-## [Low] cached_logons_high: Many domain logons cached (1 finding(s) on 1 host(s))
-- [Low] HOST-1 | CachedLogonsCount | 25 cached logons (limit 4).
+## [Low] bitlocker_data_volume_off: Fixed data volume not encrypted (1 finding(s) on 1 host(s))
+- [Low] HOST-1 | volume D: | Protection Off.
+## [Low] anonymous_shares_enum: Anonymous enumeration of accounts and shares allowed (1 finding(s) on 1 host(s))
+- [Low] HOST-1 | RestrictAnonymous | RestrictAnonymous = 0 (CIS 2.3.10.3 expects 1).
 ## [Low] logon_banner_missing: No logon warning message (1 finding(s) on 1 host(s))
 - [Low] HOST-1 | Logon message | No LegalNoticeCaption or LegalNoticeText (CIS 2.3.7.5, 2.3.7.6).
+## [Low] smb1_client_driver_enabled: SMBv1 client driver enabled (1 finding(s) on 1 host(s))
+- [Low] HOST-1 | mrxsmb10 driver | Start = 2 (CIS 18.4.3 expects 4, disabled).
+## [Low] edr_not_found: No EDR or endpoint protection agent found (1 finding(s) on 1 host(s))
+- [Low] HOST-1 | EDR agent | No service of a known EDR or endpoint protection product among the 8 services of this host (Microsoft Defender Antivirus alone is not counted).
+## [Low] smb_client_signing_not_required: SMB client signing not required (1 finding(s) on 1 host(s))
+- [Low] HOST-1 | SMB client | RequireSecuritySignature = False.
+## [Low] cached_logons_high: Many domain logons cached (1 finding(s) on 1 host(s))
+- [Low] HOST-1 | CachedLogonsCount | 25 cached logons (limit 4).
+## [Low] security_log_small: Security event log too small (1 finding(s) on 1 host(s))
+- [Low] HOST-1 | Security log | Maximum size 20480 KB (minimum 196608 KB).
+## [Low] os_support_ending: Windows USER-2 ends soon (1 finding(s) on 1 host(s))
+- [Low] HOST-3 | Windows 11 23H2 Enterprise/Education | Support ends 2026-11-10, 39 days after collection.
+## [Low] inactivity_lock_missing: No machine inactivity lock within 15 minutes (1 finding(s) on 1 host(s))
+- [Low] HOST-1 | InactivityTimeoutSecs | Not set (CIS 2.3.7.4 expects 1 to 900 seconds).
+## [Low] defender_pua_off: Defender blocking of potentially unwanted apps off (1 finding(s) on 1 host(s))
+- [Low] HOST-1 | PUA protection | PUA protection is disabled (CIS 18.10.42.16 expects enabled).
+## [Low] bitlocker_tpm_only: BitLocker without pre-boot PIN (1 finding(s) on 1 host(s))
+- [Low] HOST-3 | OS volume C: | Protectors: Tpm, RecoveryPassword.
+## [Low] powershell_transcription_off: PowerShell transcription off (1 finding(s) on 1 host(s))
+- [Low] HOST-1 | PowerShell transcription | EnableTranscripting not set to 1 (CIS 18.10.86.2, Level 2).
 
 Path tokens (in a location low-privileged users can write: profile, Temp, ProgramData, Downloads, drive root):
-- PATH-4, PATH-5, PATH-7, PATH-8
+- PATH-3, PATH-5, PATH-7, PATH-8

@@ -4,7 +4,7 @@
     "kind": "host",
     "computerName": "DC01",
     "schemaVersion": 1,
-    "collectorVersion": "1.2",
+    "collectorVersion": "1.0",
     "synthetic": true,
     "collectedAtUtc": "2026-10-01T08:00:00Z",
     "collectedBy": "NT AUTHORITY\\SYSTEM",
@@ -518,6 +518,16 @@
       "account": "LocalSystem",
       "pathName": "C:\\Windows\\System32\\spoolsv.exe",
       "executable": "C:\\Windows\\System32\\spoolsv.exe",
+      "writableBy": []
+    },
+    {
+      "name": "CSFalconService",
+      "displayName": "CSFalconService",
+      "startMode": "Auto",
+      "state": "Stopped",
+      "account": "LocalSystem",
+      "pathName": "\"C:\\Program Files\\CrowdStrike\\CSFalconService.exe\"",
+      "executable": "C:\\Program Files\\CrowdStrike\\CSFalconService.exe",
       "writableBy": []
     }
   ],
