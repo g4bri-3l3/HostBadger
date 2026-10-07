@@ -1,0 +1,355 @@
+{
+  "meta": {
+    "tool": "HostBadger",
+    "kind": "host",
+    "computerName": "WKS-HR-004",
+    "schemaVersion": 1,
+    "collectorVersion": "1.2",
+    "synthetic": true,
+    "collectedAtUtc": "2026-10-01T08:00:00Z",
+    "collectedBy": "CORP\\jdoe",
+    "runningAsSystem": false,
+    "runningAsAdmin": false,
+    "psVersion": "5.1.20348.2849",
+    "options": {
+      "skipAcl": true
+    },
+    "sectionsCollected": [
+      "host",
+      "patches",
+      "defender",
+      "boot",
+      "credentialProtection",
+      "network",
+      "remoteAccess",
+      "localAccounts",
+      "laps",
+      "uac",
+      "powershell",
+      "hardening",
+      "services",
+      "scheduledTasks",
+      "autoruns"
+    ],
+    "collectionErrors": [
+      {
+        "section": "defender.exclusions",
+        "message": "exclusions not readable (administrator or SYSTEM needed)"
+      },
+      {
+        "section": "bitlocker",
+        "message": "BitLocker status not readable: Access is denied"
+      },
+      {
+        "section": "audit",
+        "message": "auditpol failed (1314, administrator or SYSTEM needed)"
+      },
+      {
+        "section": "localAccounts.administrators",
+        "message": "Access is denied"
+      },
+      {
+        "section": "securityPolicy",
+        "message": "secedit failed (1, administrator or SYSTEM needed): Access is denied"
+      }
+    ]
+  },
+  "host": {
+    "name": "WKS-HR-004",
+    "dnsDomain": "corp.example",
+    "partOfDomain": true,
+    "domainRole": 1,
+    "role": "workstation",
+    "machineSid": "S-1-5-21-6000000001-6000000002-6000000003",
+    "manufacturer": "Contoso",
+    "model": "Virtual",
+    "hypervisor": true,
+    "os": {
+      "caption": "Microsoft Windows 11 Enterprise",
+      "version": "10.0.26100",
+      "build": 26100,
+      "ubr": 6584,
+      "displayVersion": "24H2",
+      "editionId": "Enterprise",
+      "productType": 1,
+      "architecture": "64-bit",
+      "installDateUtc": "2025-01-10T09:00:00Z",
+      "lastBootUtc": "2026-09-28T07:00:00Z"
+    }
+  },
+  "patches": {
+    "hotfixes": [
+      {
+        "id": "KB5065306",
+        "description": "Security Update",
+        "installedOnUtc": "2026-09-10T00:00:00Z"
+      }
+    ],
+    "lastUpdateInstalledUtc": "2026-09-10T03:12:00Z"
+  },
+  "defender": {
+    "present": true,
+    "amRunningMode": "Passive Mode",
+    "amServiceEnabled": true,
+    "antivirusEnabled": false,
+    "realTimeProtectionEnabled": false,
+    "behaviorMonitorEnabled": false,
+    "ioavProtectionEnabled": false,
+    "isTamperProtected": false,
+    "signatureUpdatedUtc": "2026-07-01T00:00:00Z",
+    "exclusionsReadable": false,
+    "exclusionPaths": [],
+    "exclusionExtensions": [],
+    "exclusionProcesses": [],
+    "asrRules": [],
+    "puaProtection": 0,
+    "networkProtection": 0
+  },
+  "bitlocker": null,
+  "boot": {
+    "secureBootEnabled": true,
+    "firmware": "UEFI"
+  },
+  "credentialProtection": {
+    "runAsPPL": 2,
+    "lsaCfgFlags": 1,
+    "credentialGuardRunning": null,
+    "hvciRunning": true,
+    "vbsStatus": 2,
+    "wdigestUseLogonCredential": 0,
+    "cachedLogonsCount": "4",
+    "lmCompatibilityLevel": 5,
+    "noLmHash": 1,
+    "restrictAnonymous": 1,
+    "restrictAnonymousSam": 1
+  },
+  "network": {
+    "smb1ServerEnabled": false,
+    "smbServerSigningRequired": true,
+    "smbClientSigningRequired": true,
+    "llmnrPolicyEnableMulticast": 0,
+    "netbios": [
+      {
+        "adapter": "vmxnet3 Ethernet Adapter",
+        "tcpipNetbiosOptions": 2
+      }
+    ],
+    "firewallProfiles": [
+      {
+        "name": "Domain",
+        "enabled": true,
+        "defaultInboundAction": "Block",
+        "logBlocked": "True"
+      },
+      {
+        "name": "Private",
+        "enabled": true,
+        "defaultInboundAction": "Block",
+        "logBlocked": "True"
+      },
+      {
+        "name": "Public",
+        "enabled": true,
+        "defaultInboundAction": "Block",
+        "logBlocked": "True"
+      }
+    ],
+    "listening": [
+      {
+        "protocol": "tcp",
+        "address": "0.0.0.0",
+        "port": 445,
+        "process": "System"
+      },
+      {
+        "protocol": "tcp",
+        "address": "0.0.0.0",
+        "port": 443,
+        "process": "w3wp"
+      },
+      {
+        "protocol": "tcp",
+        "address": "127.0.0.1",
+        "port": 6379,
+        "process": "redis-server"
+      }
+    ]
+  },
+  "remoteAccess": {
+    "rdpEnabled": true,
+    "rdpNlaRequired": true
+  },
+  "localAccounts": {
+    "users": [
+      {
+        "name": "LocalAdm",
+        "sid": "S-1-5-21-6000000001-6000000002-6000000003-500",
+        "enabled": true,
+        "passwordRequired": true,
+        "passwordExpires": false,
+        "lastLogonUtc": null,
+        "passwordLastSetUtc": "2026-09-25T00:00:00Z"
+      },
+      {
+        "name": "Guest",
+        "sid": "S-1-5-21-6000000001-6000000002-6000000003-501",
+        "enabled": false,
+        "passwordRequired": false,
+        "passwordExpires": false,
+        "lastLogonUtc": null,
+        "passwordLastSetUtc": null
+      }
+    ],
+    "administrators": [],
+    "administratorsReadable": false
+  },
+  "laps": {
+    "windowsLapsBackupDirectory": 2,
+    "legacyLapsEnabled": null,
+    "legacyLapsCseInstalled": false
+  },
+  "uac": {
+    "enableLua": 1,
+    "consentPromptBehaviorAdmin": 2,
+    "localAccountTokenFilterPolicy": null,
+    "filterAdministratorToken": 1,
+    "alwaysInstallElevated": null
+  },
+  "powershell": {
+    "scriptBlockLogging": 1,
+    "moduleLogging": 1,
+    "transcription": 1,
+    "v2EngineVersion": ""
+  },
+  "audit": null,
+  "securityPolicy": null,
+  "hardening": {
+    "smbInsecureGuestAuth": 0,
+    "ldapClientIntegrity": 1,
+    "ntlmMinClientSec": 537395200,
+    "ntlmMinServerSec": 537395200,
+    "allowNullSessionFallback": 0,
+    "allowOnlineId": 0,
+    "everyoneIncludesAnonymous": 0,
+    "limitBlankPasswordUse": 1,
+    "forceGuest": 0,
+    "enablePlainTextPassword": 0,
+    "nullSessionPipesCount": 0,
+    "nullSessionSharesCount": 0,
+    "restrictNullSessAccess": 1,
+    "netlogon": {
+      "requireSignOrSeal": 1,
+      "sealSecureChannel": 1,
+      "signSecureChannel": 1,
+      "requireStrongKey": 1,
+      "disablePasswordChange": 0,
+      "maximumPasswordAge": 30
+    },
+    "winrm": {
+      "clientAllowBasic": 0,
+      "clientAllowUnencryptedTraffic": 0,
+      "clientAllowDigest": 0,
+      "serviceAllowBasic": 0,
+      "serviceAllowUnencryptedTraffic": 0
+    },
+    "rdpPolicy": {
+      "securityLayer": 2,
+      "minEncryptionLevel": 3,
+      "promptForPassword": 1,
+      "encryptRpcTraffic": 1,
+      "disableDriveRedirection": 1
+    },
+    "explorer": {
+      "noDriveTypeAutoRun": 255,
+      "noAutorun": 1,
+      "noAutoplayForNonVolume": 1
+    },
+    "winlogon": {
+      "autoAdminLogon": "0",
+      "defaultPasswordPresent": false
+    },
+    "interactiveLogon": {
+      "inactivityTimeoutSecs": 900,
+      "legalNoticeTextSet": true,
+      "legalNoticeCaptionSet": true,
+      "dontDisplayLastUserName": 1,
+      "disableCad": 0
+    },
+    "uacExtra": {
+      "enableInstallerDetection": 1,
+      "enableSecureUiaPaths": 1,
+      "promptOnSecureDesktop": 1,
+      "enableVirtualization": 1
+    },
+    "noAutoUpdate": 0,
+    "enableSmartScreen": 1,
+    "eventLogs": [
+      {
+        "name": "Application",
+        "maxSizeBytes": 33554432
+      },
+      {
+        "name": "System",
+        "maxSizeBytes": 33554432
+      }
+    ],
+    "mrxsmb10Start": 4,
+    "disableExceptionChainValidation": 0,
+    "safeDllSearchMode": 1,
+    "ipStack": {
+      "disableIpSourceRoutingV4": 2,
+      "disableIpSourceRoutingV6": 2,
+      "enableIcmpRedirect": 0
+    }
+  },
+  "services": [
+    {
+      "name": "Dnscache",
+      "displayName": "Dnscache",
+      "startMode": "Auto",
+      "state": "Running",
+      "account": "NT AUTHORITY\\NetworkService",
+      "pathName": "C:\\Windows\\system32\\svchost.exe -k NetworkService -p",
+      "executable": "C:\\Windows\\system32\\svchost.exe",
+      "writableBy": []
+    },
+    {
+      "name": "Spooler",
+      "displayName": "Spooler",
+      "startMode": "Auto",
+      "state": "Running",
+      "account": "LocalSystem",
+      "pathName": "C:\\Windows\\System32\\spoolsv.exe",
+      "executable": "C:\\Windows\\System32\\spoolsv.exe",
+      "writableBy": []
+    }
+  ],
+  "scheduledTasks": [
+    {
+      "path": "\\",
+      "name": "Backup",
+      "state": "Ready",
+      "userId": "SYSTEM",
+      "groupId": "",
+      "runLevel": "Highest",
+      "author": "CORP\\backupadm",
+      "actions": [
+        {
+          "execute": "C:\\Program Files\\Backup\\agent.exe",
+          "arguments": "-p ***",
+          "executable": "C:\\Program Files\\Backup\\agent.exe",
+          "writableBy": []
+        }
+      ]
+    }
+  ],
+  "autoruns": [
+    {
+      "location": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+      "name": "SecurityHealth",
+      "command": "%windir%\\system32\\SecurityHealthSystray.exe",
+      "executable": "C:\\Windows\\system32\\SecurityHealthSystray.exe",
+      "writableBy": []
+    }
+  ]
+}

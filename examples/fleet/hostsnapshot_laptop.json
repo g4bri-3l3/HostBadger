@@ -1,0 +1,556 @@
+{
+  "meta": {
+    "tool": "HostBadger",
+    "kind": "host",
+    "computerName": "LT-SALES-112",
+    "schemaVersion": 1,
+    "collectorVersion": "1.2",
+    "synthetic": true,
+    "collectedAtUtc": "2026-10-01T08:00:00Z",
+    "collectedBy": "NT AUTHORITY\\SYSTEM",
+    "runningAsSystem": true,
+    "runningAsAdmin": true,
+    "psVersion": "5.1.20348.2849",
+    "options": {
+      "skipAcl": false
+    },
+    "sectionsCollected": [
+      "host",
+      "patches",
+      "defender",
+      "bitlocker",
+      "boot",
+      "credentialProtection",
+      "network",
+      "remoteAccess",
+      "localAccounts",
+      "laps",
+      "uac",
+      "powershell",
+      "audit",
+      "securityPolicy",
+      "hardening",
+      "services",
+      "scheduledTasks",
+      "autoruns"
+    ],
+    "collectionErrors": []
+  },
+  "host": {
+    "name": "LT-SALES-112",
+    "dnsDomain": "corp.example",
+    "partOfDomain": true,
+    "domainRole": 1,
+    "role": "workstation",
+    "machineSid": "S-1-5-21-7000000001-7000000002-7000000003",
+    "manufacturer": "Contoso",
+    "model": "Virtual",
+    "hypervisor": true,
+    "os": {
+      "caption": "Microsoft Windows 11 Enterprise",
+      "version": "10.0.22631",
+      "build": 22631,
+      "ubr": 5909,
+      "displayVersion": "23H2",
+      "editionId": "Enterprise",
+      "productType": 1,
+      "architecture": "64-bit",
+      "installDateUtc": "2024-03-01T09:00:00Z",
+      "lastBootUtc": "2026-09-29T07:00:00Z"
+    }
+  },
+  "patches": {
+    "hotfixes": [
+      {
+        "id": "KB5065306",
+        "description": "Security Update",
+        "installedOnUtc": "2026-09-10T00:00:00Z"
+      }
+    ],
+    "lastUpdateInstalledUtc": "2026-09-10T03:12:00Z"
+  },
+  "defender": {
+    "present": true,
+    "amRunningMode": "Normal",
+    "amServiceEnabled": true,
+    "antivirusEnabled": true,
+    "realTimeProtectionEnabled": true,
+    "behaviorMonitorEnabled": true,
+    "ioavProtectionEnabled": true,
+    "isTamperProtected": true,
+    "signatureUpdatedUtc": "2026-09-30T22:00:00Z",
+    "exclusionsReadable": true,
+    "exclusionPaths": [
+      "C:\\Program Files\\Contoso CAD\\Projects"
+    ],
+    "exclusionExtensions": [],
+    "exclusionProcesses": [],
+    "asrRules": [
+      {
+        "id": "9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2",
+        "action": 1
+      },
+      {
+        "id": "56a863a9-875e-4185-98a7-b882c64b5ce5",
+        "action": 1
+      },
+      {
+        "id": "e6db77e5-3df2-4cf1-b95a-636979351e5b",
+        "action": 1
+      }
+    ],
+    "puaProtection": 1,
+    "networkProtection": 1
+  },
+  "bitlocker": {
+    "featureInstalled": true,
+    "volumes": [
+      {
+        "mountPoint": "C:",
+        "volumeType": "OperatingSystem",
+        "protectionStatus": "On",
+        "volumeStatus": "FullyEncrypted",
+        "encryptionMethod": "XtsAes256",
+        "keyProtectors": [
+          "Tpm",
+          "RecoveryPassword"
+        ]
+      }
+    ]
+  },
+  "boot": {
+    "secureBootEnabled": true,
+    "firmware": "UEFI"
+  },
+  "credentialProtection": {
+    "runAsPPL": 2,
+    "lsaCfgFlags": 1,
+    "credentialGuardRunning": true,
+    "hvciRunning": true,
+    "vbsStatus": 2,
+    "wdigestUseLogonCredential": 0,
+    "cachedLogonsCount": "4",
+    "lmCompatibilityLevel": 5,
+    "noLmHash": 1,
+    "restrictAnonymous": 1,
+    "restrictAnonymousSam": 1
+  },
+  "network": {
+    "smb1ServerEnabled": false,
+    "smbServerSigningRequired": true,
+    "smbClientSigningRequired": true,
+    "llmnrPolicyEnableMulticast": 0,
+    "netbios": [
+      {
+        "adapter": "vmxnet3 Ethernet Adapter",
+        "tcpipNetbiosOptions": 2
+      }
+    ],
+    "firewallProfiles": [
+      {
+        "name": "Domain",
+        "enabled": true,
+        "defaultInboundAction": "Block",
+        "logBlocked": "True"
+      },
+      {
+        "name": "Private",
+        "enabled": true,
+        "defaultInboundAction": "Block",
+        "logBlocked": "True"
+      },
+      {
+        "name": "Public",
+        "enabled": true,
+        "defaultInboundAction": "Block",
+        "logBlocked": "True"
+      }
+    ],
+    "listening": [
+      {
+        "protocol": "tcp",
+        "address": "0.0.0.0",
+        "port": 445,
+        "process": "System"
+      }
+    ]
+  },
+  "remoteAccess": {
+    "rdpEnabled": false,
+    "rdpNlaRequired": true
+  },
+  "localAccounts": {
+    "users": [
+      {
+        "name": "LocalAdm",
+        "sid": "S-1-5-21-7000000001-7000000002-7000000003-500",
+        "enabled": false,
+        "passwordRequired": true,
+        "passwordExpires": false,
+        "lastLogonUtc": null,
+        "passwordLastSetUtc": "2026-09-25T00:00:00Z"
+      },
+      {
+        "name": "Guest",
+        "sid": "S-1-5-21-7000000001-7000000002-7000000003-501",
+        "enabled": false,
+        "passwordRequired": false,
+        "passwordExpires": false,
+        "lastLogonUtc": null,
+        "passwordLastSetUtc": null
+      }
+    ],
+    "administrators": [
+      {
+        "path": "LT-SALES-112/LocalAdm",
+        "sid": "S-1-5-21-7000000001-7000000002-7000000003-500",
+        "class": "User"
+      },
+      {
+        "path": "CORP/Domain Admins",
+        "sid": "S-1-5-21-1111111111-2222222222-3333333333-512",
+        "class": "Group"
+      },
+      {
+        "path": "AzureAD/Global Administrator",
+        "sid": "S-1-12-1-1111111111-2222222222-3333333333-4444444444",
+        "class": "Group"
+      }
+    ],
+    "administratorsReadable": true
+  },
+  "laps": {
+    "windowsLapsBackupDirectory": 2,
+    "legacyLapsEnabled": null,
+    "legacyLapsCseInstalled": false
+  },
+  "uac": {
+    "enableLua": 1,
+    "consentPromptBehaviorAdmin": 2,
+    "localAccountTokenFilterPolicy": null,
+    "filterAdministratorToken": 1,
+    "alwaysInstallElevated": null
+  },
+  "powershell": {
+    "scriptBlockLogging": 1,
+    "moduleLogging": 1,
+    "transcription": 1,
+    "v2EngineVersion": ""
+  },
+  "audit": {
+    "processCreationIncludeCmdLine": 1,
+    "securityLogMaxSizeBytes": 1073741824,
+    "subcategories": [
+      {
+        "name": "Credential Validation",
+        "guid": "0cce923f-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Kerberos Authentication Service",
+        "guid": "0cce9242-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Kerberos Service Ticket Operations",
+        "guid": "0cce9240-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Security Group Management",
+        "guid": "0cce9237-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "User Account Management",
+        "guid": "0cce9235-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Directory Service Changes",
+        "guid": "0cce923c-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Process Creation",
+        "guid": "0cce922b-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Logon",
+        "guid": "0cce9215-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Account Lockout",
+        "guid": "0cce9217-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Special Logon",
+        "guid": "0cce921b-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Other Object Access Events",
+        "guid": "0cce9227-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Audit Policy Change",
+        "guid": "0cce922f-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Authentication Policy Change",
+        "guid": "0cce9230-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Sensitive Privilege Use",
+        "guid": "0cce9228-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Security System Extension",
+        "guid": "0cce9211-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "System Integrity",
+        "guid": "0cce9212-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      }
+    ]
+  },
+  "securityPolicy": {
+    "systemAccess": {
+      "PasswordHistorySize": 24,
+      "MaximumPasswordAge": 365,
+      "MinimumPasswordAge": 1,
+      "MinimumPasswordLength": 14,
+      "PasswordComplexity": 1,
+      "ClearTextPassword": 0,
+      "LockoutBadCount": 5,
+      "LockoutDuration": 15,
+      "ResetLockoutCount": 15,
+      "AllowAdministratorLockout": 1
+    },
+    "privilegeRights": {
+      "SeTrustedCredManAccessPrivilege": [],
+      "SeNetworkLogonRight": [
+        "S-1-5-32-544",
+        "S-1-5-32-555"
+      ],
+      "SeTcbPrivilege": [],
+      "SeInteractiveLogonRight": [
+        "S-1-5-32-544",
+        "S-1-5-32-545"
+      ],
+      "SeRemoteInteractiveLogonRight": [
+        "S-1-5-32-544",
+        "S-1-5-32-555"
+      ],
+      "SeBackupPrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeCreatePagefilePrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeCreateTokenPrivilege": [],
+      "SeCreatePermanentPrivilege": [],
+      "SeDebugPrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeEnableDelegationPrivilege": [],
+      "SeRemoteShutdownPrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeLoadDriverPrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeLockMemoryPrivilege": [],
+      "SeSecurityPrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeRelabelPrivilege": [],
+      "SeSystemEnvironmentPrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeManageVolumePrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeProfileSingleProcessPrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeRestorePrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeTakeOwnershipPrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeDenyNetworkLogonRight": [
+        "S-1-5-32-546",
+        "S-1-5-113"
+      ],
+      "SeDenyBatchLogonRight": [
+        "S-1-5-32-546"
+      ],
+      "SeDenyServiceLogonRight": [
+        "S-1-5-32-546"
+      ],
+      "SeDenyInteractiveLogonRight": [
+        "S-1-5-32-546"
+      ],
+      "SeDenyRemoteInteractiveLogonRight": [
+        "S-1-5-32-546",
+        "S-1-5-113"
+      ]
+    }
+  },
+  "hardening": {
+    "smbInsecureGuestAuth": 0,
+    "ldapClientIntegrity": 1,
+    "ntlmMinClientSec": 537395200,
+    "ntlmMinServerSec": 537395200,
+    "allowNullSessionFallback": 0,
+    "allowOnlineId": 0,
+    "everyoneIncludesAnonymous": 0,
+    "limitBlankPasswordUse": 1,
+    "forceGuest": 0,
+    "enablePlainTextPassword": 0,
+    "nullSessionPipesCount": 0,
+    "nullSessionSharesCount": 0,
+    "restrictNullSessAccess": 1,
+    "netlogon": {
+      "requireSignOrSeal": 1,
+      "sealSecureChannel": 1,
+      "signSecureChannel": 1,
+      "requireStrongKey": 1,
+      "disablePasswordChange": 0,
+      "maximumPasswordAge": 30
+    },
+    "winrm": {
+      "clientAllowBasic": 0,
+      "clientAllowUnencryptedTraffic": 0,
+      "clientAllowDigest": 0,
+      "serviceAllowBasic": 0,
+      "serviceAllowUnencryptedTraffic": 0
+    },
+    "rdpPolicy": {
+      "securityLayer": 2,
+      "minEncryptionLevel": 3,
+      "promptForPassword": 1,
+      "encryptRpcTraffic": 1,
+      "disableDriveRedirection": 1
+    },
+    "explorer": {
+      "noDriveTypeAutoRun": 255,
+      "noAutorun": 1,
+      "noAutoplayForNonVolume": 1
+    },
+    "winlogon": {
+      "autoAdminLogon": "0",
+      "defaultPasswordPresent": false
+    },
+    "interactiveLogon": {
+      "inactivityTimeoutSecs": 900,
+      "legalNoticeTextSet": true,
+      "legalNoticeCaptionSet": true,
+      "dontDisplayLastUserName": 1,
+      "disableCad": 0
+    },
+    "uacExtra": {
+      "enableInstallerDetection": 1,
+      "enableSecureUiaPaths": 1,
+      "promptOnSecureDesktop": 1,
+      "enableVirtualization": 1
+    },
+    "noAutoUpdate": 0,
+    "enableSmartScreen": 1,
+    "eventLogs": [
+      {
+        "name": "Application",
+        "maxSizeBytes": 33554432
+      },
+      {
+        "name": "System",
+        "maxSizeBytes": 33554432
+      }
+    ],
+    "mrxsmb10Start": 4,
+    "disableExceptionChainValidation": 0,
+    "safeDllSearchMode": 1,
+    "ipStack": {
+      "disableIpSourceRoutingV4": 2,
+      "disableIpSourceRoutingV6": 2,
+      "enableIcmpRedirect": 0
+    }
+  },
+  "services": [
+    {
+      "name": "Dnscache",
+      "displayName": "Dnscache",
+      "startMode": "Auto",
+      "state": "Running",
+      "account": "NT AUTHORITY\\NetworkService",
+      "pathName": "C:\\Windows\\system32\\svchost.exe -k NetworkService -p",
+      "executable": "C:\\Windows\\system32\\svchost.exe",
+      "writableBy": []
+    },
+    {
+      "name": "Spooler",
+      "displayName": "Spooler",
+      "startMode": "Auto",
+      "state": "Running",
+      "account": "LocalSystem",
+      "pathName": "C:\\Windows\\System32\\spoolsv.exe",
+      "executable": "C:\\Windows\\System32\\spoolsv.exe",
+      "writableBy": []
+    }
+  ],
+  "scheduledTasks": [
+    {
+      "path": "\\",
+      "name": "Backup",
+      "state": "Ready",
+      "userId": "SYSTEM",
+      "groupId": "",
+      "runLevel": "Highest",
+      "author": "CORP\\backupadm",
+      "actions": [
+        {
+          "execute": "C:\\Program Files\\Backup\\agent.exe",
+          "arguments": "-p ***",
+          "executable": "C:\\Program Files\\Backup\\agent.exe",
+          "writableBy": []
+        }
+      ]
+    }
+  ],
+  "autoruns": [
+    {
+      "location": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+      "name": "SecurityHealth",
+      "command": "%windir%\\system32\\SecurityHealthSystray.exe",
+      "executable": "C:\\Windows\\system32\\SecurityHealthSystray.exe",
+      "writableBy": []
+    }
+  ]
+}

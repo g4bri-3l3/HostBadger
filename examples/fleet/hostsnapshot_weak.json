@@ -1,0 +1,736 @@
+{
+  "meta": {
+    "tool": "HostBadger",
+    "kind": "host",
+    "computerName": "WKS-ACCT-017",
+    "schemaVersion": 1,
+    "collectorVersion": "1.2",
+    "synthetic": true,
+    "collectedAtUtc": "2026-10-01T08:00:00Z",
+    "collectedBy": "NT AUTHORITY\\SYSTEM",
+    "runningAsSystem": true,
+    "runningAsAdmin": true,
+    "psVersion": "5.1.20348.2849",
+    "options": {
+      "skipAcl": false
+    },
+    "sectionsCollected": [
+      "host",
+      "patches",
+      "defender",
+      "bitlocker",
+      "boot",
+      "credentialProtection",
+      "network",
+      "remoteAccess",
+      "localAccounts",
+      "laps",
+      "uac",
+      "powershell",
+      "audit",
+      "securityPolicy",
+      "hardening",
+      "services",
+      "scheduledTasks",
+      "autoruns"
+    ],
+    "collectionErrors": []
+  },
+  "host": {
+    "name": "WKS-ACCT-017",
+    "dnsDomain": "corp.example",
+    "partOfDomain": true,
+    "domainRole": 1,
+    "role": "workstation",
+    "machineSid": "S-1-5-21-4000000001-4000000002-4000000003",
+    "manufacturer": "Contoso",
+    "model": "Virtual",
+    "hypervisor": true,
+    "os": {
+      "caption": "Microsoft Windows 10 Pro",
+      "version": "10.0.19045",
+      "build": 19045,
+      "ubr": 6093,
+      "displayVersion": "22H2",
+      "editionId": "Professional",
+      "productType": 1,
+      "architecture": "64-bit",
+      "installDateUtc": "2020-03-02T09:00:00Z",
+      "lastBootUtc": "2026-06-01T07:00:00Z"
+    }
+  },
+  "patches": {
+    "hotfixes": [
+      {
+        "id": "KB5063709",
+        "description": "Security Update",
+        "installedOnUtc": "2026-05-14T00:00:00Z"
+      }
+    ],
+    "lastUpdateInstalledUtc": "2026-05-14T10:00:00Z"
+  },
+  "defender": {
+    "present": true,
+    "amRunningMode": "Normal",
+    "amServiceEnabled": true,
+    "antivirusEnabled": true,
+    "realTimeProtectionEnabled": false,
+    "behaviorMonitorEnabled": true,
+    "ioavProtectionEnabled": true,
+    "isTamperProtected": false,
+    "signatureUpdatedUtc": "2026-08-20T10:00:00Z",
+    "exclusionsReadable": true,
+    "exclusionPaths": [
+      "C:\\Users\\Public\\Tools",
+      "C:\\Program Files\\Contoso ERP\\Cache"
+    ],
+    "exclusionExtensions": [
+      "ps1"
+    ],
+    "exclusionProcesses": [
+      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+    ],
+    "asrRules": [
+      {
+        "id": "9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2",
+        "action": 2
+      }
+    ],
+    "puaProtection": 0,
+    "networkProtection": 0
+  },
+  "bitlocker": {
+    "featureInstalled": true,
+    "volumes": [
+      {
+        "mountPoint": "C:",
+        "volumeType": "OperatingSystem",
+        "protectionStatus": "Off",
+        "volumeStatus": "FullyDecrypted",
+        "encryptionMethod": "None",
+        "keyProtectors": []
+      },
+      {
+        "mountPoint": "D:",
+        "volumeType": "Data",
+        "protectionStatus": "Off",
+        "volumeStatus": "FullyDecrypted",
+        "encryptionMethod": "None",
+        "keyProtectors": []
+      }
+    ]
+  },
+  "boot": {
+    "secureBootEnabled": null,
+    "firmware": "BIOS"
+  },
+  "credentialProtection": {
+    "runAsPPL": null,
+    "lsaCfgFlags": null,
+    "credentialGuardRunning": false,
+    "hvciRunning": false,
+    "vbsStatus": 0,
+    "wdigestUseLogonCredential": 1,
+    "cachedLogonsCount": "25",
+    "lmCompatibilityLevel": 2,
+    "noLmHash": 0,
+    "restrictAnonymous": 0,
+    "restrictAnonymousSam": 0
+  },
+  "network": {
+    "smb1ServerEnabled": true,
+    "smbServerSigningRequired": false,
+    "smbClientSigningRequired": false,
+    "llmnrPolicyEnableMulticast": null,
+    "netbios": [
+      {
+        "adapter": "Intel(R) Ethernet Connection I219-LM",
+        "tcpipNetbiosOptions": 0
+      },
+      {
+        "adapter": "Intel(R) Wi-Fi 6 AX201",
+        "tcpipNetbiosOptions": 1
+      }
+    ],
+    "firewallProfiles": [
+      {
+        "name": "Domain",
+        "enabled": true,
+        "defaultInboundAction": "Allow",
+        "logBlocked": "False"
+      },
+      {
+        "name": "Private",
+        "enabled": true,
+        "defaultInboundAction": "Block",
+        "logBlocked": "False"
+      },
+      {
+        "name": "Public",
+        "enabled": false,
+        "defaultInboundAction": "Block",
+        "logBlocked": "False"
+      }
+    ],
+    "listening": [
+      {
+        "protocol": "tcp",
+        "address": "0.0.0.0",
+        "port": 5900,
+        "process": "tvnserver"
+      },
+      {
+        "protocol": "tcp",
+        "address": "::",
+        "port": 5900,
+        "process": "tvnserver"
+      },
+      {
+        "protocol": "tcp",
+        "address": "0.0.0.0",
+        "port": 5985,
+        "process": "System"
+      },
+      {
+        "protocol": "tcp",
+        "address": "127.0.0.1",
+        "port": 3306,
+        "process": "mysqld"
+      },
+      {
+        "protocol": "udp",
+        "address": "0.0.0.0",
+        "port": 161,
+        "process": "snmp"
+      }
+    ]
+  },
+  "remoteAccess": {
+    "rdpEnabled": true,
+    "rdpNlaRequired": false
+  },
+  "localAccounts": {
+    "users": [
+      {
+        "name": "Administrator",
+        "sid": "S-1-5-21-4000000001-4000000002-4000000003-500",
+        "enabled": true,
+        "passwordRequired": true,
+        "passwordExpires": false,
+        "lastLogonUtc": "2025-01-10T09:00:00Z",
+        "passwordLastSetUtc": "2020-03-02T09:00:00Z"
+      },
+      {
+        "name": "Guest",
+        "sid": "S-1-5-21-4000000001-4000000002-4000000003-501",
+        "enabled": true,
+        "passwordRequired": false,
+        "passwordExpires": false,
+        "lastLogonUtc": null,
+        "passwordLastSetUtc": null
+      },
+      {
+        "name": "support",
+        "sid": "S-1-5-21-4000000001-4000000002-4000000003-1001",
+        "enabled": true,
+        "passwordRequired": false,
+        "passwordExpires": false,
+        "lastLogonUtc": "2026-09-01T09:00:00Z",
+        "passwordLastSetUtc": "2021-06-01T09:00:00Z"
+      }
+    ],
+    "administrators": [
+      {
+        "path": "WKS-ACCT-017/Administrator",
+        "sid": "S-1-5-21-4000000001-4000000002-4000000003-500",
+        "class": "User"
+      },
+      {
+        "path": "WKS-ACCT-017/support",
+        "sid": "S-1-5-21-4000000001-4000000002-4000000003-1001",
+        "class": "User"
+      },
+      {
+        "path": "CORP/Domain Admins",
+        "sid": "S-1-5-21-1111111111-2222222222-3333333333-512",
+        "class": "Group"
+      },
+      {
+        "path": "CORP/jsmith",
+        "sid": "S-1-5-21-1111111111-2222222222-3333333333-1342",
+        "class": "User"
+      },
+      {
+        "path": "CORP/Helpdesk",
+        "sid": "S-1-5-21-1111111111-2222222222-3333333333-1201",
+        "class": "Group"
+      }
+    ],
+    "administratorsReadable": true
+  },
+  "laps": {
+    "windowsLapsBackupDirectory": null,
+    "legacyLapsEnabled": null,
+    "legacyLapsCseInstalled": false
+  },
+  "uac": {
+    "enableLua": 0,
+    "consentPromptBehaviorAdmin": 0,
+    "localAccountTokenFilterPolicy": 1,
+    "filterAdministratorToken": 0,
+    "alwaysInstallElevated": 1
+  },
+  "powershell": {
+    "scriptBlockLogging": null,
+    "moduleLogging": null,
+    "transcription": null,
+    "v2EngineVersion": "2.0"
+  },
+  "audit": {
+    "processCreationIncludeCmdLine": null,
+    "securityLogMaxSizeBytes": 20971520,
+    "subcategories": [
+      {
+        "name": "Credential Validation",
+        "guid": "0cce923f-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 1
+      },
+      {
+        "name": "Kerberos Authentication Service",
+        "guid": "0cce9242-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Kerberos Service Ticket Operations",
+        "guid": "0cce9240-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Security Group Management",
+        "guid": "0cce9237-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "User Account Management",
+        "guid": "0cce9235-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Directory Service Changes",
+        "guid": "0cce923c-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Process Creation",
+        "guid": "0cce922b-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Logon",
+        "guid": "0cce9215-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 1
+      },
+      {
+        "name": "Account Lockout",
+        "guid": "0cce9217-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Special Logon",
+        "guid": "0cce921b-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Other Object Access Events",
+        "guid": "0cce9227-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Audit Policy Change",
+        "guid": "0cce922f-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Authentication Policy Change",
+        "guid": "0cce9230-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Sensitive Privilege Use",
+        "guid": "0cce9228-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Security System Extension",
+        "guid": "0cce9211-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "System Integrity",
+        "guid": "0cce9212-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      }
+    ]
+  },
+  "securityPolicy": {
+    "systemAccess": {
+      "PasswordHistorySize": 0,
+      "MaximumPasswordAge": -1,
+      "MinimumPasswordAge": 0,
+      "MinimumPasswordLength": 0,
+      "PasswordComplexity": 0,
+      "ClearTextPassword": 1,
+      "LockoutBadCount": 10,
+      "LockoutDuration": 5,
+      "ResetLockoutCount": 5,
+      "AllowAdministratorLockout": 1
+    },
+    "privilegeRights": {
+      "SeTrustedCredManAccessPrivilege": [],
+      "SeNetworkLogonRight": [
+        "S-1-5-32-544",
+        "S-1-5-32-555",
+        "S-1-1-0",
+        "S-1-5-32-545"
+      ],
+      "SeTcbPrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeInteractiveLogonRight": [
+        "S-1-5-32-544",
+        "S-1-5-32-545"
+      ],
+      "SeRemoteInteractiveLogonRight": [
+        "S-1-5-32-544",
+        "S-1-5-32-555"
+      ],
+      "SeBackupPrivilege": [
+        "S-1-5-32-544",
+        "S-1-5-32-551"
+      ],
+      "SeCreatePagefilePrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeCreateTokenPrivilege": [],
+      "SeCreatePermanentPrivilege": [],
+      "SeDebugPrivilege": [
+        "S-1-5-32-544",
+        "S-1-5-32-545"
+      ],
+      "SeEnableDelegationPrivilege": [],
+      "SeRemoteShutdownPrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeLoadDriverPrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeLockMemoryPrivilege": [],
+      "SeSecurityPrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeRelabelPrivilege": [],
+      "SeSystemEnvironmentPrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeManageVolumePrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeProfileSingleProcessPrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeRestorePrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeTakeOwnershipPrivilege": [
+        "S-1-5-32-544"
+      ],
+      "SeDenyNetworkLogonRight": [],
+      "SeDenyBatchLogonRight": [
+        "S-1-5-32-546"
+      ],
+      "SeDenyServiceLogonRight": [
+        "S-1-5-32-546"
+      ],
+      "SeDenyInteractiveLogonRight": [
+        "S-1-5-32-546"
+      ],
+      "SeDenyRemoteInteractiveLogonRight": [
+        "S-1-5-32-546"
+      ]
+    }
+  },
+  "hardening": {
+    "smbInsecureGuestAuth": 1,
+    "ldapClientIntegrity": 0,
+    "ntlmMinClientSec": 536870912,
+    "ntlmMinServerSec": 536870912,
+    "allowNullSessionFallback": 1,
+    "allowOnlineId": 1,
+    "everyoneIncludesAnonymous": 1,
+    "limitBlankPasswordUse": 0,
+    "forceGuest": 1,
+    "enablePlainTextPassword": 1,
+    "nullSessionPipesCount": 1,
+    "nullSessionSharesCount": 2,
+    "restrictNullSessAccess": 0,
+    "netlogon": {
+      "requireSignOrSeal": 0,
+      "sealSecureChannel": 0,
+      "signSecureChannel": 0,
+      "requireStrongKey": 0,
+      "disablePasswordChange": 1,
+      "maximumPasswordAge": 90
+    },
+    "winrm": {
+      "clientAllowBasic": 1,
+      "clientAllowUnencryptedTraffic": 1,
+      "clientAllowDigest": 1,
+      "serviceAllowBasic": 1,
+      "serviceAllowUnencryptedTraffic": 1
+    },
+    "rdpPolicy": {
+      "securityLayer": 0,
+      "minEncryptionLevel": 2,
+      "promptForPassword": 0,
+      "encryptRpcTraffic": 0,
+      "disableDriveRedirection": null
+    },
+    "explorer": {
+      "noDriveTypeAutoRun": 145,
+      "noAutorun": null,
+      "noAutoplayForNonVolume": null
+    },
+    "winlogon": {
+      "autoAdminLogon": "1",
+      "defaultPasswordPresent": true
+    },
+    "interactiveLogon": {
+      "inactivityTimeoutSecs": null,
+      "legalNoticeTextSet": false,
+      "legalNoticeCaptionSet": false,
+      "dontDisplayLastUserName": 0,
+      "disableCad": 1
+    },
+    "uacExtra": {
+      "enableInstallerDetection": 0,
+      "enableSecureUiaPaths": 0,
+      "promptOnSecureDesktop": 0,
+      "enableVirtualization": 0
+    },
+    "noAutoUpdate": 1,
+    "enableSmartScreen": 0,
+    "eventLogs": [
+      {
+        "name": "Application",
+        "maxSizeBytes": 20971520
+      },
+      {
+        "name": "System",
+        "maxSizeBytes": 20971520
+      }
+    ],
+    "mrxsmb10Start": 2,
+    "disableExceptionChainValidation": 1,
+    "safeDllSearchMode": 0,
+    "ipStack": {
+      "disableIpSourceRoutingV4": 0,
+      "disableIpSourceRoutingV6": 1,
+      "enableIcmpRedirect": 1
+    }
+  },
+  "services": [
+    {
+      "name": "Dnscache",
+      "displayName": "Dnscache",
+      "startMode": "Auto",
+      "state": "Running",
+      "account": "NT AUTHORITY\\NetworkService",
+      "pathName": "C:\\Windows\\system32\\svchost.exe -k NetworkService -p",
+      "executable": "C:\\Windows\\system32\\svchost.exe",
+      "writableBy": []
+    },
+    {
+      "name": "Spooler",
+      "displayName": "Spooler",
+      "startMode": "Auto",
+      "state": "Running",
+      "account": "LocalSystem",
+      "pathName": "C:\\Windows\\System32\\spoolsv.exe",
+      "executable": "C:\\Windows\\System32\\spoolsv.exe",
+      "writableBy": []
+    },
+    {
+      "name": "SSDPSRV",
+      "displayName": "SSDPSRV",
+      "startMode": "Auto",
+      "state": "Running",
+      "account": "NT AUTHORITY\\LocalService",
+      "pathName": "C:\\Windows\\system32\\svchost.exe -k LocalServiceAndNoImpersonation -p",
+      "executable": "C:\\Windows\\system32\\svchost.exe",
+      "writableBy": []
+    },
+    {
+      "name": "XblAuthManager",
+      "displayName": "XblAuthManager",
+      "startMode": "Auto",
+      "state": "Running",
+      "account": "LocalSystem",
+      "pathName": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p",
+      "executable": "C:\\Windows\\system32\\svchost.exe",
+      "writableBy": []
+    },
+    {
+      "name": "LxssManager",
+      "displayName": "LxssManager",
+      "startMode": "Auto",
+      "state": "Running",
+      "account": "LocalSystem",
+      "pathName": "C:\\Windows\\system32\\svchost.exe -k LxssManagerUser -p",
+      "executable": "C:\\Windows\\system32\\svchost.exe",
+      "writableBy": []
+    },
+    {
+      "name": "ContosoUpdater",
+      "displayName": "ContosoUpdater",
+      "startMode": "Auto",
+      "state": "Running",
+      "account": "LocalSystem",
+      "pathName": "C:\\Program Files\\Contoso Tools\\Updater Service\\updater.exe -service",
+      "executable": "C:\\Program Files\\Contoso Tools\\Updater Service\\updater.exe",
+      "writableBy": []
+    },
+    {
+      "name": "VendorAgent",
+      "displayName": "VendorAgent",
+      "startMode": "Auto",
+      "state": "Running",
+      "account": "LocalSystem",
+      "pathName": "\"C:\\ProgramData\\Vendor\\agent.exe\"",
+      "executable": "C:\\ProgramData\\Vendor\\agent.exe",
+      "writableBy": [
+        {
+          "scope": "file",
+          "sid": "S-1-5-11",
+          "rights": "Modify, Synchronize"
+        },
+        {
+          "scope": "folder",
+          "sid": "S-1-5-32-545",
+          "rights": "Write"
+        }
+      ]
+    },
+    {
+      "name": "PrintHelper",
+      "displayName": "PrintHelper",
+      "startMode": "Auto",
+      "state": "Stopped",
+      "account": "LocalSystem",
+      "pathName": "\"C:\\Tools\\PrintHelper\\helper.exe\"",
+      "executable": "C:\\Tools\\PrintHelper\\helper.exe",
+      "writableBy": [
+        {
+          "scope": "folder",
+          "sid": "S-1-5-32-545",
+          "rights": "AppendData, Synchronize"
+        }
+      ]
+    }
+  ],
+  "scheduledTasks": [
+    {
+      "path": "\\Contoso\\",
+      "name": "Inventory",
+      "state": "Ready",
+      "userId": "SYSTEM",
+      "groupId": "",
+      "runLevel": "Highest",
+      "author": "CORP\\it",
+      "actions": [
+        {
+          "execute": "C:\\Users\\Public\\inventory.exe",
+          "arguments": "",
+          "executable": "C:\\Users\\Public\\inventory.exe",
+          "writableBy": [
+            {
+              "scope": "file",
+              "sid": "S-1-1-0",
+              "rights": "FullControl"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "\\",
+      "name": "UserSync",
+      "state": "Ready",
+      "userId": "",
+      "groupId": "Users",
+      "runLevel": "Limited",
+      "author": "CORP\\it",
+      "actions": [
+        {
+          "execute": "C:\\Users\\Public\\sync.exe",
+          "arguments": "",
+          "executable": "C:\\Users\\Public\\sync.exe",
+          "writableBy": [
+            {
+              "scope": "file",
+              "sid": "S-1-1-0",
+              "rights": "FullControl"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "\\Microsoft\\Windows\\UpdateOrchestrator\\",
+      "name": "Schedule Scan",
+      "state": "Ready",
+      "userId": "SYSTEM",
+      "groupId": "",
+      "runLevel": "Highest",
+      "author": "Microsoft",
+      "actions": [
+        {
+          "execute": "C:\\Windows\\system32\\UsoClient.exe",
+          "arguments": "StartScan",
+          "executable": "C:\\Windows\\system32\\UsoClient.exe",
+          "writableBy": []
+        }
+      ]
+    }
+  ],
+  "autoruns": [
+    {
+      "location": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+      "name": "TrayHelper",
+      "command": "C:\\ProgramData\\TrayHelper\\tray.exe",
+      "executable": "C:\\ProgramData\\TrayHelper\\tray.exe",
+      "writableBy": [
+        {
+          "scope": "file",
+          "sid": "S-1-5-32-545",
+          "rights": "Modify, Synchronize"
+        }
+      ]
+    }
+  ]
+}

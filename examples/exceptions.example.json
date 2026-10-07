@@ -1,0 +1,18 @@
+[
+  {
+    "type": "smb1_server_enabled",
+    "host": "WKS-ACCT-017",
+    "object": "*",
+    "reason": "Legacy document scanner; replacement ordered (CHG-4411)",
+    "owner": "it-ops",
+    "expires": "2027-01-31"
+  },
+  {
+    "type": "netbios_enabled",
+    "host": "*",
+    "object": "*",
+    "reason": "Label printers still resolve by NetBIOS name",
+    "owner": "it-ops",
+    "expires": ""
+  }
+]
