@@ -34,6 +34,15 @@
     Members of the local Administrators group that belong there (names as
     "DOMAIN/Group", the bare name, or SIDs). Domain Admins and the built-in
     Administrator are always expected.
+.PARAMETER ExpectedEdr
+    The EDR every host should run, for example CrowdStrike or SentinelOne (more than one is
+    fine). A host without it gets a High finding. Known names: CrowdStrike, SentinelOne,
+    DefenderForEndpoint, CarbonBlack, CortexXDR, Sophos, TrendMicro, Trellix, ESET, Symantec,
+    Elastic, Cybereason, Cylance, Bitdefender, Huntress. Any other text is looked for in the
+    names of the services. Without it, only a host with no known EDR at all is reported.
+.PARAMETER ExtraEdrServices
+    Names of services that belong to an EDR that HostBadger does not know, so that they are
+    counted as an agent (and flagged if they are stopped).
 .PARAMETER MaxPatchAgeDays
     Days without an installed update before updates_stale (default 45).
 .PARAMETER MaxSignatureAgeDays
@@ -87,6 +96,8 @@ param(
     [int]$MaxCachedLogonsWorkstation = 4,
     [int]$MaxCachedLogonsServer = 1,
     [int]$MinSecurityLogKB = 196608,
+    [string[]]$ExpectedEdr = @(),
+    [string[]]$ExtraEdrServices = @(),
     [string]$OutRemediation = '',
     [switch]$SendToAI,
     [switch]$AiConfirm,
@@ -97,7 +108,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:HostBadgerVersion = '1.5'
+$script:HostBadgerVersion = '1.0'
 . (Join-Path $PSScriptRoot 'lib\Common.ps1')
 . (Join-Path $PSScriptRoot 'lib\Checks.ps1')
 . (Join-Path $PSScriptRoot 'lib\AI.ps1')
@@ -126,6 +137,7 @@ $config = @{
     AllowedAdmins = @($AllowedAdmins); MaxPatchAgeDays = $MaxPatchAgeDays; MaxSignatureAgeDays = $MaxSignatureAgeDays
     SupportWarningDays = $SupportWarningDays; MaxCachedLogonsWorkstation = $MaxCachedLogonsWorkstation
     MaxCachedLogonsServer = $MaxCachedLogonsServer; MinSecurityLogKB = $MinSecurityLogKB
+    ExpectedEdr = @($ExpectedEdr); ExtraEdrServices = @($ExtraEdrServices)
 }
 
 $files = @(Get-SnapshotFiles $Snapshot)
@@ -161,6 +173,8 @@ foreach ($name in ($latest.Keys | Sort-Object)) {
             AsAdmin      = [bool]$s.meta.runningAsAdmin
             Synthetic    = [bool]$s.meta.synthetic
             NotEvaluated = @($r.NotEvaluated)
+            Edr          = @(Get-EdrInventory -Snapshot $s -ExtraServices $ExtraEdrServices)
+            EdrKnown     = (@($s.services | Where-Object { $_ }).Count -gt 0)
             Findings     = @($r.Findings)
             Score        = $null
         })

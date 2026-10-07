@@ -25,16 +25,17 @@ CrowdStrike Falcon cloud script (any EDR or SOAR that runs `.ps1` files will
 do), run it on many endpoints through Real Time Response as SYSTEM, and it is
 done in about 15 seconds. It leaves a zip that you fetch with `get`.
 
-There are **84 checks** in ten areas: credential protection, Microsoft
-Defender, BitLocker and Secure Boot, network exposure, remote access, local
+There are **87 checks** in ten areas: credential protection, Microsoft
+Defender and EDR agents, BitLocker and Secure Boot, network exposure, remote access, local
 accounts and UAC, ways to escalate privileges (writable service and task
 programs, unquoted paths, AlwaysInstallElevated), logging and audit policy,
 patching and the Windows lifecycle, and a set of baseline settings taken from
 the CIS Windows 11 benchmark.
 
-HostBadger belongs to the MooseAlto family, next to IDWolf (Active Directory
-and Entra) and MooseAlto (firewall rulebases). IDWolf reads what the GPOs
-*say*. HostBadger reads what the host actually *does*.
+HostBadger belongs to the MooseAlto family, next to
+[MooseAlto](https://github.com/g4bri-3l3/MooseAlto) (firewall rulebases). It
+reads what a host actually *does*, which is not always what policy says it
+should.
 
 ## The pieces
 
@@ -81,12 +82,48 @@ Invoke-FalconRtr -Command runscript -Argument '-CloudFile="Collect-HostSnapshot"
 
 If a host has several snapshots, the newest one wins.
 
+### If PowerShell won't run the scripts
+
+On many machines Windows PowerShell refuses to run `.ps1` files, because the
+execution policy is Restricted, AllSigned or RemoteSigned. You don't have to
+change the policy of the machine. Start the script in a PowerShell process that
+skips the policy, for that run only:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-HostBadger.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\HostBadger.ps1 -Snapshot .\snapshots\ -OutHtml fleet.html
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Collect-HostSnapshot.ps1     # from an elevated window
+```
+
+With PowerShell 7 it is the same, with `pwsh` instead of `powershell.exe`. In a
+window that is already open you can also run
+`Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`, which lasts until
+you close the window.
+
+A few things worth knowing:
+
+- `-ExecutionPolicy Bypass` applies to that one process and changes nothing on
+  the machine. `Get-ExecutionPolicy -List` shows which policy is in force.
+- If Group Policy sets the policy (it shows as MachinePolicy or UserPolicy in
+  that list), the flag can't override it. Ask whoever manages the policy, or
+  have the scripts signed.
+- Files that come from the internet carry a "downloaded" mark, and Windows can
+  ask about them or block them. After you extract the zip, run
+  `Get-ChildItem .\HostBadger -Recurse -Filter *.ps1 | Unblock-File`. You can
+  also unblock the zip itself before extracting (right-click, Properties,
+  Unblock).
+- Through EDR Real Time Response none of this applies, because the platform
+  runs the cloud script itself.
+- The execution policy is a safety net against accidents, not a security
+  boundary. Before you run anything as administrator, see what the scripts can
+  do with `.\Test-HostBadgerSafety.ps1`.
+
 ## What HostBadger checks
 
 | Area | Checks | What's in it |
 |---|---|---|
 | Credential Protection | 12 | LSASS protection (RunAsPPL), Credential Guard, WDigest cleartext, cached logons, LM hash storage, LM/NTLMv1, anonymous SAM enumeration. From the CIS baseline: NTLM session security, anonymous share enumeration, Everyone includes anonymous, PKU2U and NULL session fallback, automatic logon (High when the password is stored). |
-| Antivirus | 8 | Defender real-time protection, tamper protection, signature age, every exclusion (High when it is broad or writable by users: a drive, a profile, Temp, a script extension, powershell.exe), Microsoft's three standard ASR rules. From CIS: Network Protection, PUA blocking, SmartScreen. |
+| Antivirus and EDR | 11 | Defender real-time protection, tamper protection, signature age, every exclusion (High when it is broad or writable by users: a drive, a profile, Temp, a script extension, powershell.exe), Microsoft's three standard ASR rules. From CIS: Network Protection, PUA blocking, SmartScreen. EDR agents: one that is installed but stopped (High), the one you expect missing (High), no known EDR at all (Low on a workstation, Medium on a server). |
 | Disk and Boot | 4 | BitLocker on the OS volume (High on workstations), TPM without a PIN on laptops, fixed data volumes, Secure Boot and legacy BIOS. |
 | Network Exposure | 17 | SMBv1, SMB signing on server and client, LLMNR, NetBIOS, firewall profiles that are off or allow everything in, dropped packet logging, risky listeners (Telnet, FTP, TFTP, SNMP, VNC, databases, caches, WinRM over HTTP on workstations). From CIS: insecure SMB guest logons, LDAP client signing, anonymous shares and pipes, the domain secure channel, clear-text SMB passwords, WinRM Basic, Digest and unencrypted traffic, the SMBv1 client driver, IP source routing and ICMP redirects. |
 | Remote Access | 3 | RDP without NLA, RDP on workstations. From CIS: RDP security layer, encryption, password prompt, drive redirection. |
@@ -103,6 +140,39 @@ Checks know the role of the host (workstation, server or domain controller).
 Credential Guard and cached logons don't apply to DCs, and the Print Spooler
 check applies only to them. SMB signing is High on a DC and Medium elsewhere.
 An unencrypted OS volume is High on a workstation and Medium on a server.
+
+### EDR agents
+
+HostBadger reads the list of services, which the collector already collects,
+and recognises the agents of the well-known EDR and endpoint protection
+products: CrowdStrike Falcon, SentinelOne, Microsoft Defender for Endpoint,
+VMware Carbon Black, Palo Alto Cortex XDR, Sophos Intercept X, Trend Micro
+(Apex One and Deep Security), Trellix / FireEye / McAfee ENS, ESET, Symantec /
+Broadcom, Elastic Defend, Cybereason, Cylance, Bitdefender GravityZone and
+Huntress. The Hosts table of the report and the `host_summary` lines of the JSON
+Lines say which one each host runs.
+
+- An agent that is installed but whose service is not running is **High**. The
+  host is blind, and a stopped agent is what an attacker leaves behind.
+- With `-ExpectedEdr CrowdStrike` (or several names), a host that doesn't have
+  that product is **High**. This is the check that matters in practice, because
+  it finds the hosts that your SOC doesn't see.
+- Without it, a host with no known EDR at all is reported: Low on a
+  workstation, Medium on a server or a domain controller. Microsoft Defender
+  Antivirus alone doesn't count as EDR. Defender for Endpoint counts once it is
+  onboarded, which is when its `Sense` service runs.
+
+A product is found by the name of its main service, or by the display name of a
+service. If yours isn't recognised, name its service with
+`-ExtraEdrServices MyAgentService`. `-ExpectedEdr` also takes any other text,
+which is then looked for in the service names.
+
+The service names come from the vendors' documentation and common practice, and
+vendors rename them between versions. If a host that runs an EDR is reported as
+having none, compare its service name with the list in `lib\Checks.ps1`
+(`$script:EdrProducts`) and add it with `-ExtraEdrServices`. HostBadger doesn't
+check that an agent is healthy, up to date or talking to its console. It only
+knows that a service is there and running.
 
 ### The CIS baseline
 
@@ -166,9 +236,9 @@ role.
   object), the comparison with a previous run, accepted risks, and a table of
   every finding that you can filter.
 
-The score is the same as in IDWolf: 100 &times; e<sup>&minus;penalty/100</sup>.
-Each triggered check adds a weight for its worst severity (Critical 20, High
-8, Medium 3, Low 1). Any Critical caps the score at 35, and any High at 65.
+The score of a host is 100 &times; e<sup>&minus;penalty/100</sup>. Each
+triggered check adds a weight for its worst severity (Critical 20, High 8,
+Medium 3, Low 1). Any Critical caps the score at 35, and any High at 65.
 
 `examples/demo_report.html` is a full report on the synthetic fleet in
 `examples/fleet/`. It has five hosts: a neglected workstation, a hardened
@@ -185,6 +255,7 @@ standard user with Defender in passive mode.
     [-AllowedAdmins 'CORP/Workstation Admins', 'S-1-5-21-...-1105']
     [-MaxPatchAgeDays 45] [-MaxSignatureAgeDays 7] [-SupportWarningDays 90]
     [-MaxCachedLogonsWorkstation 4] [-MaxCachedLogonsServer 1] [-MinSecurityLogKB 196608]
+    [-ExpectedEdr CrowdStrike] [-ExtraEdrServices MyAgentService]   # the EDR every host should run; services to count as an agent
     [-OutRemediation .\fixes]                    # one remediate_<host>.ps1 per host, with a rollback file
     [-SendToAI [-AiConfirm]] [-AiDryRun prompt.txt] [-ApiKey <key>] [-Model gemini-3.7-flash] [-AiMaxAttempts 3]
 
@@ -298,11 +369,38 @@ $env:GEMINI_API_KEY = '<key>'
 
 The launcher offers the same thing right after it writes the report.
 
+#### Getting and setting the API key
+
+1. Go to [aistudio.google.com/api-keys](https://aistudio.google.com/api-keys),
+   sign in with a Google account and click **Create API key**.
+2. Give the key to HostBadger through the `GEMINI_API_KEY` environment
+   variable, in one of two ways:
+
+   ```powershell
+   # for this window only (it is gone when you close the window)
+   $env:GEMINI_API_KEY = "your-key-here"
+
+   # for good, for your user account
+   [Environment]::SetEnvironmentVariable("GEMINI_API_KEY", "your-key-here", "User")
+   ```
+
+   A variable set the second way only takes effect in new windows, not in the
+   one that set it.
+3. Check it in a new window: `$env:GEMINI_API_KEY` should print the key. To
+   remove it, run
+   `[Environment]::SetEnvironmentVariable("GEMINI_API_KEY", $null, "User")`.
+
+`-ApiKey <key>` works too, but then the key stays in your command history, so
+prefer the variable. If the variable isn't set, the launcher asks for the key
+and keeps it for that session only. HostBadger never writes the key to a file,
+to a report or to the saved copy of the prompt. Keep it out of chats, tickets
+and the repository as well.
+
 How your data is protected:
 
 - **It's your choice.** Without `-SendToAI` or `-AiDryRun`, nothing is built
   and nothing is sent, and HostBadger never asks. The key comes from `-ApiKey`
-  or `GEMINI_API_KEY`, as in IDWolf.
+  or from the `GEMINI_API_KEY` environment variable (see below).
 - **Tokens instead of names.** Host names, FQDNs, domains, accounts, groups,
   SIDs, paths, the names of services, tasks, autoruns and adapters, listener
   processes and addresses are replaced by tokens like `HOST-1`, `USER-2` and
@@ -352,10 +450,10 @@ ever added, never renamed.
 
 The regression builds the synthetic fleet and checks:
 
-- the exact number of findings per host (117 / 2 / 3 / 3 / 2) and that every
+- the exact number of findings per host (133 / 2 / 3 / 4 / 2) and that every
   check fires somewhere;
 - the severity rules and the role rules;
-- the "not evaluated" rule (18 checks on the partial host, none of them
+- the "not evaluated" rule (22 checks on the partial host, none of them
   reported);
 - determinism, zip input, duplicate hosts, old `{}` lists, exceptions,
   comparison and JSON Lines;
@@ -369,8 +467,7 @@ the reply are kept, invented checks are dropped, and nothing is sent without
 ## Known limitations
 
 - **One host at a time.** HostBadger doesn't yet compare what the GPOs intend
-  with what the host does. That is the next step, together with an IDWolf AD
-  snapshot.
+  with what the host does. That is the next step.
 - **The Windows lifecycle table.** The end-of-servicing dates per build and
   edition are built in (`lib\Common.ps1`) and come from Microsoft's lifecycle
   pages. Check a date before you rely on it, and extend the table as releases

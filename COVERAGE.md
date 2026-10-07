@@ -1,6 +1,6 @@
 # HostBadger coverage
 
-Every check in `lib\Checks.ps1`, generated from the catalog (84 checks). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
+Every check in `lib\Checks.ps1`, generated from the catalog (87 checks). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
 
 The CIS column gives the rule number in the *CIS Microsoft Windows 11 Enterprise Benchmark v3.0.0* and its profile level (L1 corporate, L2 high security). Rule numbers and expected values were taken from the MIT-licensed [ansible-lockdown/Windows-11-CIS](https://github.com/ansible-lockdown/Windows-11-CIS) role; the descriptions are HostBadger's own. A check is a read-only comparison of the host's setting with the rule; it is not a certification of conformity, and the benchmark covers many more settings (most of the administrative templates, for instance) than HostBadger reads.
 
@@ -35,6 +35,9 @@ The last column says whether HostBadger can write a remediation script for the c
 | `smartscreen_off` | Medium | T1204 | 18.10.75.2.1 (L1) | W, S, DC | yes | Microsoft Defender SmartScreen turned off by policy |
 | `defender_network_protection_off` | Medium | T1189 | 18.10.42.6.3.1 (L1) | W, S, DC | yes | Defender Network Protection not enabled |
 | `defender_pua_off` | Low | T1204.002 | 18.10.42.16 (L1) | W, S, DC | yes | Defender blocking of potentially unwanted apps off |
+| `edr_agent_stopped` | High | T1562.001 |  | W, S, DC | no | EDR agent installed but not running |
+| `edr_expected_missing` | High | T1562.001 |  | W, S, DC | no | Expected EDR agent not found |
+| `edr_not_found` | Low | T1562.001 |  | W, S, DC | no | No EDR or endpoint protection agent found |
 
 ## Disk and Boot
 
