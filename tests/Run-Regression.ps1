@@ -27,7 +27,7 @@ $fleet = Join-Path $work 'fleet'
 foreach ($sc in 'weak', 'hardened', 'laptop', 'dc', 'partial') {
     & (Join-Path $PSScriptRoot 'New-SyntheticHostSnapshot.ps1') -Scenario $sc -OutFile (Join-Path $fleet "hostsnapshot_$sc.json") 6>$null | Out-Null
 }
-$config = @{ AllowedAdmins = @(); MaxPatchAgeDays = 45; MaxSignatureAgeDays = 7; SupportWarningDays = 90; MaxCachedLogonsWorkstation = 4; MaxCachedLogonsServer = 1; MinSecurityLogKB = 196608 }
+$config = @{ AllowedAdmins = @(); MaxPatchAgeDays = 45; MaxSignatureAgeDays = 7; SupportWarningDays = 90; MaxCachedLogonsWorkstation = 4; MaxCachedLogonsServer = 1; MinSecurityLogKB = 196608; ExpectedEdr = @(); ExtraEdrServices = @() }
 
 function Invoke-One([string]$File, [hashtable]$Cfg = $config) { return Invoke-HostChecks -Snapshot (Import-HostSnapshot $File) -Config $Cfg }
 function Has($Result, [string]$Type, [string]$Object = '', [string]$Severity = '') {
@@ -41,14 +41,18 @@ $lap = Invoke-One (Join-Path $fleet 'hostsnapshot_laptop.json')
 $dc = Invoke-One (Join-Path $fleet 'hostsnapshot_dc.json')
 $part = Invoke-One (Join-Path $fleet 'hostsnapshot_partial.json')
 
-Assert-Equal @($weak.Findings).Count 132 'weak: total findings'
+Assert-Equal @($weak.Findings).Count 133 'weak: total findings'
 Assert-Equal @($hard.Findings).Count 2 'hardened: total findings'
 Assert-Equal @($lap.Findings).Count 3 'laptop: total findings'
-Assert-Equal @($dc.Findings).Count 3 'dc: total findings'
+Assert-Equal @($dc.Findings).Count 4 'dc: total findings'
 Assert-Equal @($part.Findings).Count 2 'partial: total findings'
 $all = @($weak.Findings) + @($hard.Findings) + @($lap.Findings) + @($dc.Findings) + @($part.Findings)
-Assert-Equal ((@('Critical', 'High', 'Medium', 'Low') | ForEach-Object { $s = $_; @($all | Where-Object { $_.Severity -eq $s }).Count }) -join '/') '0/28/64/50' 'fleet: severity split'
-$never = @($script:CheckCatalog.Keys | Where-Object { $t = $_; @($all | Where-Object { $_.Type -eq $t }).Count -eq 0 })
+Assert-Equal ((@('Critical', 'High', 'Medium', 'Low') | ForEach-Object { $s = $_; @($all | Where-Object { $_.Severity -eq $s }).Count }) -join '/') '0/29/64/51' 'fleet: severity split'
+# edr_expected_missing only exists when the operator names the EDR every host should run.
+$cfgEdr = $config.Clone(); $cfgEdr['ExpectedEdr'] = @('SentinelOne')
+$edrExpected = Invoke-One (Join-Path $fleet 'hostsnapshot_hardened.json') $cfgEdr
+$allWithConfig = @($all) + @($edrExpected.Findings)
+$never = @($script:CheckCatalog.Keys | Where-Object { $t = $_; @($allWithConfig | Where-Object { $_.Type -eq $t }).Count -eq 0 })
 Assert-Equal ($never -join ',') '' 'every check triggers in at least one scenario'
 $dups = @($all | Group-Object { "$($_.Type)|$($_.Host)|$($_.Object)" } | Where-Object { $_.Count -gt 1 })
 Assert-Equal $dups.Count 0 'Type + Host + Object unique'
@@ -73,6 +77,23 @@ $undatedSnap = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_hardened.json
 $undatedSnap.patches.hotfixes = @([PSCustomObject]@{ id = 'KB5068865'; description = 'Security Update'; installedOnUtc = $null }); $undatedSnap.patches.lastUpdateInstalledUtc = '2026-09-30T08:00:00Z'
 Assert-Equal @((Invoke-HostChecks -Snapshot $undatedSnap -Config $config).Findings | Where-Object { $_.Type -eq 'updates_stale' }).Count 0 'updates_stale: without dated hotfixes the update history is used'
 
+# EDR agents: found by the name or the display name of their services, never confused with Defender alone.
+Assert-True (@($weak.Findings | Where-Object { $_.Type -eq 'edr_not_found' -and $_.Severity -eq 'Low' }).Count -eq 1) 'EDR: a workstation with no agent is Low'
+Assert-True (@($dc.Findings | Where-Object { $_.Type -eq 'edr_agent_stopped' -and $_.Severity -eq 'High' -and $_.Detail -match 'CSFalconService' }).Count -eq 1) 'EDR: an agent that is installed but stopped is High'
+Assert-Equal @($hard.Findings + $lap.Findings + $part.Findings | Where-Object { $_.Type -like 'edr_*' }).Count 0 'EDR: hosts with a running agent have no EDR finding'
+Assert-True (@($edrExpected.Findings | Where-Object { $_.Type -eq 'edr_expected_missing' -and $_.Object -eq 'expected: SentinelOne' -and $_.Severity -eq 'High' }).Count -eq 1 -and @($edrExpected.Findings | Where-Object { $_.Type -eq 'edr_not_found' }).Count -eq 0) 'EDR: the expected product missing is High, and then "no EDR found" is not also raised'
+$cfgHave = $config.Clone(); $cfgHave['ExpectedEdr'] = @('crowdstrike')
+Assert-Equal @((Invoke-One (Join-Path $fleet 'hostsnapshot_hardened.json') $cfgHave).Findings | Where-Object { $_.Type -like 'edr_*' }).Count 0 'EDR: the expected product is found, whatever the case of the name'
+$cfgOwn = $config.Clone(); $cfgOwn['ExpectedEdr'] = @('Dnscache')
+Assert-Equal @((Invoke-One (Join-Path $fleet 'hostsnapshot_hardened.json') $cfgOwn).Findings | Where-Object { $_.Type -like 'edr_*' }).Count 0 'EDR: any other text is looked for in the service names'
+$cfgExtra = $config.Clone(); $cfgExtra['ExtraEdrServices'] = @('Spooler')
+Assert-Equal @((Invoke-One (Join-Path $fleet 'hostsnapshot_weak.json') $cfgExtra).Findings | Where-Object { $_.Type -eq 'edr_not_found' }).Count 0 'EDR: a service named with -ExtraEdrServices counts as an agent'
+$senseSnap = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_hardened.json')
+$senseSnap.services = @([PSCustomObject]@{ name = 'Sense'; displayName = 'Windows Defender Advanced Threat Protection Service'; startMode = 'Manual'; state = 'Stopped'; account = 'LocalSystem'; pathName = ''; executable = ''; writableBy = @() })
+$senseRes = Invoke-HostChecks -Snapshot $senseSnap -Config $config
+Assert-True (@($senseRes.Findings | Where-Object { $_.Type -eq 'edr_not_found' -and $_.Severity -eq 'Medium' }).Count -eq 1 -and @($senseRes.Findings | Where-Object { $_.Type -eq 'edr_agent_stopped' }).Count -eq 0) 'EDR: the Defender for Endpoint service that was never onboarded is not an agent (and a server without one is Medium)'
+$senseSnap.services[0].startMode = 'Auto'
+Assert-Equal @((Invoke-HostChecks -Snapshot $senseSnap -Config $config).Findings | Where-Object { $_.Type -eq 'edr_agent_stopped' }).Count 1 'EDR: an onboarded Defender for Endpoint service that is stopped is flagged'
 # CIS rule: the finding quotes its own rule, not the range that belongs to the check.
 Assert-True (@($weak.Findings | Where-Object { $_.Type -eq 'service_should_be_disabled' -and $_.Object -eq 'service: SSDPSRV' -and $_.Severity -eq 'Medium' -and $_.Cis -eq '5.30 (L1)' }).Count -eq 1) 'service finding carries its own CIS rule and level'
 Assert-True (@($weak.Findings | Where-Object { $_.Type -eq 'service_should_be_disabled' -and $_.Object -eq 'service: XblAuthManager' -and $_.Severity -eq 'Low' }).Count -eq 1) 'non network CIS service is Low'
@@ -163,14 +184,14 @@ Compress-Archive -LiteralPath (Join-Path $fleet 'hostsnapshot_laptop.json') -Des
 $mainArgs = @{ Snapshot = @($fleet, $zipDir); OutHtml = (Join-Path $out 'r.html'); OutJsonl = (Join-Path $out 'r.jsonl'); OutRemediation = (Join-Path $out 'rem') }
 & (Join-Path $root 'HostBadger.ps1') @mainArgs *>&1 | Out-Null
 $csv = @(Import-Csv (Join-Path $out 'r.csv'))
-Assert-Equal $csv.Count 142 'end to end: findings CSV (zip read, older duplicate ignored)'
+Assert-Equal $csv.Count 144 'end to end: findings CSV (zip read, older duplicate ignored)'
 Assert-Equal @($csv | Where-Object { $_.Host -eq 'LT-SALES-112' -and $_.Type -eq 'os_support_ending' } | ForEach-Object { $_.Detail -match '39 days' }).Count 1 'newest snapshot of a host used'
 $html = [System.IO.File]::ReadAllText((Join-Path $out 'r.html'))
 Assert-True ($html -match 'Incomplete coverage' -and $html -match 'WKS-HR-004') 'report lists not evaluated checks with the host'
 Assert-True ($html -match '5 hosts' -and $html -match 'Weakest: WKS-ACCT-017') 'fleet cards'
 Assert-True ($html -notmatch 'https?://(?!attack\.mitre\.org)') 'report has no external links except MITRE'
 $lines = @(Get-Content (Join-Path $out 'r.jsonl'))
-Assert-Equal $lines.Count 147 'JSON Lines: 142 findings + 5 host summaries'
+Assert-Equal $lines.Count 149 'JSON Lines: 144 findings + 5 host summaries'
 $parsed = @($lines | ForEach-Object { $_ | ConvertFrom-Json })
 Assert-Equal @($parsed | Where-Object { $_.event_type -eq 'host_summary' -and $_.host -eq 'WKS-HR-004' -and $_.not_evaluated -eq 22 }).Count 1 'host summary carries the not evaluated count'
 $id1 = @($parsed | Where-Object { $_.check -eq 'uac_disabled' })[0].finding_id
@@ -192,8 +213,8 @@ New-Item -ItemType Directory -Path $out2 -Force | Out-Null
 $args2 = @{ Snapshot = @($fixed); OutHtml = (Join-Path $out2 'r.html'); OutJsonl = (Join-Path $out2 'r.jsonl'); CompareTo = (Join-Path $out 'r.csv'); ExceptionsFile = $exc }
 & (Join-Path $root 'HostBadger.ps1') @args2 *>&1 | Out-Null
 $csv2 = @(Import-Csv (Join-Path $out2 'r.csv'))
-# 142 - 2 (partial host not collected) - 1 (UAC fixed) - 1 (SMBv1 accepted) - 2 (NetBIOS accepted) = 136
-Assert-Equal $csv2.Count 136 'second run: fixed, accepted and missing-host findings gone'
+# 144 - 2 (partial host not collected) - 1 (UAC fixed) - 1 (SMBv1 accepted) - 2 (NetBIOS accepted) = 138
+Assert-Equal $csv2.Count 138 'second run: fixed, accepted and missing-host findings gone'
 Assert-True (@($csv2 | Where-Object { $_.Type -eq 'guest_enabled' }).Count -eq 1) 'expired exception ignored'
 $j2 = @(Get-Content (Join-Path $out2 'r.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })
 $resolved = @($j2 | Where-Object { $_.event_type -eq 'resolved' })
@@ -209,8 +230,8 @@ $remFiles = @(Get-ChildItem (Join-Path $out 'rem') -Filter 'remediate_*.ps1' -Er
 Assert-Equal ($remFiles.Name -join ',') 'remediate_DC01.ps1,remediate_WKS-ACCT-017.ps1' 'remediation: a script only for hosts with a fixable finding'
 $remWeak = New-RemediationScript -HostName 'WKS-ACCT-017' -Role 'workstation' -Findings $all -Config $config -CollectedUtc '2026-10-01 08:00' -ToolVersion 'test'
 $remDc = New-RemediationScript -HostName 'DC01' -Role 'dc' -Findings $all -Config $config -CollectedUtc '2026-10-01 08:00' -ToolVersion 'test'
-Assert-Equal "$($remWeak.ActionCount)/$($remWeak.FixableFindings)/$($remWeak.TotalFindings)" '78/77/132' 'remediation: weak host settings / findings with a script / findings'
-Assert-Equal "$($remDc.ActionCount)/$($remDc.FixableFindings)/$($remDc.TotalFindings)" '2/2/3' 'remediation: domain controller settings / findings with a script / findings'
+Assert-Equal "$($remWeak.ActionCount)/$($remWeak.FixableFindings)/$($remWeak.TotalFindings)" '78/77/133' 'remediation: weak host settings / findings with a script / findings'
+Assert-Equal "$($remDc.ActionCount)/$($remDc.FixableFindings)/$($remDc.TotalFindings)" '2/2/4' 'remediation: domain controller settings / findings with a script / findings'
 Assert-Equal @(New-RemediationScript -HostName 'SRV-APP-02' -Role 'server' -Findings $all -Config $config -CollectedUtc 'x' -ToolVersion 'test').ActionCount 0 'remediation: hardened server has nothing to fix'
 # Every check type that promises a script must produce one for at least one finding of the fleet. A
 # typo in an Object would otherwise hide it.
@@ -227,6 +248,8 @@ foreach ($rf in $remFiles) {
     Assert-True (@([regex]::Matches($rtxt, "(?m)^Set-HbRegistry .*? -Path '([^']+)'") | Where-Object { $_.Groups[1].Value -notmatch '^HKLM:\\' }).Count -eq 0) "remediation: $($rf.Name) touches only HKLM registry paths"
 }
 $remHtml = [System.IO.File]::ReadAllText((Join-Path $out 'r.html'))
+Assert-True ($remHtml -match '<th>EDR</th>' -and $remHtml -match 'CrowdStrike Falcon' -and $remHtml -match '\(stopped\)' -and $remHtml -match 'none found') 'report: the hosts table shows which EDR each host runs, stopped or missing'
+Assert-True (@(Get-Content (Join-Path $out 'r.jsonl') | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.event_type -eq 'host_summary' -and $_.host -eq 'DC01' -and @($_.edr) -contains 'CrowdStrike Falcon:stopped' }).Count -eq 1) 'JSON Lines: host_summary lists the EDR agents and their state'
 Assert-True ($remHtml -match 'Remediation scripts' -and $remHtml -match 'remediate_WKS-ACCT-017\.ps1') 'report lists the remediation scripts'
 Assert-True (@(Get-Content (Join-Path $out 'r.jsonl') | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.check -eq 'wdigest_cleartext' -and $_.fix_available -eq $true }).Count -eq 1 -and @(Get-Content (Join-Path $out 'r.jsonl') | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.check -eq 'bitlocker_os_volume_off' -and $_.fix_available -eq $false }).Count -eq 1) 'JSON Lines: fix_available follows the check'
 
@@ -379,7 +402,7 @@ Assert-True ($aiHtml -notmatch 'HOST-99') 'unknown host tokens are dropped'
 $psExe = (Get-Process -Id $PID).Path
 $wizDir = Join-Path $work 'wizard'; New-Item -ItemType Directory -Path $wizDir -Force | Out-Null
 $launcher = Join-Path $root 'Start-HostBadger.ps1'
-$wizAnswers = { param($offer) (@('2', $fleet, (Join-Path $wizDir 'w.html'), 'n', '', '', '', $offer) + $(if ($offer -eq 'd') { @((Join-Path $wizDir 'w_prompt.txt')) } else { @() }) + @('q')) -join "`n" }
+$wizAnswers = { param($offer) (@('2', $fleet, (Join-Path $wizDir 'w.html'), 'n', '', '', '', '', $offer) + $(if ($offer -eq 'd') { @((Join-Path $wizDir 'w_prompt.txt')) } else { @() }) + @('q')) -join "`n" }
 $wizNo = (& $wizAnswers 'n') | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
 Assert-True ($wizNo -match 'Report ready:' -and -not (Test-Path (Join-Path $wizDir 'w_prompt.txt')) -and [regex]::Matches($wizNo, 'Hosts analyzed').Count -eq 1) 'launcher: after the report it offers the AI summary, and "n" does nothing more'
 $wizDry = (& $wizAnswers 'd') | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
@@ -392,8 +415,8 @@ Copy-Item (Join-Path $fleet 'hostsnapshot_weak.json') (Join-Path $scanDir 'snaps
 Copy-Item (Join-Path $fleet 'hostsnapshot_hardened.json') (Join-Path $scanDir 'snapshots\hostsnapshot_SRV-APP-02_20261001080000.json')
 Push-Location $scanDir
 try {
-    $scanAll = (@('2', '', '', 'n', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
-    $scanOne = (@('2', '2', '', 'n', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    $scanAll = (@('2', '', '', 'n', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    $scanOne = (@('2', '2', '', 'n', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
 }
 finally { Pop-Location }
 Assert-True ($scanAll -match 'Snapshots found in .*snapshots: 3 for 2 host\(s\)' -and $scanAll -match 'WKS-ACCT-017' -and $scanAll -match 'SRV-APP-02' -and $scanAll -match 'older: a folder run ignores it') 'launcher: it lists the snapshots it finds and marks the older one of a host'

@@ -50,6 +50,7 @@ $standardAsr = @(
     [ordered]@{ id = 'e6db77e5-3df2-4cf1-b95a-636979351e5b'; action = 1 })
 $baseServices = @(
     (Svc 'Dnscache' 'C:\Windows\system32\svchost.exe -k NetworkService -p' 'C:\Windows\system32\svchost.exe' 'NT AUTHORITY\NetworkService'),
+    (Svc 'CSFalconService' '"C:\Program Files\CrowdStrike\CSFalconService.exe"' 'C:\Program Files\CrowdStrike\CSFalconService.exe'),
     (Svc 'Spooler' 'C:\Windows\System32\spoolsv.exe' 'C:\Windows\System32\spoolsv.exe' 'LocalSystem' $(if ($Scenario -eq 'hardened') { 'Stopped' } else { 'Running' }))
 )
 
@@ -69,7 +70,7 @@ $cleanRights = [ordered]@{
 # ------------------------------------------------------------------ hardened baseline
 $s = [ordered]@{
     meta                 = [ordered]@{
-        tool = 'HostBadger'; kind = 'host'; computerName = $name; schemaVersion = 1; collectorVersion = '1.2'; synthetic = $true
+        tool = 'HostBadger'; kind = 'host'; computerName = $name; schemaVersion = 1; collectorVersion = '1.0'; synthetic = $true
         collectedAtUtc = $CollectedAtUtc; collectedBy = 'NT AUTHORITY\SYSTEM'; runningAsSystem = $true; runningAsAdmin = $true; psVersion = '5.1.20348.2849'
         options = [ordered]@{ skipAcl = $false }
         sectionsCollected = @('host', 'patches', 'defender', 'bitlocker', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'audit', 'securityPolicy', 'hardening', 'services', 'scheduledTasks', 'autoruns')
@@ -212,7 +213,8 @@ switch ($Scenario) {
         $hd.eventLogs = @([ordered]@{ name = 'Application'; maxSizeBytes = 20971520 }, [ordered]@{ name = 'System'; maxSizeBytes = 20971520 })
         $hd.mrxsmb10Start = 2; $hd.disableExceptionChainValidation = 1; $hd.safeDllSearchMode = 0
         $hd.ipStack = [ordered]@{ disableIpSourceRoutingV4 = 0; disableIpSourceRoutingV6 = 1; enableIcmpRedirect = 1 }
-        $s.services = @($baseServices) + @(
+        # A neglected host with no EDR on it at all.
+        $s.services = @($baseServices | Where-Object { $_.name -ne 'CSFalconService' }) + @(
             (Svc 'SSDPSRV' 'C:\Windows\system32\svchost.exe -k LocalServiceAndNoImpersonation -p' 'C:\Windows\system32\svchost.exe' 'NT AUTHORITY\LocalService'),
             (Svc 'XblAuthManager' 'C:\Windows\system32\svchost.exe -k netsvcs -p' 'C:\Windows\system32\svchost.exe'),
             (Svc 'LxssManager' 'C:\Windows\system32\svchost.exe -k LxssManagerUser -p' 'C:\Windows\system32\svchost.exe'),
@@ -233,6 +235,8 @@ switch ($Scenario) {
         $s.host.os.caption = 'Microsoft Windows Server 2016 Standard'
         $s.host.os.version = '10.0.14393'; $s.host.os.build = 14393; $s.host.os.ubr = 8422; $s.host.os.displayVersion = '1607'
         $s.credentialProtection.credentialGuardRunning = $false
+        # The EDR agent is installed but its service is stopped.
+        $s.services = @($baseServices | Where-Object { $_.name -ne 'CSFalconService' }) + @((Svc 'CSFalconService' '"C:\Program Files\CrowdStrike\CSFalconService.exe"' 'C:\Program Files\CrowdStrike\CSFalconService.exe' 'LocalSystem' 'Stopped'))
         $s.credentialProtection.cachedLogonsCount = '10'
         $s.network.smbServerSigningRequired = $false
         $s.localAccounts.users = @([ordered]@{ name = 'Administrator'; sid = "$domainSid-500"; enabled = $true; passwordRequired = $true; passwordExpires = $true; lastLogonUtc = '2026-09-30T09:00:00Z'; passwordLastSetUtc = '2026-08-01T09:00:00Z' })
