@@ -178,6 +178,9 @@ function Get-AnalysisParams {
     Write-Host "If some belong there (for example an IT group), list them as DOMAIN/Name or by SID, comma separated, and they won't be reported." -ForegroundColor DarkGray
     $adm = Read-Host "Allowed local administrators, e.g. CORP/Workstation Admins, CORP/helpdesk (Enter = none)"
     if ($adm.Trim()) { $ap['AllowedAdmins'] = @($adm -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+    Write-Host "`nEDR: HostBadger shows which known EDR agent each host runs (CrowdStrike, SentinelOne, Defender for Endpoint, Carbon Black, Cortex XDR, Sophos, Trend Micro and others) and flags one that is stopped. Name the one every host should have and a host without it is flagged too." -ForegroundColor DarkGray
+    $edr = Read-Host "EDR every host should run, e.g. CrowdStrike or SentinelOne, comma separated (Enter = none)"
+    if ($edr.Trim()) { $ap['ExpectedEdr'] = @($edr -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
     # Option 4 asks about the AI step up front. Options 2 and 3 offer it once the report is written.
     if ($WithAi) { Add-AiParams -Params $ap -Mode (Read-AiMode 'AI summary (Gemini): [D]ry run (write the prompt, send nothing), [S]end, [C]onfirm first after reading the prompt (D/s/c)' -Default 'D') }
     return $ap
