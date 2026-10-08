@@ -138,7 +138,7 @@ $script:BadgerAscii = @'
 '@
 
 # The badger palette is charcoal, bark and cream, and severity keeps muted colours.
-$script:BadgerCategoryRamp = @('#1B1A17', '#33302A', '#4B463D', '#635C50', '#7C7465', '#968D7B', '#B0A893', '#C9C2AD', '#E0DAC6', '#8A6E4B')
+$script:BadgerCategoryRamp = @('#1B1A17', '#33302A', '#4B463D', '#635C50', '#7C7465', '#968D7B', '#B0A893', '#C9C2AD', '#E0DAC6', '#8A6E4B', '#5E7384', '#9AA39C')
 $script:BadgerSeverityColors = @('#A23B3B', '#B0703A', '#A88B2E', '#7F868D')
 
 function Get-SvgPieChart {
@@ -166,10 +166,57 @@ function Get-SvgPieChart {
     return "<div class='pie-chart-wrap'>$svg<div class='pie-legend'>$legend</div></div>"
 }
 
+function Get-ComplianceStats {
+    # STIG: rules judged on the hosts against the STIG findings. CIS: the CIS-based checks that apply to
+    # a host (its role, and evaluated) against the ones that fired. A check can cover several CIS rules,
+    # so this counts checks, not benchmark rules.
+    param($Hosts, $Findings)
+    $stigEval = 0; foreach ($hostItem in @($Hosts)) { $stigEval += [int]$hostItem.StigEvaluated }
+    $stigFail = [Math]::Min($stigEval, @($Findings | Where-Object { $_.Category -eq 'DISA STIG' }).Count)
+    $typesByHost = @{}
+    foreach ($f in @($Findings)) { if (-not $typesByHost.ContainsKey("$($f.Host)")) { $typesByHost["$($f.Host)"] = @{} }; $typesByHost["$($f.Host)"]["$($f.Type)"] = $true }
+    $cisApplicable = 0; $cisFail = 0
+    foreach ($hostItem in @($Hosts)) {
+        $ne = @{}; foreach ($n in @($hostItem.NotEvaluated | Where-Object { $_ })) { $ne["$($n.Type)"] = $true }
+        $fired = $typesByHost["$($hostItem.Name)"]
+        foreach ($t in $script:CheckCatalog.Keys) {
+            $m = $script:CheckCatalog[$t]
+            if (-not $m.Cis) { continue }
+            if ("$($hostItem.Role)" -ne 'unknown' -and $m.Roles -notcontains "$($hostItem.Role)") { continue }
+            if ($ne.ContainsKey($t)) { continue }
+            $cisApplicable++
+            if ($fired -and $fired.ContainsKey($t)) { $cisFail++ }
+        }
+    }
+    return [PSCustomObject]@{ StigEvaluated = $stigEval; StigFailed = $stigFail; CisApplicable = $cisApplicable; CisFailed = $cisFail }
+}
+
 function ConvertTo-ReportHtml {
-    param($Hosts, $Split, $Comparison, [hashtable]$Config, [string]$ToolVersion, [string]$ElapsedText, $AiResult = $null, $Remediation = $null)
+    param($Hosts, $Split, $Comparison, [hashtable]$Config, [string]$ToolVersion, [string]$ElapsedText, $AiResult = $null, $Remediation = $null, [switch]$HideCis, [switch]$HideStig, [switch]$KevLoaded)
     $H = { param($t) ConvertTo-HtmlSafe "$t" }
+    # Compliance is computed on everything; hiding only changes what the report lists.
+    $compliance = Get-ComplianceStats -Hosts $Hosts -Findings @($Split.Active)
     $findings = @($Split.Active)
+    $hiddenCis = 0; $hiddenStig = 0
+    $hideTypes = @()
+    if ($HideCis) {
+        $hiddenCis = @($findings | Where-Object { $_.Cis }).Count
+        $findings = @($findings | Where-Object { -not $_.Cis })
+        $hideTypes += @($script:CheckCatalog.Keys | Where-Object { $script:CheckCatalog[$_].Cis })
+    }
+    if ($HideStig) {
+        $hiddenStig = @($findings | Where-Object { $_.Category -eq 'DISA STIG' }).Count
+        $findings = @($findings | Where-Object { $_.Category -ne 'DISA STIG' })
+        $hideTypes += @($script:CheckCatalog.Keys | Where-Object { $_ -like 'stig_*' })
+    }
+    if ($hideTypes.Count -gt 0) {
+        $Hosts = @($Hosts | ForEach-Object {
+                $copy = New-Object PSObject
+                foreach ($p in $_.PSObject.Properties) { Add-Member -InputObject $copy -NotePropertyName $p.Name -NotePropertyValue $p.Value }
+                $copy.NotEvaluated = @($_.NotEvaluated | Where-Object { $_ -and $hideTypes -notcontains $_.Type })
+                $copy
+            })
+    }
     $sb = New-Object System.Text.StringBuilder
     $w = { param($t) [void]$sb.AppendLine($t) }
     $sevOrder = @('Critical', 'High', 'Medium', 'Low')
@@ -237,7 +284,10 @@ function ConvertTo-ReportHtml {
   .filter-status { font-size: 11px; color: var(--muted); margin: 4px 0 0 2px; }
   .compare-new { color: var(--accent-deep); font-weight: bold; }
   .compare-resolved { color: #615B50; font-weight: bold; }
-  .chart-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin: 18px 0; }
+  .chart-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin: 18px 0; grid-auto-flow: dense; }
+  .chart-row > div.chart-wide { grid-column: span 2; }
+  .chart-wide .pie-legend { columns: 2; column-gap: 28px; }
+  .chart-row > div { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; min-width: 0; }
   .pie-chart-wrap { display: flex; align-items: center; gap: 16px; }
   .pie-chart-wrap svg { flex-shrink: 0; }
   .pie-chart-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--slate); }
@@ -287,6 +337,11 @@ function filterBadgerTable(input) {
     & $w "<div class=`"meta`">$(& $H $titleTarget) &middot; $when &middot; HostBadger v$ToolVersion &middot; analysis $ElapsedText</div>"
     if (@($Hosts | Where-Object { $_.Synthetic }).Count -gt 0) { & $w '<blockquote>Synthetic snapshots generated for testing and demonstration. No real host data.</blockquote>' }
 
+    if ($hiddenCis -gt 0 -or $hiddenStig -gt 0 -or $HideCis -or $HideStig) {
+        $what = @(); if ($HideCis) { $what += "$hiddenCis CIS-based" }; if ($HideStig) { $what += "$hiddenStig DISA STIG" }
+        & $w "<blockquote>Hidden from this report: $($what -join ' and ') finding(s) (the compliance charts below still count them; the CSV and JSON Lines keep them).</blockquote>"
+    }
+
     # ---------------- Cards ----------------
     & $w '<div class="cards">'
     if ($single) { & $w "<div class=`"card`"><div class=`"grade`">$($Hosts[0].Score.Grade) &middot; $($Hosts[0].Score.Score)/100</div><div class=`"lbl`">Hardening score ($($Hosts[0].Score.ChecksTriggered) checks triggered)</div></div>" }
@@ -301,17 +356,58 @@ function filterBadgerTable(input) {
     & $w '</div>'
     & $w '<div class="meta">Score per host = 100 &times; e<sup>&minus;penalty/100</sup>, where penalty sums a weight per triggered check at its worst severity (Critical 20, High 8, Medium 3, Low 1); any Critical caps it at 35, any High at 65.</div>'
 
+    # ---------------- Compliance ----------------
+    $compCharts = @()
+    $comp = @('Compliant', 'Not compliant'); $compColors = @('#6E7F6A', '#A23B3B')
+    if ($compliance.StigEvaluated -gt 0) {
+        $okS = $compliance.StigEvaluated - $compliance.StigFailed
+        $compCharts += "<div><div class='pie-chart-title'>DISA STIG compliance: $([int][Math]::Round(100 * $okS / $compliance.StigEvaluated))% of $($compliance.StigEvaluated) rules judged</div>$(Get-SvgPieChart -Labels $comp -Values @($okS, $compliance.StigFailed) -Colors $compColors -CenterLabel 'rules')</div>"
+    }
+    if ($compliance.CisApplicable -gt 0) {
+        $okC = $compliance.CisApplicable - $compliance.CisFailed
+        $compCharts += "<div><div class='pie-chart-title'>CIS-based compliance: $([int][Math]::Round(100 * $okC / $compliance.CisApplicable))% of $($compliance.CisApplicable) checks</div>$(Get-SvgPieChart -Labels $comp -Values @($okC, $compliance.CisFailed) -Colors $compColors -CenterLabel 'checks')</div>"
+    }
+
     $sevVals = @($sevOrder | ForEach-Object { $counts[$_] })
     $cats = @($script:CheckCatalog.Values | ForEach-Object { $_.Category } | Select-Object -Unique)
     $catVals = @($cats | ForEach-Object { $c = $_; @($findings | Where-Object { $_.Category -eq $c }).Count })
-    & $w "<div class='chart-row'><div><div class='pie-chart-title'>Findings by severity</div>$(Get-SvgPieChart -Labels $sevOrder -Values $sevVals -Colors $script:BadgerSeverityColors -CenterLabel 'findings')</div>"
-    & $w "<div><div class='pie-chart-title'>Findings by category</div>$(Get-SvgPieChart -Labels $cats -Values $catVals -Colors $script:BadgerCategoryRamp -CenterLabel 'findings')</div>"
+    $sevChart = "<div><div class='pie-chart-title'>Findings by severity</div>$(Get-SvgPieChart -Labels $sevOrder -Values $sevVals -Colors $script:BadgerSeverityColors -CenterLabel 'findings')</div>"
+    $catChart = "<div class='chart-wide'><div class='pie-chart-title'>Findings by category</div>$(Get-SvgPieChart -Labels $cats -Values $catVals -Colors $script:BadgerCategoryRamp -CenterLabel 'findings')</div>"
+    $gradeChart = ''
     if (-not $single) {
         $grades = @('A', 'B', 'C', 'D', 'E', 'F')
         $gVals = @($grades | ForEach-Object { $g = $_; @($Hosts | Where-Object { $_.Score.Grade -eq $g }).Count })
-        & $w "<div><div class='pie-chart-title'>Hosts by grade</div>$(Get-SvgPieChart -Labels $grades -Values $gVals -Colors @('#2B2823', '#4B463D', '#7C7465', '#A88B2E', '#B0703A', '#A23B3B') -CenterLabel 'hosts')</div>"
+        $gradeChart = "<div><div class='pie-chart-title'>Hosts by grade</div>$(Get-SvgPieChart -Labels $grades -Values $gVals -Colors @('#2B2823', '#4B463D', '#7C7465', '#A88B2E', '#B0703A', '#A23B3B') -CenterLabel 'hosts')</div>"
     }
-    & $w '</div>'
+
+    # ---------------- Software and updates charts ----------------
+    $allSoftware = @(foreach ($hostItem in $Hosts) { foreach ($sw in @($hostItem.Software)) { if ($sw) { [PSCustomObject]@{ Host = $hostItem.Name; Name = "$($sw.name)"; Version = "$($sw.version)"; Publisher = "$($sw.publisher)" } } } })
+    $swCharts = @()
+    if ($allSoftware.Count -gt 0) {
+        # Publishers written differently ("Google LLC", "Google Inc.") count as one.
+        $pubKey = { param($p) $k = ("$p".ToLower() -replace '[^a-z0-9]+', ' ').Trim() -replace '\b(inc|llc|ltd|corp|corporation|co|gmbh|sa|ag|limited|incorporated)\b', ''; ($k -replace '\s+', ' ').Trim() }
+        $byPub = $allSoftware | Group-Object { $k = & $pubKey $_.Publisher; if ($k) { $k } else { '(unknown)' } } | Sort-Object Count -Descending
+        $top = @($byPub | Select-Object -First 7)
+        $pubLabels = @($top | ForEach-Object { $first = ($_.Group | Select-Object -First 1).Publisher; if ($_.Name -eq '(unknown)') { 'Unknown publisher' } elseif ($first.Length -gt 26) { $first.Substring(0, 26) } else { $first } })
+        $pubVals = @($top | ForEach-Object { $_.Count })
+        $rest = $allSoftware.Count - ($pubVals | Measure-Object -Sum).Sum
+        if ($rest -gt 0) { $pubLabels += 'Other publishers'; $pubVals += $rest }
+        $swCharts += "<div><div class='pie-chart-title'>Installed software by publisher ($($allSoftware.Count) installs)</div>$(Get-SvgPieChart -Labels $pubLabels -Values $pubVals -Colors $script:BadgerCategoryRamp -CenterLabel 'programs')</div>"
+        if ($KevLoaded) {
+            $kevCount = [Math]::Min($allSoftware.Count, @($Split.Active | Where-Object { $_.Type -eq 'kev_software_match' }).Count)
+            $swCharts += "<div><div class='pie-chart-title'>Software and the CISA KEV catalog (by name)</div>$(Get-SvgPieChart -Labels @('Matches a KEV product', 'No match') -Values @($kevCount, ($allSoftware.Count - $kevCount)) -Colors @('#A23B3B', '#6E7F6A') -CenterLabel 'programs')</div>"
+        }
+    }
+    if (@($Hosts | Where-Object { $_.UpdatesSearched }).Count -gt 0) {
+        $upd = @($Split.Active | Where-Object { $_.Type -eq 'updates_pending' })
+        $searched = @($Hosts | Where-Object { $_.UpdatesSearched }).Count
+        if ($upd.Count -eq 0) { $swCharts += "<div><div class='pie-chart-title'>Missing Windows updates: none found ($searched host(s) searched)</div>$(Get-SvgPieChart -Labels @('Up to date') -Values @($searched) -Colors @('#6E7F6A') -CenterLabel 'hosts')</div>" }
+        else { $swCharts += "<div><div class='pie-chart-title'>Missing Windows updates by severity ($searched host(s) searched)</div>$(Get-SvgPieChart -Labels @('High', 'Medium', 'Low') -Values @(@($upd | Where-Object { $_.Severity -eq 'High' }).Count, @($upd | Where-Object { $_.Severity -eq 'Medium' }).Count, @($upd | Where-Object { $_.Severity -eq 'Low' }).Count) -Colors @('#B0703A', '#A88B2E', '#7F868D') -CenterLabel 'updates')</div>" }
+    }
+    # One grid for all of them, the short legends first and the long category legend near the end.
+    $allCharts = @($compCharts) + @($sevChart) + @($swCharts) + @($catChart) + @($gradeChart) | Where-Object { $_ }
+    & $w "<div class='chart-row'>$($allCharts -join '')</div>"
+
 
     # ---------------- Coverage ----------------
     $allNe = @($Hosts | ForEach-Object { $_.NotEvaluated } | Where-Object { $_ })
@@ -431,6 +527,28 @@ function filterBadgerTable(input) {
             & $w "<tr class=`"data-row`"><td>$(Get-SevPill $a.Finding.Severity)</td><td>$($a.Finding.Type)</td><td>$(& $H $a.Finding.Host)</td><td>$(& $H $a.Finding.Object)</td><td>$(& $H $a.Exception.reason)</td><td>$(& $H $a.Exception.owner)</td><td>$(& $H $a.Exception.expires)</td></tr>"
         }
         & $w '</table></div></details>'
+    }
+
+    # ---------------- Installed software (filterable) ----------------
+    if ($allSoftware.Count -gt 0) {
+        $kevNames = @{}
+        foreach ($kf in @($Split.Active | Where-Object { $_.Type -eq 'kev_software_match' })) {
+            $mm = [regex]::Match("$($kf.Detail)", '^Installed as (.+) \((?:version [^)]*|no version recorded)\)\.')
+            if ($mm.Success) { $kevNames["$($kf.Host)|$($mm.Groups[1].Value)".ToLower()] = $true }
+        }
+        $rows = @($allSoftware | Group-Object { "$($_.Name)|$($_.Version)|$($_.Publisher)".ToLower() } | Sort-Object { $_.Group[0].Name })
+        $shown = @($rows | Select-Object -First 3000)
+        & $w "<details><summary><h2>Installed software</h2></summary><p class=`"meta`">What Programs and Features lists on $(@($Hosts).Count) host(s): $($allSoftware.Count) installs, $($rows.Count) distinct. Per-user installs are not listed.$(if ($KevLoaded) { ' The last column marks programs that match a product in the CISA KEV catalog by name only (no version ranges: verify against the vendor advisory).' })</p><div class=`"table-wrap`"><table>"
+        & $w '<tr><th>Program</th><th>Version</th><th>Publisher</th><th>Hosts</th><th>KEV</th></tr>'
+        & $w ('<tr class="filter-row">' + ((1..5 | ForEach-Object { '<td><input type="text" placeholder="filter" oninput="filterBadgerTable(this)"></td>' }) -join '') + '</tr>')
+        foreach ($g in $shown) {
+            $first = $g.Group[0]
+            $hostNames = @($g.Group | ForEach-Object { $_.Host } | Select-Object -Unique)
+            $isKev = @($hostNames | Where-Object { $kevNames.ContainsKey("$_|$($first.Name)".ToLower()) }).Count -gt 0
+            $hostsCell = if ($single) { '' } else { "$($hostNames.Count)" }
+            & $w "<tr class=`"data-row`"><td>$(& $H $first.Name)</td><td>$(& $H $first.Version)</td><td>$(& $H $first.Publisher)</td><td>$hostsCell</td><td>$(if ($isKev) { 'match' } else { '' })</td></tr>"
+        }
+        & $w "</table></div><div class=`"filter-status`">$($shown.Count) rows$(if ($rows.Count -gt $shown.Count) { " (first 3000 of $($rows.Count))" })</div></details>"
     }
 
     # ---------------- All findings (filterable) ----------------

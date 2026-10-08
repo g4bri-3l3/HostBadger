@@ -12,7 +12,8 @@
     "runningAsAdmin": true,
     "psVersion": "5.1.20348.2849",
     "options": {
-      "skipAcl": false
+      "skipAcl": false,
+      "checkUpdates": true
     },
     "sectionsCollected": [
       "host",
@@ -30,9 +31,12 @@
       "audit",
       "securityPolicy",
       "hardening",
+      "stig",
+      "software",
       "services",
       "scheduledTasks",
-      "autoruns"
+      "autoruns",
+      "updatesPending"
     ],
     "collectionErrors": []
   },
@@ -97,10 +101,65 @@
       {
         "id": "e6db77e5-3df2-4cf1-b95a-636979351e5b",
         "action": 1
+      },
+      {
+        "id": "7674ba52-37eb-4a4f-a9a1-f0f9a1619a2c",
+        "action": 1
+      },
+      {
+        "id": "d4f940ab-401b-4efc-aadc-ad5f3c50688a",
+        "action": 1
+      },
+      {
+        "id": "be9ba2d9-53ea-4cdc-84e5-9b1eeee46550",
+        "action": 1
+      },
+      {
+        "id": "01443614-cd74-433a-b99e-2ecdc07bfc25",
+        "action": 1
+      },
+      {
+        "id": "5beb7efe-fd9a-4556-801d-275e5ffc04cc",
+        "action": 1
+      },
+      {
+        "id": "d3e037e1-3eb8-44c8-a917-57927947596d",
+        "action": 1
+      },
+      {
+        "id": "3b576869-a4ec-4529-8536-b80a7769e899",
+        "action": 1
+      },
+      {
+        "id": "75668c1f-73b5-4cf0-bb93-3ecf5cb7cc84",
+        "action": 1
+      },
+      {
+        "id": "26190899-1602-49e8-8b27-eb1d0a1ce869",
+        "action": 1
+      },
+      {
+        "id": "d1e49aac-8f56-4280-b9ba-993a6d77406c",
+        "action": 1
+      },
+      {
+        "id": "b2b3f03d-6a65-4f7b-a9c7-1c7ef74a9ba4",
+        "action": 1
+      },
+      {
+        "id": "92e97fa1-2edf-4476-bdd6-9dd0b4dddc7b",
+        "action": 1
+      },
+      {
+        "id": "c1db55ab-c21a-4637-bb3f-a12568109d35",
+        "action": 1
       }
     ],
     "puaProtection": 1,
-    "networkProtection": 1
+    "networkProtection": 1,
+    "mapsReporting": 2,
+    "disableBlockAtFirstSeen": false,
+    "disableScriptScanning": false
   },
   "bitlocker": {
     "featureInstalled": true,
@@ -425,6 +484,101 @@
     }
   },
   "hardening": {
+    "schannel": {
+      "protocols": [
+        {
+          "name": "SSL 2.0",
+          "side": "Server",
+          "enabled": null
+        },
+        {
+          "name": "SSL 2.0",
+          "side": "Client",
+          "enabled": null
+        },
+        {
+          "name": "SSL 3.0",
+          "side": "Server",
+          "enabled": null
+        },
+        {
+          "name": "SSL 3.0",
+          "side": "Client",
+          "enabled": null
+        },
+        {
+          "name": "TLS 1.0",
+          "side": "Server",
+          "enabled": null
+        },
+        {
+          "name": "TLS 1.0",
+          "side": "Client",
+          "enabled": null
+        },
+        {
+          "name": "TLS 1.1",
+          "side": "Server",
+          "enabled": null
+        },
+        {
+          "name": "TLS 1.1",
+          "side": "Client",
+          "enabled": null
+        }
+      ],
+      "ciphers": [
+        {
+          "name": "NULL",
+          "enabled": null
+        },
+        {
+          "name": "DES 56/56",
+          "enabled": null
+        },
+        {
+          "name": "RC2 40/128",
+          "enabled": null
+        },
+        {
+          "name": "RC2 56/128",
+          "enabled": null
+        },
+        {
+          "name": "RC2 128/128",
+          "enabled": null
+        },
+        {
+          "name": "RC4 40/128",
+          "enabled": null
+        },
+        {
+          "name": "RC4 56/128",
+          "enabled": null
+        },
+        {
+          "name": "RC4 64/128",
+          "enabled": null
+        },
+        {
+          "name": "RC4 128/128",
+          "enabled": null
+        },
+        {
+          "name": "Triple DES 168",
+          "enabled": null
+        }
+      ]
+    },
+    "ldapServer": {
+      "integrity": 2,
+      "channelBinding": 2
+    },
+    "pointAndPrint": {
+      "restrictDriverInstallToAdmins": 1,
+      "noWarningNoElevationOnInstall": 0,
+      "noWarningNoElevationOnUpdate": 0
+    },
     "smbInsecureGuestAuth": 0,
     "ldapClientIntegrity": 1,
     "ntlmMinClientSec": 537395200,
@@ -503,6 +657,2510 @@
       "enableIcmpRedirect": 0
     }
   },
+  "stig": {
+    "products": {
+      "edge": true,
+      "chrome": false,
+      "firefox": false,
+      "office": false
+    },
+    "machine": [
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "RemoteAccessHostFirewallTraversal",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "DefaultGeolocationSetting",
+        "v": 2
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "DefaultPopupsSetting",
+        "v": 2
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "DefaultSearchProviderEnabled",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "PasswordManagerEnabled",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "BackgroundModeEnabled",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "SyncDisabled",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome\\URLBlocklist",
+        "n": "1",
+        "v": "javascript://*"
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "CloudPrintProxyEnabled",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "NetworkPredictionOptions",
+        "v": 2
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "MetricsReportingEnabled",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "SearchSuggestEnabled",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "ImportSavedPasswords",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "IncognitoModeAvailability",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "EnableOnlineRevocationChecks",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "SafeBrowsingProtectionLevel",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "SavingBrowserHistoryDisabled",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "AllowDeletingBrowserHistory",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "PromptForDownloadLocation",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "DownloadRestrictions",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "SafeBrowsingExtendedReportingEnabled",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "DefaultWebUsbGuardSetting",
+        "v": 2
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "EnableMediaRouter",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "AutoplayAllowed",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "UrlKeyedAnonymizedDataCollectionEnabled",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "WebRtcEventLogCollectionAllowed",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "DeveloperToolsAvailability",
+        "v": 2
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "BrowserGuestModeEnabled",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "AutofillCreditCardEnabled",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "AutofillAddressEnabled",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "ImportAutofillFormData",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "DefaultWebBluetoothGuardSetting",
+        "v": 2
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome",
+        "n": "QuicAllowed",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome\\\"",
+        "n": "CreateThemesSettings",
+        "v": 2
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome\\\"",
+        "n": "DevToolsGenAiSettings",
+        "v": 2
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome\\\"",
+        "n": "GenAILocalFoundationalModelSettings",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome\\\"",
+        "n": "HelpMeWriteSettings",
+        "v": 2
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome\\\"",
+        "n": "HistorySearchSettings",
+        "v": 2
+      },
+      {
+        "k": "Software\\Policies\\Google\\Chrome\\\"",
+        "n": "TabCompareSettings",
+        "v": 2
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender",
+        "n": "PUAProtection",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender",
+        "n": "DisableRoutinelyTakingAction",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Exclusions",
+        "n": "DisableAutoExclusions",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Spynet",
+        "n": "LocalSettingOverrideSpynetReporting",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Spynet",
+        "n": "DisableBlockAtFirstSeen",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Spynet",
+        "n": "SpynetReporting",
+        "v": 2
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Spynet",
+        "n": "SubmitSamplesConsent",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\NIS",
+        "n": "DisableProtocolRecognition",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection",
+        "n": "LocalSettingOverrideDisableOnAccessProtection",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection",
+        "n": "LocalSettingOverrideRealtimeScanDirection",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection",
+        "n": "LocalSettingOverrideDisableIOAVProtection",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection",
+        "n": "LocalSettingOverrideDisableBehaviorMonitoring",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection",
+        "n": "LocalSettingOverrideDisableRealtimeMonitoring",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection",
+        "n": "RealtimeScanDirection",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection",
+        "n": "DisableOnAccessProtection",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection",
+        "n": "DisableIOAVProtection",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection",
+        "n": "DisableRealtimeMonitoring",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection",
+        "n": "DisableBehaviorMonitoring",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection",
+        "n": "DisableScanOnRealtimeEnable",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Scan",
+        "n": "DisableArchiveScanning",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Scan",
+        "n": "DisableRemovableDriveScanning",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Scan",
+        "n": "ScheduleDay",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Scan",
+        "n": "DisableEmailScanning",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Signature Updates",
+        "n": "ASSignatureDue",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Signature Updates",
+        "n": "AVSignatureDue",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Signature Updates",
+        "n": "ScheduleDay",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Threats\\ThreatSeverityDefaultAction",
+        "n": "5",
+        "v": "2"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Windows Defender Exploit Guard\\ASR\\Rules",
+        "n": "BE9BA2D9-53EA-4CDC-84E5-9B1EEEE46550",
+        "v": "1"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Windows Defender Exploit Guard\\ASR\\Rules",
+        "n": "D4F940AB-401B-4EFC-AADC-AD5F3C50688A",
+        "v": "1"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Windows Defender Exploit Guard\\ASR\\Rules",
+        "n": "3B576869-A4EC-4529-8536-B80A7769E899",
+        "v": "1"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Windows Defender Exploit Guard\\ASR\\Rules",
+        "n": "75668C1F-73B5-4CF0-BB93-3ECF5CB7CC84",
+        "v": "1"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Windows Defender Exploit Guard\\ASR\\Rules",
+        "n": "D3E037E1-3EB8-44C8-A917-57927947596D",
+        "v": "1"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Windows Defender Exploit Guard\\ASR\\Rules",
+        "n": "5BEB7EFE-FD9A-4556-801D-275E5FFC04CC",
+        "v": "1"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Windows Defender Exploit Guard\\ASR\\Rules",
+        "n": "92E97FA1-2EDF-4476-BDD6-9DD0B4DDDC7B",
+        "v": "1"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Windows Defender Exploit Guard\\Network Protection",
+        "n": "EnableNetworkProtection",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Threats\\ThreatSeverityDefaultAction",
+        "n": "4",
+        "v": "2"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Threats\\ThreatSeverityDefaultAction",
+        "n": "2",
+        "v": "2"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Threats\\ThreatSeverityDefaultAction",
+        "n": "1",
+        "v": "2"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Windows Defender Exploit Guard\\ASR\\Rules",
+        "n": "7674ba52-37eb-4a4f-a9a1-f0f9a1619a2c",
+        "v": "1"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Windows Defender Exploit Guard\\ASR\\Rules",
+        "n": "9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2",
+        "v": "1"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Windows Defender Exploit Guard\\ASR\\Rules",
+        "n": "b2b3f03d-6a65-4f7b-a9c7-1c7ef74a9ba4",
+        "v": "1"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Windows Defender Exploit Guard\\ASR\\Rules",
+        "n": "c1db55ab-c21a-4637-bb3f-a12568109d35",
+        "v": "1"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Windows Defender Exploit Guard\\ASR\\Rules",
+        "n": "d1e49aac-8f56-4280-b9ba-993a6d77406c",
+        "v": "2"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Windows Defender Exploit Guard\\ASR\\Rules",
+        "n": "e6db77e5-3df2-4cf1-b95a-636979351e5b",
+        "v": "2"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Windows Defender Exploit Guard\\ASR\\Rules",
+        "n": "01443614-cd74-433a-b99e-2ecdc07bfc25",
+        "v": "2"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Windows Defender Exploit Guard\\ASR\\Rules",
+        "n": "26190899-1602-49e8-8b27-eb1d0a1ce869",
+        "v": "1"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Windows Defender Exploit Guard\\ASR\\Rules",
+        "n": "56a863a9-875e-4185-98a7-b882c64b5ce5",
+        "v": "1"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender",
+        "n": "DisableLocalAdminMerge",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender",
+        "n": "HideExclusionsFromLocalAdmins",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender",
+        "n": "RandomizeScheduleTaskTimes",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows Defender Security Center\\Family options",
+        "n": "UILockdown",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\MpEngine",
+        "n": "EnableFileHashComputation",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\MpEngine",
+        "n": "MpBafsExtendedTimeout",
+        "v": 50
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection",
+        "n": "DisableScriptScanning",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection",
+        "n": "OobeEnableRtpAndSigUpdate",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Windows Defender Exploit Guard\\Network Protection",
+        "n": "AllowNetworkProtectionOnWinServer",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Features",
+        "n": "PassiveRemediation",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Reporting",
+        "n": "EnableDynamicSignatureDroppedEventReporting",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Scan",
+        "n": "QuickScanIncludeExclusions",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\NIS",
+        "n": "EnableConvertWarnToBlock",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\NIS",
+        "n": "AllowSwitchToAsyncInspection",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Scan",
+        "n": "DisablePackedExeScanning",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\Scan",
+        "n": "DisableHeuristics",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows Defender\\MpEngine",
+        "n": "MpCloudBlockLevel",
+        "v": 2
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "PreventSmartScreenPromptOverride",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "PreventSmartScreenPromptOverrideForFiles",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "InPrivateModeAvailability",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "BackgroundModeEnabled",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "DefaultPopupsSetting",
+        "v": 2
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "SyncDisabled",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "NetworkPredictionOptions",
+        "v": 2
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "SearchSuggestEnabled",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "ImportAutofillFormData",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "ImportBrowserSettings",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "ImportCookies",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "ImportExtensions",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "ImportHistory",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "ImportHomepage",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "ImportOpenTabs",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "ImportPaymentInfo",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "ImportSavedPasswords",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "ImportSearchEngine",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "ImportShortcuts",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "AutoplayAllowed",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "DefaultWebUsbGuardSetting",
+        "v": 2
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "EnableMediaRouter",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "DefaultWebBluetoothGuardSetting",
+        "v": 2
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "AutofillCreditCardEnabled",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "AutofillAddressEnabled",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "EnableOnlineRevocationChecks",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "PersonalizationReportingEnabled",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "DefaultGeolocationSetting",
+        "v": 2
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "AllowDeletingBrowserHistory",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "DeveloperToolsAvailability",
+        "v": 2
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "DownloadRestrictions",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge\\ExtensionInstallBlocklist",
+        "n": "1",
+        "v": "*"
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "PasswordManagerEnabled",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "SitePerProcess",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "AuthSchemes",
+        "v": "ntlm,negotiate"
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "SmartScreenEnabled",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "SmartScreenPuaEnabled",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "PromptForDownloadLocation",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "TrackingPrevention",
+        "v": 2
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "PaymentMethodQueryEnabled",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "AlternateErrorPagesEnabled",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "UserFeedbackAllowed",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "EdgeCollectionsEnabled",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "ConfigureShare",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "BrowserGuestModeEnabled",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "RelaunchNotification",
+        "v": 2
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "BuiltInDnsClientEnabled",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "QuicAllowed",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "VisualSearchEnabled",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "HubsSidebarEnabled",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "DefaultCookieSetting",
+        "v": 4
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "ConfigureFriendlyURLFormat",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Edge",
+        "n": "ComposeInlineEnabled",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox",
+        "n": "SSLVersionMin",
+        "v": "tls1.2"
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox",
+        "n": "ExtensionUpdate",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox",
+        "n": "DisableFormHistory",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox",
+        "n": "PasswordManagerEnabled",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\PopupBlocking",
+        "n": "Default",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\PopupBlocking",
+        "n": "Locked",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\InstallAddonsPermission",
+        "n": "Default",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox",
+        "n": "DisableTelemetry",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox",
+        "n": "DisableDeveloperTools",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\Certificates",
+        "n": "ImportEnterpriseRoots",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox",
+        "n": "DisableForgetButton",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox",
+        "n": "DisablePrivateBrowsing",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox",
+        "n": "SearchSuggestEnabled",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\Permissions\\Autoplay",
+        "n": "Default",
+        "v": "block-audio-video"
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox",
+        "n": "NetworkPrediction",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\EnableTrackingProtection",
+        "n": "Fingerprinting",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\EnableTrackingProtection",
+        "n": "Cryptomining",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\DisabledCiphers",
+        "n": "TLS_RSA_WITH_3DES_EDE_CBC_SHA",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\UserMessaging",
+        "n": "ExtensionRecommendations",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\FirefoxHome",
+        "n": "Highlights",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\FirefoxHome",
+        "n": "Locked",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\FirefoxHome",
+        "n": "Pocket",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\FirefoxHome",
+        "n": "Search",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\FirefoxHome",
+        "n": "Snippets",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\FirefoxHome",
+        "n": "SponsoredPocket",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\FirefoxHome",
+        "n": "SponsoredTopSites",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\FirefoxHome",
+        "n": "TopSites",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\DNSOverHTTPS",
+        "n": "Enabled",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox",
+        "n": "DisableFirefoxAccounts",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox",
+        "n": "DisableFeedbackCommands",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\EncryptedMediaExtensions",
+        "n": "Enabled",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\EncryptedMediaExtensions",
+        "n": "Locked",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\SanitizeOnShutdown",
+        "n": "Cache",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\SanitizeOnShutdown",
+        "n": "Cookies",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\SanitizeOnShutdown",
+        "n": "Downloads",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\SanitizeOnShutdown",
+        "n": "FormData",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\SanitizeOnShutdown",
+        "n": "History",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\SanitizeOnShutdown",
+        "n": "Locked",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\SanitizeOnShutdown",
+        "n": "OfflineApps",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\SanitizeOnShutdown",
+        "n": "Sessions",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox\\SanitizeOnShutdown",
+        "n": "SiteSettings",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox",
+        "n": "DisablePocket",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Mozilla\\Firefox",
+        "n": "DisableFirefoxStudies",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile",
+        "n": "EnableFirewall",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\DomainProfile",
+        "n": "EnableFirewall",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PrivateProfile",
+        "n": "EnableFirewall",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\StandardProfile",
+        "n": "EnableFirewall",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile",
+        "n": "EnableFirewall",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\PublicProfile",
+        "n": "EnableFirewall",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile",
+        "n": "DefaultInboundAction",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\DomainProfile",
+        "n": "DefaultInboundAction",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile",
+        "n": "DefaultOutboundAction",
+        "v": 0
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\DomainProfile",
+        "n": "DefaultOutboundAction",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile\\Logging",
+        "n": "LogFileSize",
+        "v": 16384
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\DomainProfile\\Logging",
+        "n": "LogFileSize",
+        "v": 16384
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile\\Logging",
+        "n": "LogDroppedPackets",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\DomainProfile\\Logging",
+        "n": "LogDroppedPackets",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile\\Logging",
+        "n": "LogSuccessfulConnections",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\DomainProfile\\Logging",
+        "n": "LogSuccessfulConnections",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PrivateProfile",
+        "n": "DefaultInboundAction",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\StandardProfile",
+        "n": "DefaultInboundAction",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PrivateProfile",
+        "n": "DefaultOutboundAction",
+        "v": 0
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\StandardProfile",
+        "n": "DefaultOutboundAction",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PrivateProfile\\Logging",
+        "n": "LogFileSize",
+        "v": 16384
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\StandardProfile\\Logging",
+        "n": "LogFileSize",
+        "v": 16384
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PrivateProfile\\Logging",
+        "n": "LogDroppedPackets",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\StandardProfile\\Logging",
+        "n": "LogDroppedPackets",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PrivateProfile\\Logging",
+        "n": "LogSuccessfulConnections",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\StandardProfile\\Logging",
+        "n": "LogSuccessfulConnections",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile",
+        "n": "DefaultInboundAction",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\PublicProfile",
+        "n": "DefaultInboundAction",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile",
+        "n": "DefaultOutboundAction",
+        "v": 0
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\PublicProfile",
+        "n": "DefaultOutboundAction",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile",
+        "n": "AllowLocalPolicyMerge",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile",
+        "n": "AllowLocalIPsecPolicyMerge",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile\\Logging",
+        "n": "LogFileSize",
+        "v": 16384
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\PublicProfile\\Logging",
+        "n": "LogFileSize",
+        "v": 16384
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile\\Logging",
+        "n": "LogDroppedPackets",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\PublicProfile\\Logging",
+        "n": "LogDroppedPackets",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile\\Logging",
+        "n": "LogSuccessfulConnections",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\PublicProfile\\Logging",
+        "n": "LogSuccessfulConnections",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Office\\Common\\COM Compatibility",
+        "n": "COMMENT",
+        "v": "Block all Flash activation"
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\office\\16.0\\lync",
+        "n": "enablesiphighsecuritymode",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\office\\16.0\\lync",
+        "n": "disablehttpconnect",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\FVE",
+        "n": "MinimumPIN",
+        "v": 6
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel",
+        "n": "DisableExceptionChainValidation",
+        "v": 0
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters",
+        "n": "SMB1",
+        "v": 0
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\mrxsmb10",
+        "n": "Start",
+        "v": 4
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\PolicyManager\\current\\device\\Connectivity",
+        "n": "AllowBluetooth",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\EventLog\\Application",
+        "n": "MaxSize",
+        "v": 32768
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\EventLog\\Security",
+        "n": "MaxSize",
+        "v": 1234569216
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\EventLog\\System",
+        "n": "MaxSize",
+        "v": 32768
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Personalization",
+        "n": "NoLockScreenCamera",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\webcam",
+        "n": "Value",
+        "v": "Allow"
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Personalization",
+        "n": "NoLockScreenSlideshow",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters",
+        "n": "DisableIpSourceRouting",
+        "v": 2
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters",
+        "n": "DisableIPSourceRouting",
+        "v": 2
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters",
+        "n": "EnableICMPRedirect",
+        "v": 0
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Netbt\\Parameters",
+        "n": "NoNameReleaseOnDemand",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "LocalAccountTokenFilterPolicy",
+        "v": 0
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\Wdigest",
+        "n": "UseLogonCredential",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Classes\\batfile\\shell\\runasuser",
+        "n": "SuppressionPolicy",
+        "v": 4096
+      },
+      {
+        "k": "SOFTWARE\\Classes\\cmdfile\\shell\\runasuser",
+        "n": "SuppressionPolicy",
+        "v": 4096
+      },
+      {
+        "k": "SOFTWARE\\Classes\\exefile\\shell\\runasuser",
+        "n": "SuppressionPolicy",
+        "v": 4096
+      },
+      {
+        "k": "SOFTWARE\\Classes\\mscfile\\shell\\runasuser",
+        "n": "SuppressionPolicy",
+        "v": 4096
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\LanmanWorkstation",
+        "n": "AllowInsecureGuestAuth",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Network Connections",
+        "n": "NC_ShowSharedAccessUI",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\NetworkProvider\\HardenedPaths",
+        "n": "\\\\*\\NETLOGON",
+        "v": "RequireMutualAuthentication=1, RequireIntegrity=1"
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\NetworkProvider\\HardenedPaths",
+        "n": "\\\\*\\SYSVOL",
+        "v": "RequireMutualAuthentication=1, RequireIntegrity=1"
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\WcmSvc\\GroupPolicy",
+        "n": "fMinimizeConnections",
+        "v": 3
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\WcmSvc\\GroupPolicy",
+        "n": "fBlockNonDomain",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\WcmSvc\\wifinetworkmanager\\config",
+        "n": "AutoConnectAllowedOEM",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\Audit",
+        "n": "ProcessCreationIncludeCmdLine_Enabled",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\CredentialsDelegation",
+        "n": "AllowProtectedCreds",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
+        "n": "EnableVirtualizationBasedSecurity",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
+        "n": "RequirePlatformSecurityFeatures",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
+        "n": "LsaCfgFlags",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
+        "n": "HypervisorEnforcedCodeIntegrity",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Policies\\EarlyLaunch",
+        "n": "DriverLoadPolicy",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Group Policy\\{35378EAC-683F-11D2-A89A-00C04FBBCFA2}",
+        "n": "NoGPOListChanges",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers",
+        "n": "DisableWebPnPDownload",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+        "n": "NoWebServices",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers",
+        "n": "DisableHTTPPrinting",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\Kerberos\\Parameters",
+        "n": "DevicePKInitEnabled",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+        "n": "DontDisplayNetworkSelectionUI",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+        "n": "EnumerateLocalUsers",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Power\\PowerSettings\\0e796bdb-100d-47d6-a2d5-f7d2daa51f51",
+        "n": "DCSettingIndex",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Power\\PowerSettings\\0e796bdb-100d-47d6-a2d5-f7d2daa51f51",
+        "n": "ACSettingIndex",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
+        "n": "fAllowToGetHelp",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows NT\\Rpc",
+        "n": "RestrictRemoteClients",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "MSAOptional",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\AppCompat",
+        "n": "DisableInventory",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+        "n": "NoAutoplayfornonVolume",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+        "n": "NoAutorun",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\policies\\Explorer",
+        "n": "NoDriveTypeAutoRun",
+        "v": 255
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Biometrics\\FacialFeatures",
+        "n": "EnhancedAntiSpoofing",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent",
+        "n": "DisableWindowsConsumerFeatures",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\CredUI",
+        "n": "EnumerateAdministrators",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
+        "n": "LimitEnhancedDiagnosticDataWindowsAnalytics",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
+        "n": "AllowTelemetry",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization",
+        "n": "DODownloadMode",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\DeliveryOptimization\\Config",
+        "n": "DODownloadMode",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+        "n": "ShellSmartScreenLevel",
+        "v": "Block"
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+        "n": "EnableSmartScreen",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+        "n": "NoDataExecutionPrevention",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+        "n": "NoHeapTerminationOnCorruption",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+        "n": "PreXPSP2ShellProtocolBehavior",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\GameDVR",
+        "n": "AllowGameDVR",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\PassportForWork",
+        "n": "RequireSecurityDevice",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\PassportForWork\\PINComplexity",
+        "n": "MinimumPINLength",
+        "v": 6
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
+        "n": "DisablePasswordSaving",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
+        "n": "fDisableCdm",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
+        "n": "fPromptForPassword",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
+        "n": "fEncryptRPCTraffic",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
+        "n": "MinEncryptionLevel",
+        "v": 3
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Internet Explorer\\Feeds",
+        "n": "DisableEnclosureDownload",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Internet Explorer\\Feeds",
+        "n": "AllowBasicAuthInClear",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
+        "n": "AllowIndexingEncryptedStoresOrItems",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Installer",
+        "n": "EnableUserControl",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Installer",
+        "n": "AlwaysInstallElevated",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Installer",
+        "n": "SafeForScripting",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "DisableAutomaticRestartSignOn",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging",
+        "n": "EnableScriptBlockLogging",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\Transcription",
+        "n": "EnableTranscripting",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Client",
+        "n": "AllowBasic",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Client",
+        "n": "AllowUnencryptedTraffic",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service",
+        "n": "AllowBasic",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service",
+        "n": "AllowUnencryptedTraffic",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service",
+        "n": "DisableRunAs",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Client",
+        "n": "AllowDigest",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy",
+        "n": "LetAppsActivateWithVoiceAboveLock",
+        "v": 2
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy",
+        "n": "LetAppsActivateWithVoice",
+        "v": 2
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows\\System",
+        "n": "AllowDomainPINLogon",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\WindowsInkWorkspace",
+        "n": "AllowWindowsInkWorkspace",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Microsoft\\Windows\\Kernel DMA Protection",
+        "n": "DeviceEnumerationPolicy",
+        "v": 0
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa",
+        "n": "LimitBlankPasswordUse",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa",
+        "n": "SCENoApplyLegacyAuditPolicy",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+        "n": "RequireSignOrSeal",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+        "n": "SealSecureChannel",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+        "n": "SignSecureChannel",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+        "n": "DisablePasswordChange",
+        "v": 0
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+        "n": "MaximumPasswordAge",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+        "n": "RequireStrongKey",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "InactivityTimeoutSecs",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+        "n": "CachedLogonsCount",
+        "v": "10"
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+        "n": "SCRemoveOption",
+        "v": "1"
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters",
+        "n": "RequireSecuritySignature",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters",
+        "n": "EnablePlainTextPassword",
+        "v": 0
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
+        "n": "RequireSecuritySignature",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa",
+        "n": "RestrictAnonymousSAM",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa",
+        "n": "RestrictAnonymous",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa",
+        "n": "EveryoneIncludesAnonymous",
+        "v": 0
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
+        "n": "RestrictNullSessAccess",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa",
+        "n": "RestrictRemoteSAM",
+        "v": "O:BAG:BAD:(A;;RC;;;BA)"
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\LSA\\MSV1_0",
+        "n": "allownullsessionfallback",
+        "v": 0
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\LSA\\pku2u",
+        "n": "AllowOnlineID",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\Kerberos\\Parameters",
+        "n": "SupportedEncryptionTypes",
+        "v": 2147483640
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa",
+        "n": "NoLMHash",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa",
+        "n": "LmCompatibilityLevel",
+        "v": 5
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\LDAP",
+        "n": "LDAPClientIntegrity",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0",
+        "n": "NTLMMinClientSec",
+        "v": 537395200
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0",
+        "n": "NTLMMinServerSec",
+        "v": 537395200
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa\\FIPSAlgorithmPolicy",
+        "n": "Enabled",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Session Manager",
+        "n": "ProtectionMode",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "FilterAdministratorToken",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "ConsentPromptBehaviorAdmin",
+        "v": 2
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "ConsentPromptBehaviorUser",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "EnableInstallerDetection",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "EnableSecureUIAPaths",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "EnableLUA",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "EnableVirtualization",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\MicrosoftAccount",
+        "n": "DisableUserAuth",
+        "v": 1
+      }
+    ],
+    "users": [
+      {
+        "sid": "S-1-5-21-5000000001-5000000002-5000000003-1001",
+        "values": [
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\access\\security",
+            "n": "blockcontentexecutionfrominternet",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\access\\security",
+            "n": "NoTBPromptUnsignedAddin",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Access\\Security",
+            "n": "vbawarnings",
+            "v": 2
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\common\\security",
+            "n": "macroruntimescanscope",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\common\\security",
+            "n": "DRMEncryptProperty",
+            "v": 1
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\common\\portal",
+            "n": "linkpublishingdisabled",
+            "v": 1
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\common\\toolbars",
+            "n": "noextensibilitycustomizationfromdocument",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Common\\Security",
+            "n": "UFIControls",
+            "v": 6
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\Common\\Security",
+            "n": "AutomationSecurity",
+            "v": 2
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\common\\trustcenter",
+            "n": "trustbar",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Common\\Security",
+            "n": "defaultencryption12",
+            "v": "Microsoft Enhanced RSA and AES Cryptographic Provider,AES 256,256"
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Common\\Security",
+            "n": "OpenXMLEncryption",
+            "v": "Microsoft Enhanced RSA and AES Cryptographic Provider,AES 256,256"
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\common\\security\\trusted locations",
+            "n": "allow user locations",
+            "v": 0
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\common\\smart tag",
+            "n": "neverloadmanifests",
+            "v": 1
+          },
+          {
+            "k": "SOFTWARE\\Policies\\Microsoft\\vba\\security",
+            "n": "LoadControlsInForms",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\excel\\security\\trusted locations",
+            "n": "AllowNetworkLocations",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Excel\\Security",
+            "n": "vbawarnings",
+            "v": 3
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\excel\\security\\external content",
+            "n": "disableddeserverlaunch",
+            "v": 1
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\excel\\security\\external content",
+            "n": "disableddeserverlookup",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\excel\\security\\fileblock",
+            "n": "DBaseFiles",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\excel\\security\\fileblock",
+            "n": "DifandSylkFiles",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\excel\\security\\fileblock",
+            "n": "XL2Macros",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\excel\\security\\fileblock",
+            "n": "XL2Worksheets",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\excel\\security\\fileblock",
+            "n": "XL3Macros",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\excel\\security\\fileblock",
+            "n": "XL3Worksheets",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\excel\\security\\fileblock",
+            "n": "XL4Macros",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\excel\\security\\fileblock",
+            "n": "XL4Workbooks",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\excel\\security\\fileblock",
+            "n": "XL4Worksheets",
+            "v": 2
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\excel\\security\\fileblock",
+            "n": "xl95workbooks",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\office\\16.0\\excel\\security\\fileblock",
+            "n": "XL9597WorkbooksandTemplates",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\excel\\security\\fileblock",
+            "n": "OpenInProtectedView",
+            "v": 0
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\excel\\security\\fileblock",
+            "n": "htmlandxmlssfiles",
+            "v": 2
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\excel\\options",
+            "n": "extractdatadisableui",
+            "v": 1
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\excel\\options\\binaryoptions",
+            "n": "fupdateext_78_1",
+            "v": 0
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\excel\\internet",
+            "n": "donotloadpictures",
+            "v": 1
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\excel\\options",
+            "n": "disableautorepublish",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Excel\\Options",
+            "n": "disableautorepublishwarning",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Excel\\Security",
+            "n": "extensionhardening",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Excel\\Security",
+            "n": "excelbypassencryptiedmacrosscan",
+            "v": 1
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\excel\\security\\filevalidation",
+            "n": "enableonload",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Excel\\Security",
+            "n": "webservicefunctionwarnings",
+            "v": 1
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\excel\\security",
+            "n": "blockcontentexecutionfrominternet",
+            "v": 1
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\excel\\security",
+            "n": "notbpromptunsignedaddin",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\excel\\security\\external content",
+            "n": "enableblockunsecurequeryfiles",
+            "v": 1
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\excel\\security\\protectedview",
+            "n": "enabledatabasefileprotectedview",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Excel\\Security\\ProtectedView",
+            "n": "DisableInternetFilesInPV",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Excel\\Security\\ProtectedView",
+            "n": "DisableUnsafeLocationsInPV",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Excel\\Security\\FileValidation",
+            "n": "openinprotectedview",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Excel\\Security\\FileValidation",
+            "n": "DisableEditFromPV",
+            "v": 1
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\excel\\security\\protectedview",
+            "n": "DisableAttachmentsInPV",
+            "v": 0
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\outlook\\rpc",
+            "n": "enablerpcencryption",
+            "v": 1
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\outlook\\security",
+            "n": "publicfolderscript",
+            "v": 0
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\outlook\\security",
+            "n": "sharedfolderscript",
+            "v": 0
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\outlook\\options\\general",
+            "n": "msgformat",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Outlook\\Options\\Mail",
+            "n": "junkmailprotection",
+            "v": "3"
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\outlook\\security",
+            "n": "allowactivexoneoffforms",
+            "v": 0
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\outlook",
+            "n": "disallowattachmentcustomization",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Outlook\\options\\mail",
+            "n": "Internet",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Outlook\\security",
+            "n": "publishtogaldisabled",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Outlook\\Security",
+            "n": "minenckey",
+            "v": 168
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\outlook\\security",
+            "n": "warnaboutinvalid",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Outlook\\security",
+            "n": "usecrlchasing",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Outlook\\security",
+            "n": "adminsecuritymode",
+            "v": 3
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\outlook\\security",
+            "n": "allowuserstolowerattachments",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\outlook\\security",
+            "n": "ShowLevel1Attach",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\outlook\\security",
+            "n": "EnableOneOffFormScripts",
+            "v": 0
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\outlook\\security",
+            "n": "promptoomcustomaction",
+            "v": 0
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\outlook\\security",
+            "n": "promptoomaddressbookaccess",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\outlook\\security",
+            "n": "PromptOOMFormulaAccess",
+            "v": 0
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\outlook\\security",
+            "n": "promptoomsaveas",
+            "v": 0
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\outlook\\security",
+            "n": "promptoomaddressinformationaccess",
+            "v": 0
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\outlook\\security",
+            "n": "promptoommeetingtaskrequestresponse",
+            "v": 0
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\outlook\\security",
+            "n": "promptoomsend",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\outlook\\options\\mail",
+            "n": "JunkMailEnableLinks",
+            "v": 0
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\outlook\\security",
+            "n": "level",
+            "v": 3
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\ms project\\security\\trusted locations",
+            "n": "allownetworklocations",
+            "v": 0
+          },
+          {
+            "k": "software\\policies\\Microsoft\\office\\16.0\\ms project\\security",
+            "n": "notbpromptunsignedaddin",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Project\\Security",
+            "n": "vbawarnings",
+            "v": 2
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\powerpoint\\security",
+            "n": "vbawarnings",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Outlook\\Security",
+            "n": "runprograms",
+            "v": 0
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\powerpoint\\security\\fileblock",
+            "n": "binaryfiles",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\PowerPoint\\security\\fileblock",
+            "n": "OpenInProtectedView",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\PowerPoint\\Security",
+            "n": "PowerPointBypassEncryptedMacroScan",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\PowerPoint\\security\\filevalidation",
+            "n": "EnableOnLoad",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\powerpoint\\security",
+            "n": "blockcontentexecutionfrominternet",
+            "v": 1
+          },
+          {
+            "k": "software\\policies\\Microsoft\\office\\16.0\\powerpoint\\security",
+            "n": "notbpromptunsignedaddin",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\PowerPoint\\security\\protectedview",
+            "n": "DisableInternetFilesInPV",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\PowerPoint\\security\\protectedview",
+            "n": "DisableAttachmentsInPV",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\PowerPoint\\security\\protectedview",
+            "n": "DisableUnsafeLocationsInPV",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\PowerPoint\\Security\\FileValidation",
+            "n": "openinprotectedview",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\PowerPoint\\Security\\FileValidation",
+            "n": "DisableEditFromPV",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\PowerPoint\\security\\trusted locations",
+            "n": "AllowNetworkLocations",
+            "v": 0
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\common\\security",
+            "n": "automationsecuritypublisher",
+            "v": 2
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\publisher\\security",
+            "n": "notbpromptunsignedaddin",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Publisher\\Security",
+            "n": "vbawarnings",
+            "v": 3
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Visio\\Security",
+            "n": "vbawarnings",
+            "v": 2
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\visio\\security\\trusted locations",
+            "n": "allownetworklocations",
+            "v": 0
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\visio\\security",
+            "n": "notbpromptunsignedaddin",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\visio\\security\\fileblock",
+            "n": "visio2000files",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\visio\\security\\fileblock",
+            "n": "visio2003files",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\visio\\security\\fileblock",
+            "n": "visio50andearlierfiles",
+            "v": 2
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\visio\\security",
+            "n": "blockcontentexecutionfrominternet",
+            "v": 1
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\word\\security",
+            "n": "notbpromptunsignedaddin",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Word\\Security",
+            "n": "WordBypassEncryptedMacroScan",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Word\\Security\\ProtectedView",
+            "n": "DisableInternetFilesInPV",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Word\\Security\\ProtectedView",
+            "n": "DisableUnsafeLocationsInPV",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Word\\Security\\FileValidation",
+            "n": "openinprotectedview",
+            "v": 1
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Word\\Security\\FileValidation",
+            "n": "DisableEditFromPV",
+            "v": 1
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\word\\security\\protectedview",
+            "n": "disableattachmentsinpv",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\word\\security\\fileblock",
+            "n": "OpenInProtectedView",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\word\\security\\fileblock",
+            "n": "Word2Files",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\word\\security\\fileblock",
+            "n": "Word2000Files",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\word\\security\\fileblock",
+            "n": "word2003files",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\word\\security\\fileblock",
+            "n": "word2007files",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\word\\security\\fileblock",
+            "n": "word60files",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\word\\security\\fileblock",
+            "n": "word95files",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\word\\security\\fileblock",
+            "n": "word97files",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\word\\security\\fileblock",
+            "n": "wordxpfiles",
+            "v": 2
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\word\\security",
+            "n": "blockcontentexecutionfrominternet",
+            "v": 1
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\word\\security\\trusted locations",
+            "n": "allownetworklocations",
+            "v": 0
+          },
+          {
+            "k": "Software\\Policies\\Microsoft\\Office\\16.0\\Word\\Security",
+            "n": "vbawarnings",
+            "v": 2
+          },
+          {
+            "k": "software\\policies\\microsoft\\office\\16.0\\word\\security\\filevalidation",
+            "n": "enableonload",
+            "v": 1
+          },
+          {
+            "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent",
+            "n": "DisableThirdPartySuggestions",
+            "v": 1
+          },
+          {
+            "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\CurrentVersion\\PushNotifications",
+            "n": "NoToastApplicationNotificationOnLockScreen",
+            "v": 1
+          },
+          {
+            "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Attachments",
+            "n": "SaveZoneInformation",
+            "v": 2
+          }
+        ]
+      }
+    ]
+  },
+  "software": [
+    {
+      "name": "Microsoft Visual C++ 2022 Redistributable (x64) - 14.38.33135",
+      "version": "14.38.33135.0",
+      "publisher": "Microsoft Corporation"
+    },
+    {
+      "name": "CrowdStrike Windows Sensor",
+      "version": "7.10.18605.0",
+      "publisher": "CrowdStrike, Inc."
+    },
+    {
+      "name": "Notepad++ (64-bit x64)",
+      "version": "8.6.2",
+      "publisher": "Notepad++ Team"
+    }
+  ],
+  "updatesPending": {
+    "searched": true,
+    "source": "Microsoft Update",
+    "pending": []
+  },
   "services": [
     {
       "name": "Dnscache",
@@ -512,7 +3170,8 @@
       "account": "NT AUTHORITY\\NetworkService",
       "pathName": "C:\\Windows\\system32\\svchost.exe -k NetworkService -p",
       "executable": "C:\\Windows\\system32\\svchost.exe",
-      "writableBy": []
+      "writableBy": [],
+      "ancestorControl": []
     },
     {
       "name": "CSFalconService",
@@ -522,7 +3181,8 @@
       "account": "LocalSystem",
       "pathName": "\"C:\\Program Files\\CrowdStrike\\CSFalconService.exe\"",
       "executable": "C:\\Program Files\\CrowdStrike\\CSFalconService.exe",
-      "writableBy": []
+      "writableBy": [],
+      "ancestorControl": []
     },
     {
       "name": "Spooler",
@@ -532,7 +3192,8 @@
       "account": "LocalSystem",
       "pathName": "C:\\Windows\\System32\\spoolsv.exe",
       "executable": "C:\\Windows\\System32\\spoolsv.exe",
-      "writableBy": []
+      "writableBy": [],
+      "ancestorControl": []
     }
   ],
   "scheduledTasks": [

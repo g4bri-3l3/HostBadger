@@ -28,8 +28,8 @@ $machineSid = @{ weak = 'S-1-5-21-4000000001-4000000002-4000000003'; hardened = 
 $name = @{ weak = 'WKS-ACCT-017'; hardened = 'SRV-APP-02'; laptop = 'LT-SALES-112'; dc = 'DC01'; partial = 'WKS-HR-004' }[$Scenario]
 $role = @{ weak = 'workstation'; hardened = 'server'; laptop = 'workstation'; dc = 'dc'; partial = 'workstation' }[$Scenario]
 
-function Svc([string]$n, [string]$path, [string]$exe, [string]$account = 'LocalSystem', [string]$state = 'Running', $writable = @()) {
-    [ordered]@{ name = $n; displayName = $n; startMode = 'Auto'; state = $state; account = $account; pathName = $path; executable = $exe; writableBy = @($writable) }
+function Svc([string]$n, [string]$path, [string]$exe, [string]$account = 'LocalSystem', [string]$state = 'Running', $writable = @(), $ancestors = @()) {
+    [ordered]@{ name = $n; displayName = $n; startMode = 'Auto'; state = $state; account = $account; pathName = $path; executable = $exe; writableBy = @($writable); ancestorControl = @($ancestors) }
 }
 function W([string]$scope, [string]$sid, [string]$rights = 'Modify, Synchronize') { [ordered]@{ scope = $scope; sid = $sid; rights = $rights } }
 function Audit([string]$guid, [int]$value, [string]$n) { [ordered]@{ name = $n; guid = $guid; inclusion = ''; value = $value } }
@@ -48,6 +48,53 @@ $fullAudit = @($allAudit | ForEach-Object { Audit $_[0] 3 $_[1] })
 $standardAsr = @(
     [ordered]@{ id = '9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2'; action = 1 }, [ordered]@{ id = '56a863a9-875e-4185-98a7-b882c64b5ce5'; action = 1 },
     [ordered]@{ id = 'e6db77e5-3df2-4cf1-b95a-636979351e5b'; action = 1 })
+# DISA STIG registry values: every rule of data\stig-catalog.json at a value that satisfies it.
+function Get-StigCompliantValue($e) {
+    $x = $e.x
+    $raw = switch ($x.op) {
+        'eq' { $x.v }
+        'in' { @($x.v)[0] }
+        'range' { if ($null -ne $x.min) { $x.min } else { $x.max } }
+        default { $null }
+    }
+    if ($null -eq $raw) { return $null }
+    if ($e.t -eq 'D') { return [int64]$raw }
+    return "$raw"
+}
+$stigMachine = New-Object System.Collections.Generic.List[object]
+$stigUser = New-Object System.Collections.Generic.List[object]
+$stigEntries = ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\data\stig-catalog.json')))
+foreach ($e in @($stigEntries | ForEach-Object { $_ })) {
+    $v = Get-StigCompliantValue $e
+    if ($null -eq $v) { continue }
+    $row = [ordered]@{ k = $e.k; n = $e.n; v = $v; p = $e.p }
+    if ($e.h -eq 'U') { $stigUser.Add($row) } else { $stigMachine.Add($row) }
+}
+# Drops the first $Count values of a product (they become "not configured") from a list.
+function Remove-StigValues($List, [string]$Product, [int]$Count) {
+    $drop = @($List | Where-Object { $_.p -eq $Product } | Select-Object -First $Count)
+    return @($List | Where-Object { $drop -notcontains $_ })
+}
+# $Os is the Windows STIG product that applies to the host ('win10', 'win11' or none for a server): the two
+# Windows STIGs can ask for different values on the same key, and a host is only one of them.
+function Get-StigSection($Machine, $User, $Products, [string]$Os = '') {
+    $keep = { $_.p -notin 'win10', 'win11' -or $_.p -eq $Os }
+    $Machine = @($Machine | Where-Object $keep); $User = @($User | Where-Object $keep)
+    [ordered]@{
+        products = $Products
+        machine  = @($Machine | ForEach-Object { [ordered]@{ k = $_.k; n = $_.n; v = $_.v } })
+        users    = @([ordered]@{ sid = 'S-1-5-21-5000000001-5000000002-5000000003-1001'; values = @($User | ForEach-Object { [ordered]@{ k = $_.k; n = $_.n; v = $_.v } }) })
+    }
+}
+$otherAsrIds = @('7674ba52-37eb-4a4f-a9a1-f0f9a1619a2c', 'd4f940ab-401b-4efc-aadc-ad5f3c50688a', 'be9ba2d9-53ea-4cdc-84e5-9b1eeee46550', '01443614-cd74-433a-b99e-2ecdc07bfc25',
+    '5beb7efe-fd9a-4556-801d-275e5ffc04cc', 'd3e037e1-3eb8-44c8-a917-57927947596d', '3b576869-a4ec-4529-8536-b80a7769e899', '75668c1f-73b5-4cf0-bb93-3ecf5cb7cc84',
+    '26190899-1602-49e8-8b27-eb1d0a1ce869', 'd1e49aac-8f56-4280-b9ba-993a6d77406c', 'b2b3f03d-6a65-4f7b-a9c7-1c7ef74a9ba4', '92e97fa1-2edf-4476-bdd6-9dd0b4dddc7b',
+    'c1db55ab-c21a-4637-bb3f-a12568109d35')
+$allAsr = @($standardAsr) + @($otherAsrIds | ForEach-Object { [ordered]@{ id = $_; action = 1 } })
+$schannelClean = [ordered]@{
+    protocols = @('SSL 2.0', 'SSL 3.0', 'TLS 1.0', 'TLS 1.1' | ForEach-Object { $p = $_; 'Server', 'Client' | ForEach-Object { [ordered]@{ name = $p; side = $_; enabled = $null } } })
+    ciphers   = @('NULL', 'DES 56/56', 'RC2 40/128', 'RC2 56/128', 'RC2 128/128', 'RC4 40/128', 'RC4 56/128', 'RC4 64/128', 'RC4 128/128', 'Triple DES 168' | ForEach-Object { [ordered]@{ name = $_; enabled = $null } })
+}
 $baseServices = @(
     (Svc 'Dnscache' 'C:\Windows\system32\svchost.exe -k NetworkService -p' 'C:\Windows\system32\svchost.exe' 'NT AUTHORITY\NetworkService'),
     (Svc 'CSFalconService' '"C:\Program Files\CrowdStrike\CSFalconService.exe"' 'C:\Program Files\CrowdStrike\CSFalconService.exe'),
@@ -72,8 +119,8 @@ $s = [ordered]@{
     meta                 = [ordered]@{
         tool = 'HostBadger'; kind = 'host'; computerName = $name; schemaVersion = 1; collectorVersion = '1.0'; synthetic = $true
         collectedAtUtc = $CollectedAtUtc; collectedBy = 'NT AUTHORITY\SYSTEM'; runningAsSystem = $true; runningAsAdmin = $true; psVersion = '5.1.20348.2849'
-        options = [ordered]@{ skipAcl = $false }
-        sectionsCollected = @('host', 'patches', 'defender', 'bitlocker', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'audit', 'securityPolicy', 'hardening', 'services', 'scheduledTasks', 'autoruns')
+        options = [ordered]@{ skipAcl = $false; checkUpdates = $false }
+        sectionsCollected = @('host', 'patches', 'defender', 'bitlocker', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'audit', 'securityPolicy', 'hardening', 'stig', 'software', 'services', 'scheduledTasks', 'autoruns')
         collectionErrors = @()
     }
     host                 = [ordered]@{
@@ -82,7 +129,7 @@ $s = [ordered]@{
         os = [ordered]@{ caption = 'Microsoft Windows Server 2022 Standard'; version = '10.0.20348'; build = 20348; ubr = 4171; displayVersion = '21H2'; editionId = 'ServerStandard'; productType = 3; architecture = '64-bit'; installDateUtc = '2024-02-01T10:00:00Z'; lastBootUtc = '2026-09-20T03:00:00Z' }
     }
     patches              = [ordered]@{ hotfixes = @([ordered]@{ id = 'KB5065306'; description = 'Security Update'; installedOnUtc = '2026-09-10T00:00:00Z' }); lastUpdateInstalledUtc = '2026-09-10T03:12:00Z' }
-    defender             = [ordered]@{ present = $true; amRunningMode = 'Normal'; amServiceEnabled = $true; antivirusEnabled = $true; realTimeProtectionEnabled = $true; behaviorMonitorEnabled = $true; ioavProtectionEnabled = $true; isTamperProtected = $true; signatureUpdatedUtc = '2026-09-30T22:00:00Z'; exclusionsReadable = $true; exclusionPaths = @(); exclusionExtensions = @(); exclusionProcesses = @(); asrRules = $standardAsr; puaProtection = 1; networkProtection = 1 }
+    defender             = [ordered]@{ present = $true; amRunningMode = 'Normal'; amServiceEnabled = $true; antivirusEnabled = $true; realTimeProtectionEnabled = $true; behaviorMonitorEnabled = $true; ioavProtectionEnabled = $true; isTamperProtected = $true; signatureUpdatedUtc = '2026-09-30T22:00:00Z'; exclusionsReadable = $true; exclusionPaths = @(); exclusionExtensions = @(); exclusionProcesses = @(); asrRules = $allAsr; puaProtection = 1; networkProtection = 1; mapsReporting = 2; disableBlockAtFirstSeen = $false; disableScriptScanning = $false }
     bitlocker            = [ordered]@{ featureInstalled = $true; volumes = @([ordered]@{ mountPoint = 'C:'; volumeType = 'OperatingSystem'; protectionStatus = 'On'; volumeStatus = 'FullyEncrypted'; encryptionMethod = 'XtsAes256'; keyProtectors = @('Tpm', 'RecoveryPassword') }) }
     boot                 = [ordered]@{ secureBootEnabled = $true; firmware = 'UEFI' }
     credentialProtection = [ordered]@{ runAsPPL = 2; lsaCfgFlags = 1; credentialGuardRunning = $true; hvciRunning = $true; vbsStatus = 2; wdigestUseLogonCredential = 0; cachedLogonsCount = '1'; lmCompatibilityLevel = 5; noLmHash = 1; restrictAnonymous = 1; restrictAnonymousSam = 1 }
@@ -110,6 +157,7 @@ $s = [ordered]@{
         privilegeRights = $cleanRights
     }
     hardening            = [ordered]@{
+        schannel = $schannelClean; ldapServer = [ordered]@{ integrity = 2; channelBinding = 2 }; pointAndPrint = [ordered]@{ restrictDriverInstallToAdmins = 1; noWarningNoElevationOnInstall = 0; noWarningNoElevationOnUpdate = 0 }
         smbInsecureGuestAuth = 0; ldapClientIntegrity = 1; ntlmMinClientSec = 537395200; ntlmMinServerSec = 537395200
         allowNullSessionFallback = 0; allowOnlineId = 0; everyoneIncludesAnonymous = 0; limitBlankPasswordUse = 1; forceGuest = 0
         enablePlainTextPassword = 0; nullSessionPipesCount = 0; nullSessionSharesCount = 0; restrictNullSessAccess = 1
@@ -125,6 +173,12 @@ $s = [ordered]@{
         mrxsmb10Start = 4; disableExceptionChainValidation = 0; safeDllSearchMode = 1
         ipStack = [ordered]@{ disableIpSourceRoutingV4 = 2; disableIpSourceRoutingV6 = 2; enableIcmpRedirect = 0 }
     }
+    stig                 = Get-StigSection $stigMachine $stigUser ([ordered]@{ edge = $true; chrome = $true; firefox = $true; office = $true })
+    software             = @(
+        [ordered]@{ name = 'Microsoft Visual C++ 2022 Redistributable (x64) - 14.38.33135'; version = '14.38.33135.0'; publisher = 'Microsoft Corporation' },
+        [ordered]@{ name = 'CrowdStrike Windows Sensor'; version = '7.10.18605.0'; publisher = 'CrowdStrike, Inc.' },
+        [ordered]@{ name = 'Notepad++ (64-bit x64)'; version = '8.6.2'; publisher = 'Notepad++ Team' })
+    updatesPending       = $null
     services             = $baseServices
     scheduledTasks       = @([ordered]@{ path = '\'; name = 'Backup'; state = 'Ready'; userId = 'SYSTEM'; groupId = ''; runLevel = 'Highest'; author = 'CORP\backupadm'
             actions = @([ordered]@{ execute = 'C:\Program Files\Backup\agent.exe'; arguments = '-p ***'; executable = 'C:\Program Files\Backup\agent.exe'; writableBy = @() }) })
@@ -135,6 +189,12 @@ $s = [ordered]@{
 switch ($Scenario) {
     'hardened' { }
     'laptop' {
+        $s.meta.options.checkUpdates = $true; $s.meta.sectionsCollected = @($s.meta.sectionsCollected) + 'updatesPending'
+        $s.updatesPending = [ordered]@{ searched = $true; source = 'Microsoft Update'; pending = @() }
+        # Two Windows 11 STIG settings not configured, one with a wrong value.
+        $lm = Remove-StigValues $stigMachine 'win11' 2
+        $lm = @($lm | ForEach-Object { if ($_.p -eq 'win11' -and $_.k -match 'CapabilityAccessManager\\ConsentStore\\webcam$') { [ordered]@{ k = $_.k; n = $_.n; v = 'Allow'; p = $_.p } } else { $_ } })
+        $s.stig = Get-StigSection $lm $stigUser ([ordered]@{ edge = $true; chrome = $false; firefox = $false; office = $false }) 'win11'
         # Windows 11 23H2 Enterprise: support ends 2026-11-10, 40 days after
         # the default collection date.
         $s.host.os = [ordered]@{ caption = 'Microsoft Windows 11 Enterprise'; version = '10.0.22631'; build = 22631; ubr = 5909; displayVersion = '23H2'; editionId = 'Enterprise'; productType = 1; architecture = '64-bit'; installDateUtc = '2024-03-01T09:00:00Z'; lastBootUtc = '2026-09-29T07:00:00Z' }
@@ -189,6 +249,7 @@ switch ($Scenario) {
         $s.audit = [ordered]@{ processCreationIncludeCmdLine = $null; securityLogMaxSizeBytes = 20971520
             subcategories = @($allAudit | ForEach-Object { $v = if ($_[1] -in @('Logon', 'Credential Validation')) { 1 } else { 0 }; Audit $_[0] $v $_[1] }) }
         $s.defender.puaProtection = 0
+        $s.defender.behaviorMonitorEnabled = $false; $s.defender.mapsReporting = 0
         $s.defender.networkProtection = 0
         $s.credentialProtection.restrictAnonymous = 0
         $s.powershell.transcription = $null
@@ -211,14 +272,29 @@ switch ($Scenario) {
         $hd.uacExtra = [ordered]@{ enableInstallerDetection = 0; enableSecureUiaPaths = 0; promptOnSecureDesktop = 0; enableVirtualization = 0 }
         $hd.noAutoUpdate = 1; $hd.enableSmartScreen = 0
         $hd.eventLogs = @([ordered]@{ name = 'Application'; maxSizeBytes = 20971520 }, [ordered]@{ name = 'System'; maxSizeBytes = 20971520 })
+        $hd.schannel = [ordered]@{ protocols = @($schannelClean.protocols | ForEach-Object { if ($_.name -eq 'TLS 1.0' -and $_.side -eq 'Server') { [ordered]@{ name = $_.name; side = $_.side; enabled = 1 } } elseif ($_.name -eq 'SSL 3.0' -and $_.side -eq 'Client') { [ordered]@{ name = $_.name; side = $_.side; enabled = -1 } } else { $_ } }); ciphers = @($schannelClean.ciphers | ForEach-Object { if ($_.name -eq 'RC4 128/128') { [ordered]@{ name = $_.name; enabled = -1 } } else { $_ } }) }
+        $hd.pointAndPrint = [ordered]@{ restrictDriverInstallToAdmins = 0; noWarningNoElevationOnInstall = 1; noWarningNoElevationOnUpdate = $null }
         $hd.mrxsmb10Start = 2; $hd.disableExceptionChainValidation = 1; $hd.safeDllSearchMode = 0
         $hd.ipStack = [ordered]@{ disableIpSourceRoutingV4 = 0; disableIpSourceRoutingV6 = 1; enableIcmpRedirect = 1 }
+        # DISA STIG: Defender, firewall and browser policies not configured (Windows 10: three of its own STIG rules, none of the Windows 11 ones), a few Office user policies missing.
+        $wm = $stigMachine
+        foreach ($pr in 'win10', 'defender', 'firewall', 'edge', 'chrome', 'firefox') { $wm = Remove-StigValues $wm $pr 3 }
+        $s.stig = Get-StigSection $wm (Remove-StigValues $stigUser 'office' 3) ([ordered]@{ edge = $true; chrome = $true; firefox = $true; office = $true }) 'win10'
+        $s.software = @($s.software) + @(
+            [ordered]@{ name = 'Contoso CAD Viewer'; version = '5.1.0'; publisher = 'Contoso Ltd.' },
+            [ordered]@{ name = 'Mozilla Firefox (x64 en-US)'; version = '118.0'; publisher = 'Mozilla' })
+        $s.meta.options.checkUpdates = $true; $s.meta.sectionsCollected = @($s.meta.sectionsCollected) + 'updatesPending'
+        $s.updatesPending = [ordered]@{ searched = $true; source = 'WSUS'; pending = @(
+                [ordered]@{ kb = 'KB5099999'; title = '2026-09 Cumulative Update for Windows 10 Version 22H2 (KB5099999)'; severity = 'Critical'; categories = 'Security Updates'; downloaded = $true; rebootRequired = $true },
+                [ordered]@{ kb = 'KB5088888'; title = '2026-09 Security Update for .NET Framework (KB5088888)'; severity = 'Important'; categories = 'Security Updates'; downloaded = $false; rebootRequired = $false },
+                [ordered]@{ kb = 'KB5077777'; title = 'Feature update preview (KB5077777)'; severity = ''; categories = 'Updates'; downloaded = $false; rebootRequired = $true },
+                [ordered]@{ kb = 'KB2267602'; title = 'Security Intelligence Update for Microsoft Defender Antivirus - KB2267602'; severity = ''; categories = 'Definition Updates, Microsoft Defender Antivirus'; downloaded = $false; rebootRequired = $false }) }
         # A neglected host with no EDR on it at all.
         $s.services = @($baseServices | Where-Object { $_.name -ne 'CSFalconService' }) + @(
             (Svc 'SSDPSRV' 'C:\Windows\system32\svchost.exe -k LocalServiceAndNoImpersonation -p' 'C:\Windows\system32\svchost.exe' 'NT AUTHORITY\LocalService'),
             (Svc 'XblAuthManager' 'C:\Windows\system32\svchost.exe -k netsvcs -p' 'C:\Windows\system32\svchost.exe'),
             (Svc 'LxssManager' 'C:\Windows\system32\svchost.exe -k LxssManagerUser -p' 'C:\Windows\system32\svchost.exe'),
-            (Svc 'ContosoUpdater' 'C:\Program Files\Contoso Tools\Updater Service\updater.exe -service' 'C:\Program Files\Contoso Tools\Updater Service\updater.exe'),
+            (Svc 'ContosoUpdater' 'C:\Program Files\Contoso Tools\Updater Service\updater.exe -service' 'C:\Program Files\Contoso Tools\Updater Service\updater.exe' 'LocalSystem' 'Running' @() @([ordered]@{ level = 2; kind = 'acl'; sid = "$machineSid-1002"; rights = 'FullControl' }, [ordered]@{ level = 3; kind = 'owner'; sid = "$machineSid-1002"; rights = 'Owner' })),
             (Svc 'VendorAgent' '"C:\ProgramData\Vendor\agent.exe"' 'C:\ProgramData\Vendor\agent.exe' 'LocalSystem' 'Running' @((W 'file' 'S-1-5-11'), (W 'folder' 'S-1-5-32-545' 'Write'))),
             (Svc 'PrintHelper' '"C:\Tools\PrintHelper\helper.exe"' 'C:\Tools\PrintHelper\helper.exe' 'LocalSystem' 'Stopped' @((W 'folder' 'S-1-5-32-545' 'AppendData, Synchronize'))))
         $s.scheduledTasks = @(
@@ -235,6 +311,7 @@ switch ($Scenario) {
         $s.host.os.caption = 'Microsoft Windows Server 2016 Standard'
         $s.host.os.version = '10.0.14393'; $s.host.os.build = 14393; $s.host.os.ubr = 8422; $s.host.os.displayVersion = '1607'
         $s.credentialProtection.credentialGuardRunning = $false
+        $s.hardening.ldapServer = [ordered]@{ integrity = $null; channelBinding = 1 }
         # The EDR agent is installed but its service is stopped.
         $s.services = @($baseServices | Where-Object { $_.name -ne 'CSFalconService' }) + @((Svc 'CSFalconService' '"C:\Program Files\CrowdStrike\CSFalconService.exe"' 'C:\Program Files\CrowdStrike\CSFalconService.exe' 'LocalSystem' 'Stopped'))
         $s.credentialProtection.cachedLogonsCount = '10'
@@ -246,7 +323,7 @@ switch ($Scenario) {
     'partial' {
         $s.meta.collectedBy = 'CORP\jdoe'; $s.meta.runningAsSystem = $false; $s.meta.runningAsAdmin = $false
         $s.meta.options.skipAcl = $true
-        $s.meta.sectionsCollected = @('host', 'patches', 'defender', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'hardening', 'services', 'scheduledTasks', 'autoruns')
+        $s.meta.sectionsCollected = @('host', 'patches', 'defender', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'hardening', 'stig', 'software', 'services', 'scheduledTasks', 'autoruns')
         $s.meta.collectionErrors = @(
             [ordered]@{ section = 'defender.exclusions'; message = 'exclusions not readable (administrator or SYSTEM needed)' },
             [ordered]@{ section = 'bitlocker'; message = 'BitLocker status not readable: Access is denied' },
@@ -255,6 +332,7 @@ switch ($Scenario) {
             [ordered]@{ section = 'securityPolicy'; message = 'secedit failed (1, administrator or SYSTEM needed): Access is denied' })
         $s.host.os = [ordered]@{ caption = 'Microsoft Windows 11 Enterprise'; version = '10.0.26100'; build = 26100; ubr = 6584; displayVersion = '24H2'; editionId = 'Enterprise'; productType = 1; architecture = '64-bit'; installDateUtc = '2025-01-10T09:00:00Z'; lastBootUtc = '2026-09-28T07:00:00Z' }
         $s.defender = [ordered]@{ present = $true; amRunningMode = 'Passive Mode'; amServiceEnabled = $true; antivirusEnabled = $false; realTimeProtectionEnabled = $false; behaviorMonitorEnabled = $false; ioavProtectionEnabled = $false; isTamperProtected = $false; signatureUpdatedUtc = '2026-07-01T00:00:00Z'; exclusionsReadable = $false; exclusionPaths = @(); exclusionExtensions = @(); exclusionProcesses = @(); asrRules = @(); puaProtection = 0; networkProtection = 0 }
+        $s.stig = Get-StigSection $stigMachine $stigUser ([ordered]@{ edge = $true; chrome = $true; firefox = $true; office = $true }) 'win11'
         $s.bitlocker = $null
         $s.audit = $null
         $s.securityPolicy = $null

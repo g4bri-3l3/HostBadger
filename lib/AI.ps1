@@ -27,7 +27,7 @@ $script:AiKeepProcesses = @('svchost', 'system', 'lsass', 'services', 'wininit',
 $script:AiKeepPathPattern = '(?i)^[a-z]:\\windows\\(?:system32|syswow64)\\(?:windowspowershell\\v1\.0\\)?(?:powershell|powershell_ise|cmd|wscript|cscript|mshta|rundll32|regsvr32|svchost|msiexec|certutil|bitsadmin|wmic|schtasks|net|reg|sc)\.exe$'
 # Account prefixes that are not a domain.
 $script:AiKeepAccountPrefixes = @('NT AUTHORITY', 'NT SERVICE', 'BUILTIN', 'Window Manager', 'Font Driver Host', 'NT VIRTUAL MACHINE')
-$script:AiTokenPattern = '\b(?:HOSTFQDN|HOST|DOMAIN|NETBIOS|USER|GROUP|SID|PATH|UNC|SERVICE|TASK|AUTORUN|ADAPTER|PROC|IP)-\d+\b'
+$script:AiTokenPattern = '\b(?:HOSTFQDN|HOST|DOMAIN|NETBIOS|USER|GROUP|SID|PATH|UNC|SERVICE|TASK|AUTORUN|ADAPTER|PROC|SOFTWARE|IP)-\d+\b'
 $script:AiSidPattern = 'S-1-(?:5-21|12-1|5-80|5-82|5-83)(?:-\d+)+'
 # Not inside a longer dotted number, and not a CIS rule number ("CIS 18.10.7.3"), because those are
 # not addresses.
@@ -120,6 +120,7 @@ function New-HostPseudonymizer {
         elseif ($o -match '^adapter: (.+)$') { & $add $Matches[1] 'ADAPTER' }
         elseif ($o -match '^account: (.+)$') { & $add $Matches[1] 'USER' }
         elseif ($o -match '^member: (.+)$') { & $addAccount $Matches[1] }
+        elseif (("$($f.Type)" -eq 'kev_software_match') -and "$($f.Detail)" -match '^Installed as (.+) \((?:version [^)]*|no version recorded)\)\.') { & $add $Matches[1] 'SOFTWARE' }
         if ("$($f.Type)" -eq 'risky_listener' -and "$($f.Detail)" -match '^Listening on (\S+?)(?: by (.+?))?\.$') {
             if (@('0.0.0.0', '::', '127.0.0.1', '::1') -notcontains $Matches[1]) { & $add $Matches[1] 'IP' }
             if ($Matches[2]) { & $add $Matches[2] 'PROC' }
@@ -392,6 +393,32 @@ function Invoke-HttpPostWithSpinner {
         $resp = $task.GetAwaiter().GetResult()
         return [PSCustomObject]@{ StatusCode = [int]$resp.StatusCode; IsSuccess = $resp.IsSuccessStatusCode; Body = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult() }
     }
+    finally { $client.Dispose() }
+}
+
+# --------------------------------------------------------------------------
+# CISA Known Exploited Vulnerabilities catalog (-KevOnline). One HTTPS GET, nothing is sent: this
+# address and no other. HOSTBADGER_KEV_URL is the test hook (the regression runs a local listener).
+# --------------------------------------------------------------------------
+$script:KevFeedUrl = 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json'
+
+function Get-KevCatalogOnline {
+    param([int]$TimeoutSeconds = 60)
+    Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue
+    try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
+    $uri = if ($env:HOSTBADGER_KEV_URL) { $env:HOSTBADGER_KEV_URL } else { $script:KevFeedUrl }
+    $client = New-Object System.Net.Http.HttpClient
+    $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSeconds)
+    try {
+        $task = $client.GetAsync($uri)
+        $spin = @('|', '/', '-', '\'); $i = 0
+        while (-not $task.IsCompleted) { Write-Host -NoNewline "`rDownloading the CISA KEV catalog $($spin[$i % 4])  "; Start-Sleep -Milliseconds 120; $i++ }
+        $resp = $task.GetAwaiter().GetResult()
+        if (-not $resp.IsSuccessStatusCode) { Write-Host "`rCISA KEV download failed: HTTP $([int]$resp.StatusCode).          " -ForegroundColor Red; return $null }
+        Write-Host "`rDownloading the CISA KEV catalog... done.          "
+        return $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+    }
+    catch { Write-Host "`rCISA KEV download failed: $($_.Exception.Message)          " -ForegroundColor Red; return $null }
     finally { $client.Dispose() }
 }
 

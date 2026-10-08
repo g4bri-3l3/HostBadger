@@ -177,7 +177,7 @@ $script:CheckCatalog = [ordered]@{
         Remediation = 'Quote the ImagePath of the service (HKLM\SYSTEM\CurrentControlSet\Services\<name>), or reinstall it with a fixed installer.' }
     service_binary_writable = @{ Category = 'Privilege Escalation'; Severity = 'High'; Mitre = 'T1574.010'; Needs = @('services', 'acl'); Roles = $script:AllRoles
         Title = 'Service program writable by users'
-        Description = 'Everyone, Users, Authenticated Users or Domain Users can change the service program (High) or drop files into its folder (Medium, DLL planting): any user gets the service account, usually SYSTEM.'
+        Description = 'Everyone, Users, Authenticated Users or Domain Users can change the service program (High) or drop files into its folder (Medium, DLL planting; High when non-admin users can also start the service): any user gets the service account, usually SYSTEM.'
         Remediation = 'Fix the ACL: only Administrators, SYSTEM and TrustedInstaller should be able to write the file and its folder. Move the program under Program Files if it lives elsewhere.' }
     task_binary_writable = @{ Category = 'Privilege Escalation'; Severity = 'High'; Mitre = 'T1053.005'; Needs = @('scheduledTasks', 'acl'); Roles = $script:AllRoles
         Title = 'Privileged scheduled task runs a user-writable program'
@@ -380,9 +380,103 @@ $script:CheckCatalog = [ordered]@{
         Title = 'LocalSystem NULL session fallback or PKU2U online identities allowed'
         Description = 'AllowNullSessionFallback or PKU2U AllowOnlineID is explicitly 1: services running as LocalSystem may fall back to anonymous NTLM sessions, or the host accepts authentication with online identities.'
         Remediation = 'Set "Allow LocalSystem NULL session fallback" and "Allow PKU2U authentication requests to use online identities" to Disabled.' }
+
+    service_path_ancestor_control = @{ Category = 'Privilege Escalation'; Severity = 'Medium'; Mitre = 'T1574.010'; Needs = @('services', 'acl'); Roles = $script:AllRoles
+        Title = 'Service program under a folder that a non-administrator controls'
+        Description = 'A folder above the program of a service (its own folder or any folder up to the drive root, outside the Windows directory) is owned by an account that is not an administrator, or gives such an account the right to change permissions, take ownership or delete what is inside. Whoever controls a parent folder controls the whole path to the program, whatever the permissions on the program itself. High when everyone (Everyone, Users, Authenticated Users) has that control and the service runs as LocalSystem, Medium otherwise. The finding names the account and how many levels above the program the folder is; accounts that are members of the local Administrators group are not reported. The usual cause is an installer that makes the installing user the owner of the folders it creates.'
+        Remediation = 'As an administrator, make Administrators and SYSTEM the owners of those folders and remove the entry of the account (icacls <folder> /setowner Administrators and /remove), or move the program under Program Files. Keep a backup of the permissions first (icacls <folder> /save). Check that the vendor''s updater still works afterwards, and report the installer behavior to the vendor.' }
+
+    # ---------------- Pending updates and known exploited vulnerabilities (both opt-in) ----------------
+    updates_pending = @{ Category = 'Patching'; Severity = 'Medium'; Mitre = 'T1190'; Needs = @('updatesPending'); Roles = $script:AllRoles
+        Title = 'Windows update available but not installed'
+        Description = 'The snapshot was taken with -CheckUpdates and the Windows Update Agent reported this update as missing. Severity follows the Microsoft severity rating (Critical is High, Important is Medium, anything else Low). Definition updates are not listed. Only present when the collector was asked to search (it contacts the WSUS server set by policy, or Microsoft Update).'
+        Remediation = 'Install the update through the usual channel (WSUS, Intune, Windows Update) and restart if it asks. If the host is meant to be patched by another tool, check that tool reaches it.' }
+    kev_software_match = @{ Category = 'Software'; Severity = 'Low'; Mitre = 'T1190'; Needs = @('software'); Roles = $script:AllRoles
+        Title = 'Installed software with vulnerabilities known to be exploited (CISA KEV)'
+        Description = 'An installed program matches a vendor and product in the CISA Known Exploited Vulnerabilities catalog. The match is by name only: the catalog has no version ranges, so HostBadger cannot tell whether the installed version is one of the affected ones. Treat it as a lead to verify against the vendor advisory. Medium when some of the listed vulnerabilities are used in ransomware campaigns. Only present when a KEV catalog was given (-KevFile or -KevOnline).'
+        Remediation = 'Compare the installed version with the advisories for the listed CVEs, update the program or remove it if it is not needed, and add an exception if the installed version is not affected.' }
+
+    # ---------------- Further settings (Microsoft documentation, DISA STIG and ACSC guidance) ----------------
+    asr_other_rules_not_blocking = @{ Category = 'Antivirus'; Severity = 'Low'; Mitre = 'T1204.002'; Needs = @('defender', 'defender.preferences'); Roles = $script:AllRoles
+        Title = 'Other attack surface reduction rules not in block mode'
+        Description = 'Microsoft documents 13 more ASR rules beyond the standard three: Office child processes, code injection and executable content, obfuscated and downloaded scripts, executables from email or USB, PSExec/WMI process creation, Adobe Reader child processes and advanced ransomware protection. The finding lists the rules that are not set to Block.'
+        Remediation = 'Set the listed rules to Audit first, read the events (Microsoft-Windows-Windows Defender/Operational 1121/1122), then to Block through Intune, Group Policy or Set-MpPreference. The PSExec/WMI rule conflicts with Configuration Manager clients and the prevalence rule blocks unknown tools: judge those two separately.' }
+    defender_protection_features_off = @{ Category = 'Antivirus'; Severity = 'Medium'; Mitre = 'T1562.001'; Needs = @('defender', 'defender.preferences'); Roles = $script:AllRoles
+        Title = 'Defender protection feature turned off'
+        Description = 'Behavior monitoring, scanning of downloaded files and attachments, script scanning, cloud-delivered protection (MAPS) or block at first sight is off while Defender is the active antivirus. Each one removes a layer that catches new or obfuscated malware.'
+        Remediation = 'Turn the feature back on (Set-MpPreference, Group Policy or Intune) and find out why it was disabled.' }
+    hvci_off = @{ Category = 'Credential Protection'; Severity = 'Low'; Mitre = 'T1068'; Needs = @('credentialProtection'); Roles = @('workstation', 'server')
+        Title = 'Memory integrity (HVCI) not running'
+        Description = 'Hypervisor-protected code integrity is not running, so a vulnerable or malicious kernel driver is not blocked from loading. It needs virtualization-based security and compatible drivers; on a virtual machine without nested virtualization it cannot run.'
+        Remediation = 'Turn on Memory integrity (Windows Security > Device security > Core isolation, or the Group Policy "Turn On Virtualization Based Security") once the drivers are compatible.' }
+    powershell_module_logging_off = @{ Category = 'Logging'; Severity = 'Low'; Mitre = 'T1059.001'; Needs = @('powershell'); Roles = $script:AllRoles
+        Title = 'PowerShell module logging off'
+        Description = 'EnableModuleLogging is not 1, so the pipeline execution of PowerShell modules is not written to the event log (event 4103). Together with script block logging it is what an investigation of PowerShell abuse relies on.'
+        Remediation = 'Enable "Turn on Module Logging" with module name * through Group Policy or Intune, and size the PowerShell log accordingly.' }
+    schannel_legacy_crypto_enabled = @{ Category = 'Network Exposure'; Severity = 'Medium'; Mitre = 'T1557'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'Legacy TLS/SSL protocol or weak cipher explicitly enabled'
+        Description = 'The SCHANNEL registry keys switch on SSL 2.0/3.0, TLS 1.0/1.1 or a weak cipher (NULL, DES, RC2, RC4, 3DES). Only values somebody set are judged: an unset value is the Windows default. SSL and the NULL/DES/RC2/RC4 ciphers are Medium, TLS 1.0/1.1 and 3DES Low.'
+        Remediation = 'Remove the Enabled = 1 value (or set it to 0) for the listed protocol or cipher, after checking that no old client or server depends on it.' }
+    ldap_server_signing_off = @{ Category = 'Network Exposure'; Severity = 'Medium'; Mitre = 'T1557'; Needs = @('hardening'); Roles = @('dc')
+        Title = 'Domain controller does not require LDAP signing or channel binding'
+        Description = 'LDAPServerIntegrity is not 2 (require signing) or LdapEnforceChannelBinding is not 2 (always), so a relayed or downgraded LDAP bind is accepted. Unset counts, because the default is not enforcing.'
+        Remediation = 'Set "Domain controller: LDAP server signing requirements" to Require signing and "Domain controller: LDAP server channel binding token requirements" to Always, after auditing clients with events 2886 to 2889.' }
+    print_point_and_print_weak = @{ Category = 'Privilege Escalation'; Severity = 'Medium'; Mitre = 'T1068'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'Point and Print allows driver installation without elevation'
+        Description = 'The Point and Print policy lets standard users install printer drivers (RestrictDriverInstallationToAdministrators = 0) or suppresses the elevation prompt (NoWarningNoElevationOnInstall / NoWarningNoElevationOnUpdate = 1). That is the PrintNightmare condition: a standard user gets code running as SYSTEM through a driver.'
+        Remediation = 'Set RestrictDriverInstallationToAdministrators = 1 and remove the NoWarningNoElevation values (Group Policy: Point and Print Restrictions, "Show warning and elevation prompt").' }
+
+    # ---------------- DISA STIG, registry settings (data\stig-catalog.json) ----------------
+    stig_windows10 = @{ Category = 'DISA STIG'; Severity = 'Medium'; Mitre = 'T1112'; Needs = @('stig'); Roles = @('workstation')
+        Title = 'Windows 10 setting differs from the DISA STIG'
+        Description = 'One finding per registry rule of the DISA Microsoft Windows 10 STIG (V3R6) whose value is not the required one. A value that is not configured counts, because the STIG asks for the policy to be set. Severity follows the STIG category (CAT I High, CAT II Medium, CAT III Low). Rules that need an organization decision are not judged. Windows 10 is out of support: the STIG is the last release.'
+        Remediation = 'Set the policy in the finding through Group Policy or Intune, or accept the risk with an exception. Better: move the host to a supported Windows version.' }
+    stig_windows11 = @{ Category = 'DISA STIG'; Severity = 'Medium'; Mitre = 'T1112'; Needs = @('stig'); Roles = @('workstation')
+        Title = 'Windows 11 setting differs from the DISA STIG'
+        Description = 'One finding per registry rule of the DISA Microsoft Windows 11 STIG (V2R7) whose value is not the required one. A value that is not configured counts, because the STIG asks for the policy to be set. Severity follows the STIG category (CAT I High, CAT II Medium, CAT III Low). Rules that need an organization decision (a banner text, an approved list) are not judged.'
+        Remediation = 'Set the policy in the finding through Group Policy or Intune, or accept the risk with an exception. The STIG rule id (V-number) in the finding identifies the rule in the DISA STIG Viewer.' }
+    stig_defender = @{ Category = 'DISA STIG'; Severity = 'Medium'; Mitre = 'T1562.001'; Needs = @('stig'); Roles = $script:AllRoles
+        Title = 'Microsoft Defender Antivirus setting differs from the DISA STIG'
+        Description = 'One finding per registry rule of the DISA Microsoft Defender Antivirus STIG (V2R8) whose value is not the required one. A value that is not configured counts. Severity follows the STIG category.'
+        Remediation = 'Set the policy in the finding (Windows Components > Microsoft Defender Antivirus) through Group Policy or Intune.' }
+    stig_firewall = @{ Category = 'DISA STIG'; Severity = 'Medium'; Mitre = 'T1562.004'; Needs = @('stig'); Roles = $script:AllRoles
+        Title = 'Windows Firewall setting differs from the DISA STIG'
+        Description = 'One finding per registry rule of the DISA Windows Defender Firewall with Advanced Security STIG (V2R2) whose value is not the required one: profile state, default actions, logging. A value that is not configured counts.'
+        Remediation = 'Set the policy in the finding (Windows Defender Firewall with Advanced Security) through Group Policy or Intune.' }
+    stig_edge = @{ Category = 'DISA STIG'; Severity = 'Medium'; Mitre = 'T1189'; Needs = @('stig'); Roles = $script:AllRoles
+        Title = 'Microsoft Edge policy differs from the DISA STIG'
+        Description = 'Edge is installed and a registry policy of the DISA Microsoft Edge STIG (V2R5) is not set as required. A policy that is not configured counts. Rules that need an approved list are not judged.'
+        Remediation = 'Set the Edge policy in the finding through Group Policy (Microsoft Edge ADMX) or Intune.' }
+    stig_chrome = @{ Category = 'DISA STIG'; Severity = 'Medium'; Mitre = 'T1189'; Needs = @('stig'); Roles = $script:AllRoles
+        Title = 'Google Chrome policy differs from the DISA STIG'
+        Description = 'Chrome is installed and a registry policy of the DISA Google Chrome STIG (V2R11) is not set as required. A policy that is not configured counts. Rules that need an approved list are not judged.'
+        Remediation = 'Set the Chrome policy in the finding through Group Policy (Google Chrome ADMX) or a managed-browser tool.' }
+    stig_firefox = @{ Category = 'DISA STIG'; Severity = 'Medium'; Mitre = 'T1189'; Needs = @('stig'); Roles = $script:AllRoles
+        Title = 'Mozilla Firefox policy differs from the DISA STIG'
+        Description = 'Firefox is installed and a registry policy of the DISA Mozilla Firefox STIG (V6R7) is not set as required. A policy that is not configured counts.'
+        Remediation = 'Set the Firefox policy in the finding through Group Policy (Mozilla ADMX) or policies.json.' }
+    stig_office = @{ Category = 'DISA STIG'; Severity = 'Medium'; Mitre = 'T1204.002'; Needs = @('stig'); Roles = $script:AllRoles
+        Title = 'Microsoft 365 Apps policy differs from the DISA STIG'
+        Description = 'Office is installed and a per-user policy of the DISA Microsoft Office 365 ProPlus STIG (V3R5) is not set as required, in at least one of the user profiles that were loaded when the snapshot was taken (a SYSTEM collection sees only users who were signed in). A policy that is not configured counts.'
+        Remediation = 'Set the Office policy in the finding through Group Policy (Office ADMX, User Configuration) or the Office cloud policy service.' }
 }
 
 # Microsoft's "standard protection" ASR rules, recommended for every device.
+$script:OtherAsrRules = [ordered]@{
+    '7674ba52-37eb-4a4f-a9a1-f0f9a1619a2c' = 'Block Adobe Reader from creating child processes'
+    'd4f940ab-401b-4efc-aadc-ad5f3c50688a' = 'Block all Office applications from creating child processes'
+    'be9ba2d9-53ea-4cdc-84e5-9b1eeee46550' = 'Block executable content from email client and webmail'
+    '01443614-cd74-433a-b99e-2ecdc07bfc25' = 'Block executable files unless they meet a prevalence, age or trusted list criterion'
+    '5beb7efe-fd9a-4556-801d-275e5ffc04cc' = 'Block execution of potentially obfuscated scripts'
+    'd3e037e1-3eb8-44c8-a917-57927947596d' = 'Block JavaScript or VBScript from launching downloaded executable content'
+    '3b576869-a4ec-4529-8536-b80a7769e899' = 'Block Office applications from creating executable content'
+    '75668c1f-73b5-4cf0-bb93-3ecf5cb7cc84' = 'Block Office applications from injecting code into other processes'
+    '26190899-1602-49e8-8b27-eb1d0a1ce869' = 'Block Office communication application from creating child processes'
+    'd1e49aac-8f56-4280-b9ba-993a6d77406c' = 'Block process creations originating from PSExec and WMI commands'
+    'b2b3f03d-6a65-4f7b-a9c7-1c7ef74a9ba4' = 'Block untrusted and unsigned processes that run from USB'
+    '92e97fa1-2edf-4476-bdd6-9dd0b4dddc7b' = 'Block Win32 API calls from Office macros'
+    'c1db55ab-c21a-4637-bb3f-a12568109d35' = 'Use advanced protection against ransomware'
+}
 $script:StandardAsrRules = [ordered]@{
     '9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2' = 'Block credential stealing from the Windows local security authority subsystem (lsass.exe)'
     '56a863a9-875e-4185-98a7-b882c64b5ce5' = 'Block abuse of exploited vulnerable signed drivers'
@@ -518,10 +612,198 @@ function Get-WriterText {
     return ((@($Writers | Where-Object { $_ }) | ForEach-Object { "$(Get-SidLabel $_.sid) on the $($_.scope) ($($_.rights))" } | Select-Object -Unique) -join '; ')
 }
 
+# ------------------------------------------------------------------ pending updates and installed software (KEV)
+# CISA Known Exploited Vulnerabilities catalog: { vulnerabilities: [ { cveID, vendorProject, product,
+# vulnerabilityName, dateAdded, knownRansomwareCampaignUse } ] }. Given as a file the user obtained
+# (-KevFile) or downloaded by HostBadger (-KevOnline, lib\AI.ps1).
+function ConvertFrom-KevCatalog {
+    param([string]$Json)
+    $doc = ConvertFrom-Json -InputObject $Json
+    $out = New-Object System.Collections.Generic.List[object]
+    foreach ($v in @($doc.vulnerabilities | ForEach-Object { $_ })) {
+        if (-not $v.cveID) { continue }
+        $out.Add([PSCustomObject]@{ Cve = "$($v.cveID)"; Vendor = "$($v.vendorProject)"; Product = "$($v.product)"; Name = "$($v.vulnerabilityName)"; DateAdded = "$($v.dateAdded)"; Ransomware = ("$($v.knownRansomwareCampaignUse)" -eq 'Known') })
+    }
+    return $out.ToArray()
+}
+
+function ConvertTo-WordText {
+    param([string]$Text)
+    return (' ' + (("$Text".ToLower() -replace '[^a-z0-9]+', ' ').Trim()) + ' ')
+}
+
+$script:KevVendorStop = @('inc', 'llc', 'ltd', 'corp', 'corporation', 'co', 'project', 'foundation', 'software', 'systems', 'group', 'the', 'and', 'of')
+$script:KevProductStop = @('and', 'for', 'the', 'of', 'with')
+# Windows components that the patch checks already cover.
+$script:KevOsProduct = '(?i)\bwindows\b|win32k|\.net framework|\bdwm\b|\bsmb\b|\bkernel\b|ntlm|print spooler|common log file|desktop window|internet explorer|\bole\b|\bmshtml\b|\bactive directory\b'
+
+$script:KevIndexCache = $null
+function Get-KevIndex {
+    param($Kev)
+    $items = @($Kev | Where-Object { $_ })
+    if ($script:KevIndexCache -and $script:KevIndexCache.Count -eq $items.Count -and $script:KevIndexCache.First -eq "$($items[0].Cve)") { return $script:KevIndexCache.Groups }
+    $groups = @{}
+    foreach ($e in $items) {
+        if ("$($e.Vendor)" -match '(?i)^microsoft' -and "$($e.Product)" -match $script:KevOsProduct) { continue }
+        $key = "$($e.Vendor)|$($e.Product)".ToLower()
+        if (-not $groups.ContainsKey($key)) {
+            $vt = @((ConvertTo-WordText $e.Vendor).Trim().Split(' ') | Where-Object { $_.Length -ge 2 -and $script:KevVendorStop -notcontains $_ })
+            $pt = @((ConvertTo-WordText $e.Product).Trim().Split(' ') | Where-Object { $_.Length -ge 2 -and $script:KevProductStop -notcontains $_ })
+            if ($pt.Count -eq 0) { continue }
+            $groups[$key] = [PSCustomObject]@{ Vendor = $e.Vendor; Product = $e.Product; VendorTokens = $vt; ProductTokens = $pt; Entries = (New-Object System.Collections.Generic.List[object]) }
+        }
+        $groups[$key].Entries.Add($e)
+    }
+    $list = @($groups.Values)
+    $script:KevIndexCache = @{ Count = $items.Count; First = "$($items[0].Cve)"; Groups = $list }
+    return $list
+}
+
+function Invoke-SoftwareChecks {
+    param($S, $Config, $can)
+    if (& $can 'updates_pending') {
+        $up = $S.updatesPending
+        $seen = @{}
+        foreach ($u in @($up.pending | Where-Object { $_ })) {
+            if ("$($u.categories)" -match '(?i)definition') { continue }
+            $sev = switch -Regex ("$($u.severity)") { '^Critical$' { 'High' } '^Important$' { 'Medium' } default { 'Low' } }
+            $label = if ("$($u.kb)") { "$($u.kb)" } else { "$($u.title)".Substring(0, [Math]::Min(60, "$($u.title)".Length)) }
+            $obj = "update: $label"
+            if ($seen.ContainsKey($obj)) { continue }
+            $seen[$obj] = $true
+            Add-Finding -Type 'updates_pending' -Object $obj -Severity $sev -Detail ("{0}. Reported by {1}{2}{3}." -f "$($u.title)".TrimEnd('.'), $(if ($up.source) { $up.source } else { 'the Windows Update Agent' }), $(if ($u.severity) { ", Microsoft severity $($u.severity)" } else { '' }), $(if ($u.rebootRequired) { '; needs a restart' } else { '' }))
+        }
+    }
+    if (& $can 'kev_software_match') {
+        $index = Get-KevIndex $Config.Kev
+        $matched = @{}
+        $limit = 100
+        foreach ($sw in @($S.software | Where-Object { $_ })) {
+            if ($matched.Count -ge $limit) { break }
+            $hayName = ConvertTo-WordText $sw.name
+            $hayAll = ConvertTo-WordText "$($sw.publisher) $($sw.name)"
+            foreach ($g in $index) {
+                if (-not $hayName.Contains(" $($g.ProductTokens[0]) ")) { continue }
+                $ok = $true
+                foreach ($tk in $g.ProductTokens) { if (-not $hayName.Contains(" $tk ")) { $ok = $false; break } }
+                if (-not $ok) { continue }
+                foreach ($tk in $g.VendorTokens) { if (-not $hayAll.Contains(" $tk ")) { $ok = $false; break } }
+                if (-not $ok) { continue }
+                $key = "$($g.Vendor)|$($g.Product)".ToLower()
+                if ($matched.ContainsKey($key)) { continue }
+                $matched[$key] = $true
+                $entries = @($g.Entries | Sort-Object DateAdded -Descending)
+                $ransom = @($entries | Where-Object { $_.Ransomware }).Count
+                $cves = (@($entries | Select-Object -First 3 | ForEach-Object { $_.Cve }) -join ', ')
+                $ver = if ("$($sw.version)") { "version $($sw.version)" } else { 'no version recorded' }
+                $detail = ("Installed as {0} ({1}). CISA KEV lists {2} exploited vulnerabilit{3} for {4} {5}, newest {6} (added {7}){8}. The catalog has no version ranges: compare {9} with the vendor advisories." -f $sw.name, $ver, $entries.Count, $(if ($entries.Count -eq 1) { 'y' } else { 'ies' }), $g.Vendor, $g.Product, $entries[0].Cve, $entries[0].DateAdded, $(if ($ransom -gt 0) { "; $ransom used in ransomware campaigns" } else { '' }), $ver) + " Others: $cves."
+                Add-Finding -Type 'kev_software_match' -Object "software: $($g.Vendor) $($g.Product)" -Severity $(if ($ransom -gt 0) { 'Medium' } else { 'Low' }) -Detail $detail
+            }
+        }
+    }
+}
+
+# ------------------------------------------------------------------ DISA STIG registry rules
+# data\stig-catalog.json comes from tools\Convert-PowerStigData.ps1 (PowerSTIG data, MIT; STIG content
+# by DISA). Entry: id, p (product), s (H/M/L), h (M machine, U per user), k (key under the hive), n
+# (value name), t (D/S/M/N), e (P present, A absent), x (expected: eq, in, range, absent), d (why).
+$script:StigCatalog = $null
+$script:StigProductType = @{ win10 = 'stig_windows10'; win11 = 'stig_windows11'; defender = 'stig_defender'; firewall = 'stig_firewall'; edge = 'stig_edge'; chrome = 'stig_chrome'; firefox = 'stig_firefox'; office = 'stig_office' }
+$script:StigIdPrefix = @{ win10 = 'WN10'; win11 = 'WN11'; defender = 'MSDA'; firewall = 'WFW'; edge = 'EDGE'; chrome = 'CHRM'; firefox = 'FFOX'; office = 'O365' }
+
+function Get-StigCatalog {
+    if ($null -eq $script:StigCatalog) {
+        $path = Join-Path $PSScriptRoot '..\data\stig-catalog.json'
+        # Windows PowerShell 5.1 hands a JSON array back as one object: the second pipe takes it apart.
+        $script:StigCatalog = if (Test-Path -LiteralPath $path) { @(ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText($path)) | ForEach-Object { $_ }) } else { @() }
+    }
+    return $script:StigCatalog
+}
+
+function Test-StigValue {
+    # $null when the value is what the rule asks for, else a short text saying how it differs.
+    param($Entry, [bool]$Present, $Value)
+    $x = $Entry.x
+    if ($x.op -eq 'absent') { if ($Present) { return "set to $Value, the STIG wants it not set" } return $null }
+    if (-not $Present) {
+        if ($x.op -in 'in', 'range' -and $x.absentOk) { return $null }
+        return 'not configured'
+    }
+    switch ($x.op) {
+        'eq' {
+            if ($Entry.t -eq 'D') {
+                $a = ConvertTo-Int64OrNull $Value; $b = ConvertTo-Int64OrNull $x.v
+                if ($null -ne $a -and $null -ne $b) { if ($a -eq $b) { return $null } else { return "set to $Value, expected $($x.v)" } }
+            }
+            if ("$Value".Trim() -ieq "$($x.v)".Trim()) { return $null }
+            return "set to $Value, expected $($x.v)"
+        }
+        'in' {
+            $a = ConvertTo-Int64OrNull $Value
+            if ($null -ne $a -and @($x.v | Where-Object { (ConvertTo-Int64OrNull $_) -eq $a }).Count -gt 0) { return $null }
+            return "set to $Value, expected $(@($x.v) -join ' or ')"
+        }
+        'range' {
+            $a = ConvertTo-Int64OrNull $Value
+            $min = ConvertTo-Int64OrNull $x.min; $max = ConvertTo-Int64OrNull $x.max
+            if ($null -ne $a -and ($null -eq $min -or $a -ge $min) -and ($null -eq $max -or $a -le $max)) { return $null }
+            $want = if ($null -ne $min -and $null -ne $max) { "$min to $max" } elseif ($null -ne $min) { "$min or more" } else { "$max or less" }
+            return "set to $Value, expected $want"
+        }
+    }
+    return $null
+}
+
+function Invoke-StigChecks {
+    param($S, $Config, $can)
+    $st = $S.stig
+    if (-not $st) { return }
+    $machine = @{}
+    foreach ($m in @($st.machine | Where-Object { $_ })) { $machine[("$($m.k)|$($m.n)").ToLower()] = $m.v }
+    $users = @($st.users | Where-Object { $_ })
+    $userMaps = @()
+    foreach ($u in $users) {
+        $map = @{}
+        foreach ($m in @($u.values | Where-Object { $_ })) { $map[("$($m.k)|$($m.n)").ToLower()] = $m.v }
+        $userMaps += , $map
+    }
+    $caption = if ($S.host -and $S.host.os) { "$($S.host.os.caption)" } else { '' }
+    $installed = @{
+        win10 = ($caption -match 'Windows 10'); win11 = ($caption -match 'Windows 11'); defender = $true; firewall = $true
+        edge = ($st.products.edge -eq $true); chrome = ($st.products.chrome -eq $true); firefox = ($st.products.firefox -eq $true); office = ($st.products.office -eq $true)
+    }
+    $sev = @{ H = 'High'; M = 'Medium'; L = 'Low' }
+    foreach ($e in (Get-StigCatalog)) {
+        $type = $script:StigProductType["$($e.p)"]
+        if (-not $type -or -not $installed["$($e.p)"] -or -not (& $can $type)) { continue }
+        Step-Spinner "Analyzing $($script:CurrentHost): DISA STIG rules"
+        $id = ("$($e.k)|$($e.n)").ToLower()
+        $obj = "$($script:StigIdPrefix["$($e.p)"]) $($e.id): $($e.n)"
+        $loc = "$(if ($e.h -eq 'U') { 'HKCU' } else { 'HKLM' })\$($e.k)\$($e.n)"
+        if ($e.h -eq 'M') {
+            $script:StigEvaluated++
+            $has = $machine.ContainsKey($id)
+            $why = Test-StigValue -Entry $e -Present $has -Value $machine[$id]
+            if ($why) { Add-Finding -Type $type -Object $obj -Severity $sev["$($e.s)"] -Detail "$loc $why. $($e.d)" }
+        }
+        elseif ($userMaps.Count -gt 0) {
+            $script:StigEvaluated++
+            $bad = 0; $first = ''
+            foreach ($map in $userMaps) {
+                $has = $map.ContainsKey($id)
+                $why = Test-StigValue -Entry $e -Present $has -Value $map[$id]
+                if ($why) { $bad++; if (-not $first) { $first = $why } }
+            }
+            if ($bad -gt 0) { Add-Finding -Type $type -Object $obj -Severity $sev["$($e.s)"] -Detail "$loc $first (user policy; $bad of $($userMaps.Count) loaded user profile(s)). $($e.d)" }
+        }
+    }
+}
+
 function Invoke-HostChecks {
     # Returns @{ Findings; NotEvaluated } for one snapshot.
     param($Snapshot, [hashtable]$Config)
     $script:Findings = New-Object System.Collections.Generic.List[object]
+    $script:StigEvaluated = 0
     $script:CurrentHost = Get-SnapshotHostName $Snapshot
     $script:RefDate = ConvertTo-UtcDate $Snapshot.meta.collectedAtUtc
     if (-not $script:RefDate) { throw "$($Snapshot._path): meta.collectedAtUtc missing" }
@@ -532,16 +814,24 @@ function Invoke-HostChecks {
     # its checks say nothing about this host.
     $d = $Snapshot.defender
     if ($d -and $d.amRunningMode -and "$($d.amRunningMode)" -notmatch '(?i)^normal$') {
-        foreach ($t in @('defender_realtime_off', 'defender_tamper_off', 'defender_signatures_stale', 'defender_exclusion', 'asr_standard_rules_missing', 'defender_network_protection_off', 'defender_pua_off')) {
+        foreach ($t in @('defender_realtime_off', 'defender_tamper_off', 'defender_signatures_stale', 'defender_exclusion', 'asr_standard_rules_missing', 'defender_network_protection_off', 'defender_pua_off', 'stig_defender', 'asr_other_rules_not_blocking', 'defender_protection_features_off')) {
             $extra[$t] = "Microsoft Defender Antivirus runs in '$($d.amRunningMode)': another antivirus is primary, check that product"
         }
     }
     if ($Snapshot.credentialProtection -and $null -eq $Snapshot.credentialProtection.credentialGuardRunning) {
         $extra['credential_guard_off'] = 'Device Guard status (Win32_DeviceGuard) not readable'
+        $extra['hvci_off'] = 'Device Guard status (Win32_DeviceGuard) not readable'
     }
 
     $ne = @(Get-NotEvaluatedChecks -Snapshot $Snapshot -Extra $extra)
+    # Opt-in checks are not "not evaluated" when nobody asked for them: pending updates exist only in a
+    # snapshot taken with -CheckUpdates, KEV matching only when a catalog was given.
+    $optionalOff = @{}
+    if (-not $Snapshot.meta.options.checkUpdates) { $optionalOff['updates_pending'] = $true }
+    if (-not $Config.Kev -or @($Config.Kev).Count -eq 0) { $optionalOff['kev_software_match'] = $true }
+    $ne = @($ne | Where-Object { -not $optionalOff.ContainsKey($_.Type) })
     $skip = @{}; foreach ($n in $ne) { $skip[$n.Type] = $true }
+    foreach ($k in $optionalOff.Keys) { $skip[$k] = $true }
     $can = { param($t) (-not $skip.ContainsKey($t)) -and ($role -eq 'unknown' -or $script:CheckCatalog[$t].Roles -contains $role) }
 
     $groups = [ordered]@{
@@ -553,16 +843,19 @@ function Invoke-HostChecks {
         'privesc'    = { Invoke-PrivescChecks $Snapshot $Config $can }
         'logging'    = { Invoke-LoggingChecks $Snapshot $Config $can $role }
         'baseline'   = { Invoke-BaselineChecks $Snapshot $Config $can $role }
+        'stig'       = { Invoke-StigChecks $Snapshot $Config $can }
+        'software'   = { Invoke-SoftwareChecks $Snapshot $Config $can }
         'policy'     = { Invoke-PolicyChecks $Snapshot $Config $can $role }
         'edr'        = { Invoke-EdrChecks $Snapshot $Config $can $role }
         'patching'   = { Invoke-PatchChecks $Snapshot $Config $can }
     }
     foreach ($g in $groups.Keys) {
         # One broken group becomes a warning, not a lost report.
+        Step-Spinner "Analyzing $($script:CurrentHost): $g checks"
         try { & $groups[$g] }
-        catch { Write-Warning "${script:CurrentHost}: $g checks failed: $($_.Exception.Message)" }
+        catch { Stop-Spinner; Write-Warning "${script:CurrentHost}: $g checks failed: $($_.Exception.Message)" }
     }
-    return [PSCustomObject]@{ Findings = $script:Findings.ToArray(); NotEvaluated = $ne }
+    return [PSCustomObject]@{ Findings = $script:Findings.ToArray(); NotEvaluated = $ne; StigEvaluated = $script:StigEvaluated }
 }
 
 function Invoke-CredentialChecks {
@@ -575,6 +868,9 @@ function Invoke-CredentialChecks {
     }
     if ((& $can 'credential_guard_off') -and $c.credentialGuardRunning -eq $false) {
         Add-Finding -Type 'credential_guard_off' -Object 'Credential Guard' -Detail "Not running (VBS status $($c.vbsStatus): 0 off, 1 configured, 2 running)."
+    }
+    if ((& $can 'hvci_off') -and $c.hvciRunning -eq $false) {
+        Add-Finding -Type 'hvci_off' -Object 'Memory integrity' -Detail "HVCI is not running (VBS status $($c.vbsStatus))."
     }
     if ((& $can 'wdigest_cleartext') -and "$($c.wdigestUseLogonCredential)" -eq '1') {
         Add-Finding -Type 'wdigest_cleartext' -Object 'WDigest' -Detail 'UseLogonCredential = 1.'
@@ -638,6 +934,23 @@ function Invoke-AntivirusChecks {
             $txt = ($missing | ForEach-Object { "$($script:StandardAsrRules[$_]) [$(if ($set.ContainsKey($_)) { "action $($set[$_])" } else { 'not set' })]" }) -join '; '
             Add-Finding -Type 'asr_standard_rules_missing' -Object 'ASR' -Detail "$($missing.Count) of 3 not blocking: $txt."
         }
+    }
+    if (& $can 'asr_other_rules_not_blocking') {
+        $set = @{}
+        foreach ($r in @($d.asrRules | Where-Object { $_ })) { $set["$($r.id)".ToLower()] = $r.action }
+        $missing = @($script:OtherAsrRules.Keys | Where-Object { "$($set[$_])" -ne '1' })
+        if ($missing.Count -gt 0) {
+            $audit = @($missing | Where-Object { "$($set[$_])" -in '2', '6' }).Count
+            $txt = ($missing | ForEach-Object { "$($script:OtherAsrRules[$_]) [$(if ($set.ContainsKey($_)) { "action $($set[$_])" } else { 'not set' })]" }) -join '; '
+            Add-Finding -Type 'asr_other_rules_not_blocking' -Object 'ASR (other rules)' -Detail "$($missing.Count) of $($script:OtherAsrRules.Count) not blocking$(if ($audit) { " ($audit in audit or warn mode)" }): $txt."
+        }
+    }
+    if (& $can 'defender_protection_features_off') {
+        if ($d.behaviorMonitorEnabled -eq $false) { Add-Finding -Type 'defender_protection_features_off' -Object 'Behavior monitoring' -Detail 'Behavior monitoring is off.' }
+        if ($d.ioavProtectionEnabled -eq $false) { Add-Finding -Type 'defender_protection_features_off' -Object 'Downloaded files and attachments' -Detail 'Scanning of downloaded files and attachments (IOAV) is off.' }
+        if ($d.disableScriptScanning -eq $true) { Add-Finding -Type 'defender_protection_features_off' -Object 'Script scanning' -Detail 'DisableScriptScanning is on.' }
+        if ($null -ne $d.mapsReporting -and "$($d.mapsReporting)" -eq '0') { Add-Finding -Type 'defender_protection_features_off' -Object 'Cloud-delivered protection' -Severity 'Low' -Detail 'MAPS reporting is disabled (0); STIG and CIS ask for Advanced (2).' }
+        if ($d.disableBlockAtFirstSeen -eq $true) { Add-Finding -Type 'defender_protection_features_off' -Object 'Block at first sight' -Severity 'Low' -Detail 'DisableBlockAtFirstSeen is on.' }
     }
 }
 
@@ -829,8 +1142,34 @@ function Invoke-PrivescChecks {
         foreach ($svc in $services) {
             $w = @($svc.writableBy | Where-Object { $_ })
             if ($w.Count -eq 0) { continue }
-            $sev = if (@($w | Where-Object { $_.scope -eq 'file' }).Count -gt 0) { 'High' } else { 'Medium' }
-            Add-Finding -Type 'service_binary_writable' -Object "service: $($svc.name)" -Severity $sev -Detail "$($svc.executable), runs as $($svc.account) ($($svc.state)): writable by $(Get-WriterText $w)."
+            $fileWritable = @($w | Where-Object { $_.scope -eq 'file' }).Count -gt 0
+            $starters = @($svc.startableBy | Where-Object { $_ })
+            $sev = if ($fileWritable -or $starters.Count -gt 0) { 'High' } else { 'Medium' }
+            $detail = "$($svc.executable), runs as $($svc.account) ($($svc.state)): writable by $(Get-WriterText $w)."
+            if (-not $fileWritable) { $detail += ' The program itself is not writable, but files can be added to its folder: a DLL placed there is loaded by the service (DLL planting).' }
+            if (-not $fileWritable -and "$($svc.executable)" -match '(?i)^[a-z]:\\programdata\\') { $detail += ' The ProgramData folder lets users create files by default and this folder inherits that: the program was installed under ProgramData, not Program Files.' }
+            if ($starters.Count -gt 0) { $detail += " $((@($starters | ForEach-Object { Get-SidLabel $_ }) -join ', ')) can start the service, so the planted code runs on demand." }
+            elseif ("$($svc.startMode)" -eq 'Auto') { $detail += ' It starts at boot.' }
+            Add-Finding -Type 'service_binary_writable' -Object "service: $($svc.name)" -Severity $sev -Detail $detail
+        }
+    }
+    if (& $can 'service_path_ancestor_control') {
+        $adminSids = @{}; foreach ($m in @($S.localAccounts.administrators | Where-Object { $_ })) { $adminSids["$($m.sid)"] = $true }
+        $names = @{}; foreach ($u in @($S.localAccounts.users | Where-Object { $_ })) { $names["$($u.sid)"] = "$($u.name)" }
+        $everyone = @('S-1-1-0', 'S-1-5-32-545', 'S-1-5-11')
+        $unknownAdmins = ($S.localAccounts.administratorsReadable -ne $true)
+        foreach ($svc in $services) {
+            $items = @($svc.ancestorControl | Where-Object { $_ -and -not $adminSids.ContainsKey("$($_.sid)") })
+            if ($items.Count -eq 0) { continue }
+            $parts = @(); $broad = $false
+            foreach ($it in ($items | Sort-Object { [int]$_.level }, kind, sid | Select-Object -First 4)) {
+                $who = if ($names.ContainsKey("$($it.sid)")) { $names["$($it.sid)"] } else { Get-SidLabel "$($it.sid)" }
+                if ($everyone -contains "$($it.sid)") { $broad = $true }
+                $where = if ([int]$it.level -eq 1) { 'the program''s own folder' } else { "the folder $([int]$it.level - 1) level(s) above the program's folder" }
+                $parts += $(if ("$($it.kind)" -eq 'owner') { "$who owns $where" } else { "$who has $($it.rights) on $where" })
+            }
+            $sev = if ($broad -and "$($svc.account)" -match '(?i)^(localsystem|nt authority\\system)$') { 'High' } else { 'Medium' }
+            Add-Finding -Type 'service_path_ancestor_control' -Object "service: $($svc.name)" -Severity $sev -Detail ("Runs as $($svc.account). " + ($parts -join '; ') + '. Whoever controls a parent folder controls the whole path to the program.' + $(if ($unknownAdmins) { ' The local Administrators group could not be read: check that this account is not an administrator.' } else { '' }))
         }
     }
     if (& $can 'task_binary_writable') {
@@ -901,6 +1240,9 @@ function Invoke-LoggingChecks {
     if ($p) {
         if ((& $can 'powershell_scriptblock_logging_off') -and "$($p.scriptBlockLogging)" -ne '1') {
             Add-Finding -Type 'powershell_scriptblock_logging_off' -Object 'PowerShell' -Detail 'EnableScriptBlockLogging not set to 1.'
+        }
+        if ((& $can 'powershell_module_logging_off') -and "$($p.moduleLogging)" -ne '1') {
+            Add-Finding -Type 'powershell_module_logging_off' -Object 'PowerShell module logging' -Detail 'EnableModuleLogging not set to 1.'
         }
         if ((& $can 'powershell_v2_enabled') -and "$($p.v2EngineVersion)" -eq '2.0') {
             Add-Finding -Type 'powershell_v2_enabled' -Object 'PowerShell 2.0' -Detail 'The 2.0 engine is registered (optional feature installed).'
@@ -977,6 +1319,37 @@ function Invoke-BaselineChecks {
                 $v = & $n $w.($row[0])
                 if ($v -eq 1) { Add-Finding -Type 'winrm_insecure_auth' -Object $row[1] -Detail "$($row[2]) = 1 (CIS $($row[3]) expects 0)." }
             }
+        }
+        if ((& $can 'schannel_legacy_crypto_enabled') -and $h.schannel) {
+            # Enabled is a DWORD: any non-zero value (0xFFFFFFFF reads as -1) switches it on.
+            foreach ($pr in @($h.schannel.protocols | Where-Object { $_ })) {
+                $v = & $n $pr.enabled
+                if ($null -ne $v -and $v -ne 0) {
+                    $ssl = "$($pr.name)" -like 'SSL*'
+                    Add-Finding -Type 'schannel_legacy_crypto_enabled' -Object "protocol: $($pr.name) ($("$($pr.side)".ToLower()))" -Severity $(if ($ssl) { 'Medium' } else { 'Low' }) -Detail "$($pr.name) is explicitly enabled for the $("$($pr.side)".ToLower()) side (Enabled = $v)."
+                }
+            }
+            foreach ($ci in @($h.schannel.ciphers | Where-Object { $_ })) {
+                $v = & $n $ci.enabled
+                if ($null -ne $v -and $v -ne 0) {
+                    Add-Finding -Type 'schannel_legacy_crypto_enabled' -Object "cipher: $($ci.name)" -Severity $(if ("$($ci.name)" -like 'Triple DES*') { 'Low' } else { 'Medium' }) -Detail "The $($ci.name) cipher is explicitly enabled (Enabled = $v)."
+                }
+            }
+        }
+        if ((& $can 'ldap_server_signing_off') -and $h.ldapServer) {
+            $v = & $n $h.ldapServer.integrity
+            if ($v -ne 2) { Add-Finding -Type 'ldap_server_signing_off' -Object 'LDAP server signing' -Detail "LDAPServerIntegrity = $(if ($null -eq $v) { 'not set (negotiate)' } else { $v }), expected 2 (require signing)." }
+            $v = & $n $h.ldapServer.channelBinding
+            if ($v -ne 2) { Add-Finding -Type 'ldap_server_signing_off' -Object 'LDAP channel binding' -Detail "LdapEnforceChannelBinding = $(if ($null -eq $v) { 'not set' } else { $v }), expected 2 (always)." }
+        }
+        if ((& $can 'print_point_and_print_weak') -and $h.pointAndPrint) {
+            $pp = $h.pointAndPrint
+            $v = & $n $pp.restrictDriverInstallToAdmins
+            if ($v -eq 0) { Add-Finding -Type 'print_point_and_print_weak' -Object 'RestrictDriverInstallationToAdministrators' -Detail 'RestrictDriverInstallationToAdministrators = 0: standard users can install printer drivers.' }
+            $v = & $n $pp.noWarningNoElevationOnInstall
+            if ($v -eq 1) { Add-Finding -Type 'print_point_and_print_weak' -Object 'NoWarningNoElevationOnInstall' -Severity 'High' -Detail 'NoWarningNoElevationOnInstall = 1: installing a driver from a print server needs no elevation (PrintNightmare condition).' }
+            $v = & $n $pp.noWarningNoElevationOnUpdate
+            if ($v -eq 1) { Add-Finding -Type 'print_point_and_print_weak' -Object 'NoWarningNoElevationOnUpdate' -Severity 'High' -Detail 'NoWarningNoElevationOnUpdate = 1: updating a driver from a print server needs no elevation.' }
         }
         $v = & $n $h.mrxsmb10Start
         if ((& $can 'smb1_client_driver_enabled') -and $null -ne $v -and $v -ne 4) { Add-Finding -Type 'smb1_client_driver_enabled' -Object 'mrxsmb10 driver' -Detail "Start = $v (CIS 18.4.3 expects 4, disabled)." }

@@ -2,6 +2,36 @@
 
 $script:SeverityRank = @{ Critical = 4; High = 3; Medium = 2; Low = 1 }
 
+# Progress cursor for the steps that take time. PowerShell cannot draw while it is busy, so the cursor
+# moves each time the script reports a step (a snapshot read, a host analyzed, a file written). It is
+# drawn only on an interactive console; redirected output (a log, the regression) gets nothing. Any
+# other message must call Stop-Spinner first so it starts on a clean line.
+$script:SpinFrames = @('|', '/', '-', '\')
+$script:SpinIndex = 0
+$script:SpinLast = 0
+$script:SpinWidth = 0
+$script:SpinEnabled = $null
+function Step-Spinner {
+    param([string]$Message)
+    if ($null -eq $script:SpinEnabled) {
+        $script:SpinEnabled = $false
+        try { $script:SpinEnabled = [bool]([Environment]::UserInteractive -and -not [Console]::IsOutputRedirected) } catch { }
+    }
+    if (-not $script:SpinEnabled) { return }
+    $now = [Environment]::TickCount
+    if (($now - $script:SpinLast) -lt 90 -and $script:SpinWidth -gt 0) { return }
+    $script:SpinLast = $now
+    $text = "$Message $($script:SpinFrames[$script:SpinIndex % 4])"
+    $script:SpinIndex++
+    $pad = [Math]::Max(0, $script:SpinWidth - $text.Length)
+    Write-Host -NoNewline "`r$text$(' ' * $pad)"
+    $script:SpinWidth = $text.Length
+}
+function Stop-Spinner {
+    if ($script:SpinEnabled -and $script:SpinWidth -gt 0) { Write-Host -NoNewline "`r$(' ' * $script:SpinWidth)`r" }
+    $script:SpinWidth = 0
+}
+
 # --------------------------------------------------------------------------
 # Dates are ISO 8601 in UTC. PowerShell 7 parses them into [datetime] and 5.1 leaves strings, and
 # both work. Ages are counted at the time of collection ($script:RefDate), never today, so the same
@@ -73,6 +103,11 @@ function Import-HostSnapshot {
     if (-not $raw.StartsWith('{')) { throw "$Path is not a HostBadger snapshot (not JSON)." }
     # Older collectors on PS 5.1 wrote an empty list as {}.
     $raw = [regex]::Replace($raw, '(?<=[^\\]"):\s*\{\s*\}', ': []')
+    # A snapshot collected before this normalization existed may still have writableBy/ancestorControl
+    # as null instead of []; see the matching comment in Collect-HostSnapshot.ps1.
+    foreach ($arrayField in 'writableBy', 'ancestorControl') {
+        $raw = [regex]::Replace($raw, "`"$arrayField`":\s*null", "`"$arrayField`": []")
+    }
     $snap = $raw | ConvertFrom-Json
     if (-not $snap.meta -or "$($snap.meta.tool)" -ne 'HostBadger') { throw "$Path is not a HostBadger snapshot (missing meta.tool)." }
     $snap | Add-Member -NotePropertyName _path -NotePropertyValue $Path -Force
