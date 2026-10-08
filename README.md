@@ -616,12 +616,23 @@ the reply are kept, invented checks are dropped, and nothing is sent without
   rather than guessed.
 - **Writable programs.** The ACL check looks at the program file and its
   folder for Everyone, Users, Authenticated Users, Interactive and Domain
-  Users or Computers. It does not cover DLL search order hijacking beyond the
-  program's folder, service permissions (who may reconfigure the service), or
-  per-user AlwaysInstallElevated.
+  Users or Computers. For services it goes further: every folder above the
+  program, up to the drive root, is checked for ownership or
+  permission-changing rights held by a non-administrator
+  (`service_path_ancestor_control`), and who may start a service whose
+  folder is writable is read from its security descriptor
+  (`service_binary_writable`). None of this inspects the program's actual
+  DLL imports, so it tells you who could plant a file there, not whether the
+  program would load it; confirming that needs a tool like Process Monitor.
+  Scheduled tasks and autoruns still only get the plain file-and-folder
+  check. It does not cover who may reconfigure a service (`CHANGE_CONFIG`,
+  `WRITE_DAC`) or per-user AlwaysInstallElevated.
 - **Defender only.** With a third-party antivirus, Defender runs in passive
-  mode and its checks are reported as not evaluated. The other product is not
-  inspected.
+  mode and its checks (the ones about Defender's own settings, such as
+  real-time protection or ASR rules) are reported as not evaluated. The other
+  product's settings are not inspected. The EDR inventory is a separate,
+  independent check and does recognize 15 common vendors by service name
+  regardless of Defender's state; see "EDR agents" above.
 
 ## License
 
