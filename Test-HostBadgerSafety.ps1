@@ -26,7 +26,8 @@
         commands, Base64, downloads, compiled C#, starting processes, CIM
         method calls;
       - a web address other than the MITRE ATT&CK links in the report and, in
-        lib\AI.ps1 only, the Gemini endpoint of the optional AI step;
+        lib\AI.ps1 only, the Gemini endpoint of the optional AI step and the
+        CISA KEV catalog address (www.cisa.gov, -KevOnline);
       - HTTP or socket code outside lib\AI.ps1. The collector and the checks
         never touch the network. Gemini is called only after -SendToAI, from
         HostBadger.ps1, once names have been replaced by tokens;
@@ -77,9 +78,10 @@ $bannedText = [ordered]@{
     'Registry write (.NET)'   = '(?i)\.(SetValue|DeleteValue|DeleteSubKey\w*|CreateSubKey)\('
 }
 $allowedHosts = @('attack.mitre.org')
-# The optional AI step is the only code that may reach the network, and only this endpoint.
+# lib\AI.ps1 is the only code that may reach the network, and only these addresses: Gemini (-SendToAI)
+# and the CISA KEV catalog (-KevOnline).
 $aiFile = 'lib/AI.ps1'
-$aiHosts = @('generativelanguage.googleapis.com')
+$aiHosts = @('generativelanguage.googleapis.com', 'www.cisa.gov')
 $networkText = '(?i)System\.Net\.Http|HttpClient|PostAsync|GetAsync|TcpClient|UdpClient|System\.Net\.Sockets|\[Net\.WebRequest\]|\[System\.Net\.WebRequest\]'
 
 $root = (Resolve-Path -LiteralPath $Path).Path

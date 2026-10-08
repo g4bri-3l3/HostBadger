@@ -13,29 +13,119 @@
 
 ![A tour of the demo report](examples/demo_report.gif)
 
-HostBadger looks at the security settings of Windows machines and tells you
-what is weak. It works in two steps. A single PowerShell script takes a
-**read-only snapshot** of a host. Then the analyzer reads the snapshots
-**offline** and writes an HTML report, a findings CSV and, if you want it,
-JSON Lines for a SIEM. Hand it one snapshot or a folder with hundreds and you
-get the whole fleet in one report.
+## Summary
 
-The collector is made to run where the hosts are. Upload it once as a
-CrowdStrike Falcon cloud script (any EDR or SOAR that runs `.ps1` files will
-do), run it on many endpoints through Real Time Response as SYSTEM, and it is
-done in about 15 seconds. It leaves a zip that you fetch with `get`.
+HostBadger audits the security settings of Windows machines and tells you what
+is weak. It works in two steps. A single PowerShell script takes a
+**read-only snapshot** of a host. The analyzer then reads the snapshots
+**offline** and writes an HTML report, a findings CSV and, if you want it, JSON
+Lines for a SIEM. Hand it one snapshot or a folder with hundreds and you get
+the whole fleet in one report, or one report per host.
 
-There are **87 checks** in ten areas: credential protection, Microsoft
-Defender and EDR agents, BitLocker and Secure Boot, network exposure, remote access, local
-accounts and UAC, ways to escalate privileges (writable service and task
-programs, unquoted paths, AlwaysInstallElevated), logging and audit policy,
-patching and the Windows lifecycle, and a set of baseline settings taken from
-the CIS Windows 11 benchmark.
+- **105 checks** and about 730 settings: 97 hand-written checks plus 638 DISA
+  STIG registry rules, with the CIS Windows 11 benchmark as the baseline.
+- **Collect anywhere, analyze anywhere**: the collector is one `.ps1` file made
+  to run as SYSTEM through an EDR (CrowdStrike Falcon RTR or any tool that runs
+  scripts) on many hosts in about 15 seconds.
+- **Read only**: it changes nothing and starts nothing, and it makes no network
+  call unless you ask for one: `-CheckUpdates` (the Windows Update service
+  searches for missing updates), `-KevOnline` (downloads the CISA KEV catalog,
+  www.cisa.gov) and `-SendToAI` (Gemini). Each one is named where it is offered.
+  `Test-HostBadgerSafety.ps1` proves the rest from the code.
+- **Honest about gaps**: what could not be read is listed as *not evaluated*,
+  never as clean.
+- **Nothing to install**: Windows PowerShell 5.1 or PowerShell 7.
+- **Windows 10, Windows 11 and Windows Server**: every host gets the general checks and the STIGs of Defender, Firewall, Edge, Chrome, Firefox and Office (when installed); a Windows 10 host also gets the Windows 10 STIG and a Windows 11 host the Windows 11 STIG. The CIS rule numbers are those of the Windows 11 benchmark. A server gets no Windows STIG (there is no server STIG data yet) and not the workstation-only checks (user rights, local password policy).
 
-HostBadger belongs to the MooseAlto family, next to
-[MooseAlto](https://github.com/g4bri-3l3/MooseAlto) (firewall rulebases). It
-reads what a host actually *does*, which is not always what policy says it
+It reads what a host actually *does*, which is not always what policy says it
 should.
+
+## Features
+
+### Security areas
+
+- **Credential protection**: LSASS protection, Credential Guard, memory
+  integrity (HVCI), WDigest, cached logons, LM/NTLM settings, anonymous access.
+- **Microsoft Defender and EDR**: real-time protection, tamper protection,
+  signatures, exclusions, PUA, Network Protection, behavior monitoring, cloud
+  protection, the 3 standard and 13 more attack surface reduction rules, and
+  which EDR agent each host runs.
+- **Disk and boot**: BitLocker on system and data volumes, TPM-only protectors,
+  Secure Boot.
+- **Network exposure**: SMB and LDAP signing, SMBv1, LLMNR, NetBIOS, firewall
+  profiles and logging, risky listeners, legacy SSL/TLS protocols and weak
+  ciphers.
+- **Remote access**: RDP, NLA and RDP policy, WinRM authentication.
+- **Local accounts and UAC**: built-in accounts, local administrators, LAPS,
+  password and lockout policy, user rights, UAC settings.
+- **Privilege escalation**: writable service and task programs, unquoted
+  paths, AlwaysInstallElevated, autoruns, Point and Print (PrintNightmare).
+- **Logging and audit**: advanced audit policy, command-line auditing,
+  PowerShell script block, module and transcription logging, log sizes.
+- **Patching and lifecycle**: Windows update age, end of support and, if you
+  ask for it (`-CheckUpdates`), the updates that Windows Update reports as
+  missing, rated by Microsoft severity.
+- **Installed software**: the Programs and Features list of every host, shown in
+  the report with pie charts by publisher; with the CISA KEV catalog (`-KevFile`
+  or `-KevOnline`) each program that matches a product with vulnerabilities
+  known to be exploited becomes a lead to verify (the catalog has no version
+  ranges, so the match is by vendor and product name only).
+- **System hardening**: autoplay, automatic logon, screen lock, SmartScreen and
+  the other CIS Windows 11 baseline settings.
+
+### Compliance
+
+- **DISA STIG, 638 registry rules** across eight products, one finding per
+  rule that differs (a setting that is not configured counts, as the STIG
+  asks):
+
+  | Product | STIG release | Rules |
+  |---|---|---|
+  | Windows 10 | V3R6 | 137 |
+  | Windows 11 | V2R7 | 133 |
+  | Microsoft Defender Antivirus | V2R8 | 67 |
+  | Windows Defender Firewall | V2R2 | 38 |
+  | Microsoft Edge | V2R5 | 53 |
+  | Google Chrome | V2R11 | 40 |
+  | Mozilla Firefox | V6R7 | 43 |
+  | Microsoft Office 365 ProPlus | V3R5 | 127 |
+
+  Severity follows the STIG category (CAT I High, CAT II Medium, CAT III Low).
+  Browser and Office rules apply only when the product is installed, and
+  Office rules are per-user policies, judged on the user profiles loaded when
+  the snapshot was taken. Rules that need an organization decision (a banner
+  text, an approved URL list) are not judged. The data comes from the
+  processed files of [Microsoft PowerSTIG](https://github.com/microsoft/PowerSTIG)
+  (MIT) and the DISA releases; `tools\Convert-PowerStigData.ps1` rebuilds it.
+- **CIS Windows 11 Enterprise benchmark v3.0.0**: rule numbers in the findings,
+  taken from the MIT-licensed
+  [ansible-lockdown/Windows-11-CIS](https://github.com/ansible-lockdown/Windows-11-CIS)
+  role.
+- **Compliance charts** at the top of the report: how much of the STIG and of
+  the CIS-based checks the hosts meet. `-HideCis` and `-HideStig` take those
+  findings out of the report listing (the CSV and JSON Lines keep them) and
+  `-SkipStig` leaves the STIG rules out altogether.
+- `COVERAGE.md` lists every check with its severity, MITRE technique, CIS rule
+  and whether a fix script exists.
+
+### Reporting and fixing
+
+- **HTML report** with scores per host (A to F), pie charts, findings grouped
+  by check, a fix script under each fixable check, filters and a
+  *not evaluated* section; **CSV** and **JSON Lines** for a SIEM with stable
+  finding ids.
+- **One report per host** with `-PerHost`, or one fleet report.
+- **Comparison with an earlier run** (new and resolved findings) and **accepted
+  risks** with an owner and an expiry.
+- **Remediation scripts** (`-OutRemediation`): one setting, the expected value,
+  previewed by default, with a rollback file. HostBadger never runs them.
+- **Optional AI summary** with Gemini: host names, accounts, paths and
+  addresses are replaced by tokens first and a leak check refuses to send if
+  one survives. You choose whether the STIG findings go too (there can be
+  hundreds per host, and a prompt that large may time out).
+- **Guided menu** (`Start-HostBadger.ps1`) for collecting, analyzing, the AI
+  step and the safety review.
+
 
 ## The pieces
 
@@ -82,6 +172,11 @@ Invoke-FalconRtr -Command runscript -Argument '-CloudFile="Collect-HostSnapshot"
 
 If a host has several snapshots, the newest one wins.
 
+For a fleet, add `-PerHost` to get one report per host next to the fleet report
+(`fleet_<HOST>.html`, each with only that host's findings). The guided menu
+(`Start-HostBadger.ps1`) offers it, on by default, whenever the folder holds
+snapshots of more than one host.
+
 ### If PowerShell won't run the scripts
 
 On many machines Windows PowerShell refuses to run `.ps1` files, because the
@@ -117,6 +212,27 @@ A few things worth knowing:
 - The execution policy is a safety net against accidents, not a security
   boundary. Before you run anything as administrator, see what the scripts can
   do with `.\Test-HostBadgerSafety.ps1`.
+
+### Domain-joined hosts
+
+Run the collector on a domain member, a member server or a domain controller
+the same way as on a standalone machine, elevated or as SYSTEM. What to expect:
+
+- The collector reads the local state only. It makes no LDAP query and no call
+  to a domain controller, and it never enumerates domain users or groups.
+- The role (workstation, server, domain controller) comes from
+  `Win32_ComputerSystem.DomainRole` and decides which checks apply. The
+  snapshot also records whether the host is part of a domain.
+- Domain accounts and groups in the local Administrators group are listed with
+  their SID and a `DOMAIN/Name` path. Use that form in `-AllowedAdmins`.
+- Settings pushed by Group Policy are seen as the values in force on the host
+  (registry, `secedit`, `auditpol`), not as GPO objects.
+- A GPO can set the execution policy (see above), and AppLocker or WDAC can
+  block the script. A section that fails, for instance for lack of rights, is
+  recorded in `meta.collectionErrors` and its checks are listed as not
+  evaluated.
+- The snapshot holds real host, domain and account names. Keep it out of the
+  repository.
 
 ## What HostBadger checks
 
@@ -202,11 +318,20 @@ role.
   ACLs (`Get-Acl`). It reads the audit policy with `auditpol /backup` and the
   local security policy with `secedit /export`, each into a temporary file
   that is deleted right away. It never uses `/configure` or `/import`. It
-  changes no setting, starts no process and opens no network connection. The
-  only code that can reach the network is the optional AI step, and only when
-  you ask for it. `Test-HostBadgerSafety.ps1` checks all this from the code
+  changes no setting and starts no process. Network traffic exists only when
+  you ask for it, and the address is named each time: the Windows Update
+  Agent's own search (`-CheckUpdates`, the WSUS server set by policy or
+  Microsoft Update), one GET of the CISA KEV catalog
+  (www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json,
+  `-KevOnline`) and the Gemini call (`-SendToAI`). The code that sends or
+  downloads lives in `lib\AI.ps1` only. `Test-HostBadgerSafety.ps1` checks all this from the code
   and fails on any command that is not on its reviewed list. The regression
   suite runs it on the real code and on a tampered copy.
+- **STIG values are a fixed list.** The `stig` section reads the 506 registry
+  values of `data\stig-catalog.json` (embedded in the collector, which stays one
+  file) from HKLM and from the HKU hives of users who are signed in. It reads
+  nothing else and loads no hive. `tools\Convert-PowerStigData.ps1` rebuilds
+  both from PowerSTIG files you download yourself; it never touches the network.
 - **A gap is never an all-clear.** Each section is collected on its own. If
   one fails (a standard user can't read BitLocker, Defender exclusions or the
   audit policy, for example) the failure is written into the snapshot, and
@@ -257,9 +382,14 @@ standard user with Defender in passive mode.
     [-MaxCachedLogonsWorkstation 4] [-MaxCachedLogonsServer 1] [-MinSecurityLogKB 196608]
     [-ExpectedEdr CrowdStrike] [-ExtraEdrServices MyAgentService]   # the EDR every host should run; services to count as an agent
     [-OutRemediation .\fixes]                    # one remediate_<host>.ps1 per host, with a rollback file
+    [-PerHost]                                   # also one HTML report per host: <report>_<HOST>.html
+    [-SkipStig]                                  # leave out the DISA STIG checks (about 500 registry rules)
+    [-KevFile known_exploited_vulnerabilities.json] | [-KevOnline]   # match installed software to the CISA KEV catalog (-KevOnline downloads it from www.cisa.gov)
+    [-HideCis] [-HideStig]                       # keep those findings out of the HTML listing (CSV and JSON Lines keep them)
+    [-AiIncludeStig]                             # also send the STIG findings to Gemini (large prompt, may time out)
     [-SendToAI [-AiConfirm]] [-AiDryRun prompt.txt] [-ApiKey <key>] [-Model gemini-3.7-flash] [-AiMaxAttempts 3]
 
-.\Collect-HostSnapshot.ps1 [-OutDir <folder>] [-NoZip] [-SkipAcl]
+.\Collect-HostSnapshot.ps1 [-OutDir <folder>] [-NoZip] [-SkipAcl] [-CheckUpdates]   # -CheckUpdates: the Windows Update service searches for missing updates (network)
 ```
 
 An exception (see `examples/exceptions.example.json`) has a `type`, a `host`

@@ -90,6 +90,16 @@ function Invoke-CollectStep {
     $dir = Read-Path "Snapshot folder" (Join-Path $PWD.Path 'snapshots')
     $p = @{ OutDir = $dir }
     if (Test-Yes "Skip file ACLs (faster, but the writable-program checks are not evaluated)? (y/N)") { $p['SkipAcl'] = $true }
+    # The one network call the collector can make, so it is asked about and the address is named.
+    $wuSource = 'Microsoft Update (HTTPS to *.update.microsoft.com)'
+    try {
+        $wuPol = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate' -ErrorAction Stop
+        $wuAu = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' -ErrorAction SilentlyContinue
+        if ($wuPol.WUServer -and $wuAu -and $wuAu.UseWUServer -eq 1) { $wuSource = "the WSUS server $($wuPol.WUServer)" }
+    }
+    catch { }
+    Write-Host "`nOptional: ask Windows Update which updates are still missing. The Windows Update service of this machine contacts $wuSource; the collector itself sends nothing. Without it, pending updates are simply not in the snapshot." -ForegroundColor DarkGray
+    if (Test-Yes "Search for missing updates online? (y/N)") { $p['CheckUpdates'] = $true }
     $before = @(Get-ChildItem -LiteralPath $dir -Filter 'hostsnapshot_*' -ErrorAction SilentlyContinue).Count
     Invoke-Sub 'Collect-HostSnapshot.ps1' $p
     $after = @(Get-ChildItem -LiteralPath $dir -Filter 'hostsnapshot_*' -ErrorAction SilentlyContinue).Count
@@ -169,6 +179,31 @@ function Get-AnalysisParams {
     if (-not $Snapshot -or -not (Test-Path -LiteralPath $Snapshot)) { Write-Host "Snapshot not found." -ForegroundColor Red; return $null }
     $ap['Snapshot'] = $Snapshot
     $ap['OutHtml'] = Read-Path "Report HTML path" ("hostbadger_{0}.html" -f (Ts))
+    # Only when the folder holds snapshots of more than one host: one report each, on by default.
+    if ((Get-Item -LiteralPath $Snapshot).PSIsContainer) {
+        $hostCount = @(Get-SnapshotList -Dir $Snapshot -Recurse | ForEach-Object { $_.Host.ToLower() } | Sort-Object -Unique).Count
+        if ($hostCount -gt 1) {
+            Write-Host "`n$hostCount hosts found: HostBadger can also write one report per host, next to the fleet report." -ForegroundColor DarkGray
+            $ans = "$(Read-Host 'One report per host? (Y/n)')".Trim()
+            if ($ans -notmatch '^[Nn]') { $ap['PerHost'] = $true }
+        }
+    }
+    Write-Host "`nThe report also judges about 500 DISA STIG registry rules (Windows 11, Defender, Firewall, Edge, Chrome, Firefox, Office). A host that is not managed against the STIG shows hundreds of 'not configured' findings." -ForegroundColor DarkGray
+    $stigAns = "$(Read-Host 'Include the DISA STIG rules? (Y/n)')".Trim()
+    if ($stigAns -match '^[Nn]') { $ap['SkipStig'] = $true }
+    $cisAns = "$(Read-Host 'Show the CIS-based findings in the report? (Y/n)')".Trim()
+    if ($cisAns -match '^[Nn]') { $ap['HideCis'] = $true }
+    if (-not $ap.ContainsKey('SkipStig')) {
+        $stigShow = "$(Read-Host 'Show the DISA STIG findings in the report? (Y/n)')".Trim()
+        if ($stigShow -match '^[Nn]') { $ap['HideStig'] = $true }
+    }
+    Write-Host "`nCISA KEV: installed software can be compared with the catalog of vulnerabilities known to be exploited. The match is by vendor and product name only (the catalog has no version ranges), so it is a lead to verify. Downloading connects to www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json (one HTTPS GET, nothing is sent); a copy is kept next to the report." -ForegroundColor DarkGray
+    $kevAns = "$(Read-Host 'CISA KEV catalog: [N]one, [O]nline download, or a [F]ile you already have (N/o/f)')".Trim().ToUpper()
+    if ($kevAns -eq 'O') { $ap['KevOnline'] = $true }
+    elseif ($kevAns -eq 'F') {
+        $kevPath = Read-Path 'Path of known_exploited_vulnerabilities.json'
+        if ($kevPath -and (Test-Path -LiteralPath $kevPath)) { $ap['KevFile'] = $kevPath } else { Write-Host "Not found, KEV skipped: $kevPath" -ForegroundColor Yellow }
+    }
     if (Test-Yes "Also write JSON Lines for a SIEM? (y/N)") { $ap['OutJsonl'] = Read-Path "JSON Lines path" ($ap['OutHtml'] -replace '\.html?$', '.jsonl') }
     $prev = Read-Path "Findings CSV of an earlier run, to show new and resolved (optional, Enter to skip)"
     if ($prev) { if (Test-Path -LiteralPath $prev) { $ap['CompareTo'] = $prev } else { Write-Host "Not found, comparison skipped: $prev" -ForegroundColor Yellow } }
@@ -201,6 +236,11 @@ function Read-AiMode {
 function Add-AiParams {
     param([hashtable]$Params, [string]$Mode)
     if ($Mode -eq 'N') { return }
+    if (-not $Params.ContainsKey('SkipStig')) {
+        Write-Host "`nThe DISA STIG findings can be hundreds per host. Sending them makes the prompt very large and Gemini may time out." -ForegroundColor Yellow
+        $sendStig = "$(Read-Host 'Also send the DISA STIG findings to Gemini? (y/N)')".Trim()
+        if ($sendStig -match '^[YySs]') { $Params['AiIncludeStig'] = $true }
+    }
     if ($Mode -eq 'S' -or $Mode -eq 'C') {
         if (-not $env:GEMINI_API_KEY) {
             $k = Read-Host "GEMINI_API_KEY not set. Paste the key for this session (or Enter to do a dry run instead)"
