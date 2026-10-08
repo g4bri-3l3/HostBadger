@@ -8,15 +8,17 @@ new major if the snapshot or the JSON Lines format ever breaks.
 
 ## [1.1] - 2026-10-08
 ### Added
-  **DISA STIG layer**: seven checks (`stig_windows11`, `stig_defender`,
+  **DISA STIG layer**: eight checks (`stig_windows10`, `stig_windows11`, `stig_defender`,
   `stig_firewall`, `stig_edge`, `stig_chrome`, `stig_firefox`, `stig_office`)
-  that judge 501 registry rules (Windows 11 V2R7, Defender V2R8, Firewall V2R2,
+  that judge 638 registry rules (Windows 10 V3R6, Windows 11 V2R7, Defender V2R8, Firewall V2R2,
   Edge V2R5, Chrome V2R11, Firefox V6R7, Office 365 ProPlus V3R5), one finding
   per rule that differs. A value that is not configured counts. The data is
   `data\stig catalog.json`, built by `tools\Convert PowerStigData.ps1` from
   Microsoft PowerSTIG (MIT); the collector has a new `stig` section that reads
   exactly those values (HKLM, and the HKU hives of signed in users for the
-  per user Office rules). Browser and Office rules apply only when the product
+  per user Office rules). Each Windows version is judged against its own STIG:
+  a Windows 10 host against the Windows 10 STIG, a Windows 11 host against the
+  Windows 11 one, a server against neither. Browser and Office rules apply only when the product
   is installed. ` SkipStig` leaves them out; the launcher asks.
   Seven more checks: `asr_other_rules_not_blocking` (13 more Microsoft ASR
   rules), `defender_protection_features_off` (behavior monitoring, downloaded
@@ -42,8 +44,6 @@ new major if the snapshot or the JSON Lines format ever breaks.
   on an interactive console, so an EDR session or a log gets no extra output.
   The compliance charts sit right under the score cards.
   README: new summary and features sections; MooseAlto references removed.
-
-  **Windows 10 STIG** (V3R6, 137 rules) as `stig_windows10`: a Windows 10 host is judged against its own STIG, a Windows 11 host against the Windows 11 one, a server against neither. 638 rules in total.
 - **Pending Windows updates** (Collect-HostSnapshot.ps1 -CheckUpdates, opt-in): the Windows Update Agent searches for missing software updates (it contacts the WSUS server set by policy or Microsoft Update) and the check updates_pending reports each one, rated by Microsoft severity. The launcher asks and names the address.
 - **Installed software** (new collector section software, always collected) listed in the report, with pie charts by publisher.
 - **CISA KEV** (-KevFile or -KevOnline): installed software is matched to the Known Exploited Vulnerabilities catalog by vendor and product name (kev_software_match, new category Software). The catalog has no version ranges, so a finding is a lead to verify. -KevOnline makes one GET to www.cisa.gov and keeps a copy next to the report; the launcher asks and names the address. The program name in the finding is tokenized for the AI step.
