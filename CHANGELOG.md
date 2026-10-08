@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
-## [Unreleased]
+## [1.1] - 2026-10-08
 ### Added
   **DISA STIG layer**: seven checks (`stig_windows11`, `stig_defender`,
   `stig_firewall`, `stig_edge`, `stig_chrome`, `stig_firefox`, `stig_office`)
@@ -52,6 +52,7 @@ new major if the snapshot or the JSON Lines format ever breaks.
 - **service_path_ancestor_control**: a service program under a folder that a non-administrator owns or has full control of (the folder itself or any folder above it up to the drive root, outside the Windows directory). High when everyone has that control on a LocalSystem service, Medium otherwise; members of the local Administrators group are not reported. The collector reads the owner and the permission-changing rights of each parent folder (read only, cached).
 - Fix: the text of a service finding under ProgramData contained a drive path, which made the AI leak check refuse to send the prompt. The text no longer has one, and a test covers it.
 - Fix: `service_path_ancestor_control` fired on almost every service, with blank text ("...has  on..."). Two bugs: a leading comma on an already-built array in the collector (`return , $res`) wrapped it as a single element instead of returning it as-is, so the analyzer read .kind/.sid/.rights off the wrong object; and an empty array deep inside the snapshot could serialize as a bare `null` instead of `[]`. Both are fixed (the collector now normalizes `writableBy`/`ancestorControl` to `[]` when empty, and `Import-HostSnapshot` does the same for snapshots collected before this fix); members of the local Administrators group are correctly excluded, verified against a real run.
+- Fix: a writable-file/folder finding could show an unreadable raw number (e.g. `-536805376`) instead of a permission name, whenever an ACE used the raw GENERIC_READ/WRITE/EXECUTE/ALL bits rather than the specific rights .NET's `FileSystemRights` enum names (seen on a real inherit-only `Authenticated Users` ACE an installer had written). The collector now decomposes those bits into readable names (`GenericRead, GenericWrite, GenericExecute, Delete`); detection and severity were already correct, only the detail text was wrong.
 
 ### Changed
   ` PerHost` writes one HTML report per host next to the fleet report

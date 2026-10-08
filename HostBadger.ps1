@@ -138,7 +138,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:HostBadgerVersion = '1.0'
+$script:HostBadgerVersion = '1.1'
 . (Join-Path $PSScriptRoot 'lib\Common.ps1')
 . (Join-Path $PSScriptRoot 'lib\Checks.ps1')
 . (Join-Path $PSScriptRoot 'lib\AI.ps1')
@@ -148,7 +148,7 @@ $script:HostBadgerVersion = '1.0'
 Write-Host @'
      _.--""--._
    .'  |    |  '.
-  /    |    |    \      HostBadger
+  /    |    |    \      HostBadger 1.1
  |  (o)|    |(o)  |     Windows host hardening
  |     |    |     |     read-only snapshots, offline analysis
   \    '.__.'    /

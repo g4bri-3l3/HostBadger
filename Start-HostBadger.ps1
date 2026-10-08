@@ -31,7 +31,7 @@ function Show-Banner {
     Write-Host @'
      _.--""--._
    .'  |    |  '.
-  /    |    |    \      HostBadger
+  /    |    |    \      HostBadger 1.1
  |  (o)|    |(o)  |     Windows host hardening
  |     |    |     |     collect, analyze, optional AI summary
   \    '.__.'    /
