@@ -526,6 +526,17 @@ $aiNo = Join-Path $hideOut 'ai_no.txt'; $aiYes = Join-Path $hideOut 'ai_yes.txt'
 & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $hideOut 'b.html') -AiDryRun $aiYes -AiIncludeStig *>&1 | Out-Null
 $aiNoTxt = [System.IO.File]::ReadAllText($aiNo); $aiYesTxt = [System.IO.File]::ReadAllText($aiYes)
 Assert-True ($aiNoTxt -notmatch '## \[\w+\] stig_' -and $aiYesTxt -match '## \[\w+\] stig_windows11' -and $aiYesTxt.Length -gt $aiNoTxt.Length) 'AI: STIG findings stay out of the prompt unless -AiIncludeStig'
+# ConvertTo-ReadableFileRights (collector): a FileSystemRights value whose bits don't match any named
+# enum member (seen on real installer-written inherit-only ACEs using raw GENERIC_* bits) must not come
+# out as a bare, unreadable number in the snapshot. [Type]$value throws for such values even though
+# FileSystemRights is a [Flags] enum; this specifically guards against reintroducing that cast.
+$rfrSrc = [System.IO.File]::ReadAllText((Join-Path $root 'Collect-HostSnapshot.ps1'))
+$rfrFn = [regex]::Match($rfrSrc, '(?s)function ConvertTo-ReadableFileRights \{.*?\r?\n\}\r?\n').Value
+Assert-True ([bool]$rfrFn) 'ConvertTo-ReadableFileRights is defined in the collector'
+. ([scriptblock]::Create($rfrFn))
+Assert-Equal (ConvertTo-ReadableFileRights -536805376) 'GenericRead, GenericWrite, GenericExecute, Delete' 'readable rights: a real-world raw GENERIC_* mask (seen on an Authenticated Users inherit-only ACE) is decomposed into names'
+Assert-Equal (ConvertTo-ReadableFileRights ([int64][System.Security.AccessControl.FileSystemRights]::Modify)) 'Modify' 'readable rights: a normally-named value is unchanged'
+Assert-Equal (ConvertTo-ReadableFileRights 0x10000000) 'GenericAll' 'readable rights: GENERIC_ALL alone is named, not left as a raw number'
 # The collector reads exactly the values the catalog judges.
 $collSrc = [System.IO.File]::ReadAllText((Join-Path $root 'Collect-HostSnapshot.ps1'))
 $collList = @([regex]::Matches($collSrc, "(?m)^    '([MU])\|([^|]*)\|([^']*)'") | ForEach-Object { "$($_.Groups[1].Value)|$($_.Groups[2].Value)|$($_.Groups[3].Value -replace "''", "'")".ToLower() })
