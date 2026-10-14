@@ -142,8 +142,8 @@ Findings grouped by check (severity, host, object, detail):
 - [High] HOST-1 | account: Guest | PASSWD_NOTREQD set on an enabled account.
 - [High] HOST-1 | account: USER-2 | PASSWD_NOTREQD set on an enabled account.
 ## [High] service_binary_writable: Service program writable by users (2 finding(s) on 1 host(s))
-- [High] HOST-1 | service: SERVICE-3 | PATH-8, runs as LocalSystem (Running): writable by Authenticated Users on the file (Modify, Synchronize); BUILTIN\Users on the folder (Write). It starts at boot.
-- [Medium] HOST-1 | service: SERVICE-2 | PATH-7, runs as LocalSystem (Stopped): writable by BUILTIN\Users on the folder (AppendData, Synchronize). The program itself is not writable, but files can be added to its folder: a DLL placed there can be loaded by the service if the program looks for one in its folder (DLL planting; whether it does is not checked). It starts at boot.
+- [High] HOST-1 | service: SERVICE-2 | PATH-8, runs as LocalSystem (Running): writable by Authenticated Users on the file (Modify, Synchronize); BUILTIN\Users on the folder (Write). It starts at boot.
+- [Medium] HOST-1 | service: SERVICE-3 | PATH-7, runs as LocalSystem (Stopped): writable by BUILTIN\Users on the folder (AppendData, Synchronize). The program itself is not writable, but files can be added to its folder: a DLL placed there can be loaded by the service if the program looks for one in its folder (DLL planting; whether it does is not checked). It starts at boot.
 ## [High] smb_server_signing_not_required: SMB server signing not required (2 finding(s) on 2 host(s))
 - [High] HOST-2 | SMB server | RequireSecuritySignature = False.
 - [Medium] HOST-1 | SMB server | RequireSecuritySignature = False.

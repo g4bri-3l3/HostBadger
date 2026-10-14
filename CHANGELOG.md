@@ -8,6 +8,28 @@ new major if the snapshot or the JSON Lines format ever breaks.
 
 ## [Unreleased]
 ### Added
+- `CONTRIBUTING.md` (reporting bugs without real host data, proposing changes,
+  the tests to pass); `SECURITY.md` names the security contact and links GitHub
+  private vulnerability reporting; OpenSSF Baseline badge in the README;
+  `.gitignore` also keeps out the downloaded catalog copies and `.pfx` files.
+- AI step: when Gemini still answers 503 (model overloaded) or 429 after the
+  retries, HostBadger suggests a smaller model (`-Model gemini-3.5-flash-lite`,
+  for example) and points at the Gemini models page; the README says the same.
+- `software_cve`: known vulnerabilities of the installed version of Python,
+  Node.js, .NET, Notepad++, PowerShell 7, VirtualBox, Wireshark, 7-Zip, VLC,
+  Git, GIMP, WinSCP, PuTTY, FileZilla, KeePass, Audacity, Mullvad VPN and
+  AnyDesk. `-CveOnline` asks the NVD CVE API 2.0 (services.nvd.nist.gov) for the
+  CVEs of each product by CPE, never by version and for the whole list whatever
+  the hosts have, and judges the version ranges locally; then one GET of the
+  FIRST EPSS daily file (epss.empiricalsecurity.com, gzip, about 3 MB), of which
+  only the scores of those CVEs are kept. Only CVEs published before collection
+  count, KEV from the date CISA added the CVE. One finding per program with the
+  count, highest CVSS, the CVEs in KEV, the highest EPSS score and the release
+  that fixes them all; High with a KEV CVE, CVSS 9.0 or EPSS 0.1, Medium for CVSS
+  7.0 or EPSS 0.01. `NVD_API_KEY` is sent as a header and never written; without
+  it requests are 6.5 s apart (about 2.5 minutes). Copy kept as
+  `<report>_cve.json`, `-CveFile` reads it; guided menu question; AI re-run
+  reuses it; both addresses allowed in `Test-HostBadgerSafety.ps1`.
 - Program versions from the Chocolatey community repository: `-ChocoOnline`
   (GETs to community.chocolatey.org/api/v2/, page by page, nothing is sent; the
   copy is kept as `<report>_choco.json`) or `-ChocoFile`. `software_outdated`

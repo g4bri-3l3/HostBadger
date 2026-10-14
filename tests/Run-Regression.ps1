@@ -78,7 +78,7 @@ Assert-True (@($srv2025.Findings | Where-Object { $_.Type -eq 'stig_server2025' 
 Assert-True (@($dc2016.Findings | Where-Object { $_.Type -in 'stig_server2019', 'stig_server2022', 'stig_server2025' }).Count -eq 0 -and @($srv2025.Findings | Where-Object { $_.Type -in 'stig_server2016', 'stig_server2019', 'stig_server2022' }).Count -eq 0) 'STIG: each server version gets only its own STIG'
 # kev_software_match needs a KEV catalog and software_outdated endoflife.date data; both are exercised
 # with sample data further down.
-$never = @($script:CheckCatalog.Keys | Where-Object { $t = $_; $t -notin 'kev_software_match', 'software_outdated' -and @($allWithConfig | Where-Object { $_.Type -eq $t }).Count -eq 0 })
+$never = @($script:CheckCatalog.Keys | Where-Object { $t = $_; $t -notin 'kev_software_match', 'software_outdated', 'software_cve' -and @($allWithConfig | Where-Object { $_.Type -eq $t }).Count -eq 0 })
 Assert-Equal ($never -join ',') '' 'every check triggers in at least one scenario'
 $dups = @($all | Group-Object { "$($_.Type)|$($_.Host)|$($_.Object)" } | Where-Object { $_.Count -gt 1 })
 Assert-Equal $dups.Count 0 'Type + Host + Object unique'
@@ -484,7 +484,7 @@ Assert-True ($aiHtml -notmatch 'HOST-99') 'unknown host tokens are dropped'
 $psExe = (Get-Process -Id $PID).Path
 $wizDir = Join-Path $work 'wizard'; New-Item -ItemType Directory -Path $wizDir -Force | Out-Null
 $launcher = Join-Path $root 'Start-HostBadger.ps1'
-$wizAnswers = { param($offer) (@('2', $fleet, (Join-Path $wizDir 'w.html'), '', '', '', '', '', 'n', '', '', '', '', '', '', '', $offer) + $(if ($offer -eq 'd') { @('', (Join-Path $wizDir 'w_prompt.txt')) } else { @() }) + @('q')) -join "`n" }
+$wizAnswers = { param($offer) (@('2', $fleet, (Join-Path $wizDir 'w.html'), '', '', '', '', '', 'n', '', '', '', '', '', '', '', '', $offer) + $(if ($offer -eq 'd') { @('', (Join-Path $wizDir 'w_prompt.txt')) } else { @() }) + @('q')) -join "`n" }
 $wizNo = (& $wizAnswers 'n') | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
 Assert-True ($wizNo -match 'Report ready:' -and -not (Test-Path (Join-Path $wizDir 'w_prompt.txt')) -and [regex]::Matches($wizNo, 'Hosts analyzed').Count -eq 1) 'launcher: after the report it offers the AI summary, and "n" does nothing more'
 $wizDry = (& $wizAnswers 'd') | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
@@ -497,8 +497,8 @@ Copy-Item (Join-Path $fleet 'hostsnapshot_weak.json') (Join-Path $scanDir 'snaps
 Copy-Item (Join-Path $fleet 'hostsnapshot_hardened.json') (Join-Path $scanDir 'snapshots\hostsnapshot_SRV-APP-02_20261001080000.json')
 Push-Location $scanDir
 try {
-    $scanAll = (@('2', '', '', '', '', '', '', '', 'n', '', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
-    $scanOne = (@('2', '2', '', '', '', '', '', 'n', '', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    $scanAll = (@('2', '', '', '', '', '', '', '', 'n', '', '', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    $scanOne = (@('2', '2', '', '', '', '', '', 'n', '', '', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
 }
 finally { Pop-Location }
 Assert-True ($scanAll -match 'Snapshots found in .*snapshots: 3 for 2 host\(s\)' -and $scanAll -match 'WKS-ACCT-017' -and $scanAll -match 'SRV-APP-02' -and $scanAll -match 'older: a folder run ignores it') 'launcher: it lists the snapshots it finds and marks the older one of a host'
@@ -755,6 +755,45 @@ $chocoRes = @((Invoke-HostChecks -Snapshot $chocoHost -Config $cfgChoco).Finding
 Assert-Equal (($chocoRes | ForEach-Object { "$($_.Object)|$($_.Severity)|$($_.Found)|$($_.Expected)" }) -join ';') 'software: 7-Zip|Medium|24.01|24.9.0 or later' 'Chocolatey: 7-Zip behind its releases (26.4.0 came out after collection), WinSCP one release behind inside the grace period, VLC without data not judged'
 Assert-True ($chocoRes[0].Detail -match '^Installed as 7-Zip 24\.01 \(x64\) \(version 24\.01\)\. 3 newer releases came out before collection: the first, 24\.5\.0, on 2024-05-15 \(869 days before collection\), the newest 24\.9\.0 on 2024-11-30 \(Chocolatey community repository\)\.$') 'Chocolatey: the finding names the first and the newest release it missed, with their dates'
 Assert-Equal @((Invoke-HostChecks -Snapshot $chocoHost -Config $config).Findings | Where-Object { $_.Type -eq 'software_outdated' }).Count 0 'Chocolatey: without the data nothing is judged'
+# Known vulnerabilities (-CveFile / -CveOnline): NVD CVE API 2.0 pages, judged on version ranges here,
+# and EPSS scores. A page with ranges, an exact version, a platform (AND) node, a rejected CVE, another
+# product's CVE, a CVE in KEV and one published after collection (2026-10-01).
+$nvdCve = { param($id, $pub, $score, $nodes, $kev, $status)
+    $c = [ordered]@{ id = $id; published = "${pub}T10:15:00.000"; vulnStatus = $(if ($status) { $status } else { 'Analyzed' }); metrics = [ordered]@{ cvssMetricV31 = @([ordered]@{ source = 'nvd@nist.gov'; type = 'Primary'; cvssData = [ordered]@{ version = '3.1'; baseScore = $score } }) }; configurations = @([ordered]@{ nodes = @($nodes) }) }
+    if ($kev) { $c['cisaExploitAdd'] = $kev }
+    [ordered]@{ cve = $c } }
+$nvdRange = { param($crit, $ee, $ei) $m = [ordered]@{ vulnerable = $true; criteria = $crit }; if ($ee) { $m['versionEndExcluding'] = $ee }; if ($ei) { $m['versionEndIncluding'] = $ei }; [ordered]@{ operator = 'OR'; negate = $false; cpeMatch = @($m) } }
+$sevenAll = 'cpe:2.3:a:7-zip:7-zip:*:*:*:*:*:*:*:*'
+$nvdVulns = @(
+    (& $nvdCve 'CVE-2024-11477' '2024-11-22' 7.8 @(& $nvdRange $sevenAll '24.07')),
+    (& $nvdCve 'CVE-2025-0411' '2025-01-25' 7.0 @(& $nvdRange $sevenAll '24.09') '2025-02-06'),
+    (& $nvdCve 'CVE-2026-9999' '2026-10-05' 9.8 @(& $nvdRange $sevenAll '26.04')),
+    (& $nvdCve 'CVE-2020-1111' '2020-01-01' 9.8 @(& $nvdRange $sevenAll '30.00') $null 'Rejected'),
+    (& $nvdCve 'CVE-2019-2222' '2019-03-01' 5.5 @(& $nvdRange 'cpe:2.3:a:7-zip:7-zip:23.01:*:*:*:*:*:*:*')),
+    (& $nvdCve 'CVE-2018-3333' '2018-05-01' 8.8 @([ordered]@{ operator = 'AND'; negate = $false; children = @((& $nvdRange $sevenAll $null '9.20'), [ordered]@{ operator = 'OR'; negate = $false; cpeMatch = @([ordered]@{ vulnerable = $false; criteria = 'cpe:2.3:o:microsoft:windows:-:*:*:*:*:*:*:*' }) }) })),
+    (& $nvdCve 'CVE-2021-4444' '2021-01-01' 9.0 @(& $nvdRange 'cpe:2.3:a:other:thing:*:*:*:*:*:*:*:*' '2.0')))
+$nvdPage = [ordered]@{ resultsPerPage = $nvdVulns.Count; startIndex = 0; totalResults = $nvdVulns.Count; format = 'NVD_CVE'; version = '2.0'; vulnerabilities = $nvdVulns } | ConvertTo-Json -Depth 12
+$nvdParsed = ConvertFrom-NvdPage $nvdPage @('7-zip:7-zip')
+Assert-Equal "$($nvdParsed.Total)|$((@($nvdParsed.Cves | ForEach-Object { $_.id })) -join ',')" '7|CVE-2024-11477,CVE-2025-0411,CVE-2026-9999,CVE-2019-2222,CVE-2018-3333' 'NVD: CVEs of the product kept (rejected ones and other products dropped), ranges found in nested platform nodes'
+Assert-Equal ((@($nvdParsed.Cves | ForEach-Object { "$($_.id)=$(Test-CveAffects $_.ranges '23.01')" })) -join ',') 'CVE-2024-11477=True,CVE-2025-0411=True,CVE-2026-9999=True,CVE-2019-2222=True,CVE-2018-3333=False' 'NVD: version ranges and exact versions judged against 23.01'
+Assert-True (-not (Test-CveAffects @([ordered]@{ version = ''; si = '2.0'; se = ''; ei = ''; ee = '2.5' }) '2.5') -and (Test-CveAffects @([ordered]@{ version = ''; si = '2.0'; se = ''; ei = ''; ee = '2.5' }) '2.0') -and -not (Test-CveAffects @([ordered]@{ version = ''; si = ''; se = '2.0'; ei = ''; ee = '' }) '2.0')) 'NVD: start and end bounds, including and excluding'
+$epssText = "#model_version:v2026.06.15,score_date:2026-10-14T12:00:24Z`ncve,epss,percentile`nCVE-1999-0001,0.04753,0.91738`nCVE-2025-0411,0.67071,0.99293`nCVE-2024-11477,0.02130,0.85000`n"
+$wantedCves = New-Object 'System.Collections.Generic.HashSet[string]'; foreach ($c in $nvdParsed.Cves) { [void]$wantedCves.Add($c.id) }
+$epssParsed = ConvertFrom-EpssCsv $epssText $wantedCves
+Assert-Equal "$($epssParsed.Date)|$($epssParsed.Scores.Count)|$($epssParsed.Scores['CVE-2025-0411'])" '2026-10-14|2|0.67071' 'EPSS: the score date and the scores of the CVEs asked for'
+$cveCat = @{ Products = @{ '7-Zip' = $nvdParsed.Cves }; Epss = $epssParsed.Scores; EpssDate = $epssParsed.Date }
+$cveBack = ConvertFrom-CveCatalog (ConvertTo-CveCatalogJson $cveCat 'test')
+Assert-True (@($cveBack.Products['7-Zip']).Count -eq 5 -and $cveBack.Epss['CVE-2024-11477'] -eq 0.0213 -and $cveBack.EpssDate -eq '2026-10-14' -and (Test-CveAffects @($cveBack.Products['7-Zip'])[0].ranges '23.01')) 'NVD: the copy kept next to the report reads back the same'
+$cveHost = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_hardened.json')
+$cveHost.software = @([ordered]@{ name = '7-Zip 23.01 (x64)'; version = '23.01'; publisher = 'Igor Pavlov' }, [ordered]@{ name = '7-Zip 26.04 (x64)'; version = '26.04'; publisher = 'Igor Pavlov' })
+$cfgCve = $config.Clone(); $cfgCve['Cve'] = $cveBack
+$cveRes = @((Invoke-HostChecks -Snapshot $cveHost -Config $cfgCve).Findings | Where-Object { $_.Type -eq 'software_cve' })
+Assert-Equal (($cveRes | ForEach-Object { "$($_.Object)|$($_.Severity)|$($_.Found)|$($_.Expected)" }) -join ';') 'software: 7-Zip|High|23.01: 3 CVE|24.09 or later' 'software CVE: one finding per program, High with a CVE in KEV, the release that fixes them all'
+Assert-True ($cveRes[0].Detail -eq 'Installed as 7-Zip 23.01 (x64) (version 23.01). 3 known vulnerabilities published before collection affect 7-Zip 23.01 (NVD): highest CVSS 7.8 (CVE-2024-11477); 1 in the CISA KEV catalog of exploited vulnerabilities (CVE-2025-0411); highest EPSS 0.671 (CVE-2025-0411, scores of 2026-10-14). Worst: CVE-2024-11477, CVE-2025-0411, CVE-2019-2222.') 'software CVE: count, CVSS, KEV, EPSS and the worst CVEs (the one published after collection is left out)'
+$cveNoKev = $cveBack.Clone(); $cveNoKev.Products = @{ '7-Zip' = @($cveBack.Products['7-Zip'] | Where-Object { $_.id -ne 'CVE-2025-0411' }) }; $cveNoKev.Epss = @{}
+$cfgCve['Cve'] = $cveNoKev
+Assert-Equal @((Invoke-HostChecks -Snapshot $cveHost -Config $cfgCve).Findings | Where-Object { $_.Type -eq 'software_cve' } | ForEach-Object { $_.Severity }) 'Medium' 'software CVE: CVSS 7.8 without KEV or EPSS is Medium'
+Assert-Equal @($weak.NotEvaluated | Where-Object { $_.Type -eq 'software_cve' }).Count 0 'software CVE: without NVD data the check is off, not "not evaluated"'
 # Pending updates (collected with -CheckUpdates)
 Assert-True (Has $weak 'updates_pending' 'update: KB5099999' 'High') 'updates: a Critical missing update is High'
 Assert-True (Has $weak 'updates_pending' 'update: KB5088888' 'Medium') 'updates: an Important missing update is Medium'
@@ -829,6 +868,46 @@ Assert-True ((Test-Path (Join-Path $chDl 'r_choco.json')) -and $chRows.Count -eq
 $chFileOut = Join-Path $work 'chocofile'; New-Item -ItemType Directory -Path $chFileOut -Force | Out-Null
 & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $chFileOut 'r.html') -ChocoFile (Join-Path $chDl 'r_choco.json') *>&1 | Out-Null
 Assert-Equal @(Import-Csv (Join-Path $chFileOut 'r.csv') | Where-Object { $_.Type -eq 'software_outdated' -and $_.Object -eq 'software: 7-Zip' }).Count 1 'Chocolatey file: -ChocoFile on the kept copy gives the same finding, no network'
+# NVD and EPSS download: every CPE of the map, by product (never a version), page by page, the API key
+# as a header and never in the kept copy, then the EPSS file (gzip).
+foreach ($try in 1..8) { $nvPort = Get-Random -Minimum 20000 -Maximum 60000; $nvListener = New-Object System.Net.HttpListener; $nvListener.Prefixes.Add("http://127.0.0.1:$nvPort/"); try { $nvListener.Start(); break } catch { $nvListener.Close() } }
+$epssMs = New-Object System.IO.MemoryStream; $gzw = New-Object System.IO.Compression.GZipStream($epssMs, [System.IO.Compression.CompressionMode]::Compress, $true); $eb = [System.Text.Encoding]::UTF8.GetBytes($epssText); $gzw.Write($eb, 0, $eb.Length); $gzw.Dispose()
+$vlcVuln = & $nvdCve 'CVE-2025-5555' '2025-02-01' 6.5 @(& $nvdRange 'cpe:2.3:a:videolan:vlc_media_player:*:*:*:*:*:*:*:*' '3.0.22')
+$nvPs = [powershell]::Create(); $nvCap = [hashtable]::Synchronized(@{ Cpes = (New-Object System.Collections.ArrayList); Queries = (New-Object System.Collections.ArrayList); Keys = (New-Object System.Collections.ArrayList); Epss = 0 })
+foreach ($kv in @(@('l', $nvListener), @('cap', $nvCap), @('page', $nvdPage), @('vlcA', ([ordered]@{ resultsPerPage = 1; startIndex = 0; totalResults = 2; vulnerabilities = @($vlcVuln) } | ConvertTo-Json -Depth 12)), @('vlcB', ([ordered]@{ resultsPerPage = 1; startIndex = 1; totalResults = 2; vulnerabilities = @($vlcVuln) } | ConvertTo-Json -Depth 12)), @('empty', '{"resultsPerPage":0,"startIndex":0,"totalResults":0,"vulnerabilities":[]}'), @('gz', $epssMs.ToArray()))) { $nvPs.Runspace.SessionStateProxy.SetVariable($kv[0], $kv[1]) }
+[void]$nvPs.AddScript({
+        while ($l.IsListening) {
+            try { $ctx = $l.GetContext() } catch { break }
+            $q = [System.Uri]::UnescapeDataString($ctx.Request.Url.Query)
+            [void]$cap.Queries.Add($q); [void]$cap.Keys.Add("$($ctx.Request.Headers['apiKey'])")
+            if ($ctx.Request.Url.AbsolutePath -like '*epss*') { $cap.Epss++; $buf = $gz; $ctx.Response.ContentType = 'application/gzip' }
+            else {
+                $cpe = if ($q -match 'cpe:2\.3:a:([^&]+)') { $Matches[1] } else { '' }
+                [void]$cap.Cpes.Add($cpe)
+                $body = if ($cpe -eq '7-zip:7-zip') { $page } elseif ($cpe -eq 'videolan:vlc_media_player') { if ($q -match 'startIndex=1') { $vlcB } else { $vlcA } } else { $empty }
+                $buf = [System.Text.Encoding]::UTF8.GetBytes($body); $ctx.Response.ContentType = 'application/json'
+            }
+            $ctx.Response.OutputStream.Write($buf, 0, $buf.Length); $ctx.Response.Close()
+        }
+    })
+$nvAsync = $nvPs.BeginInvoke()
+$savedNvdKey = $env:NVD_API_KEY
+$env:HOSTBADGER_NVD_URL = "http://127.0.0.1:$nvPort/rest/json/cves/2.0"; $env:HOSTBADGER_EPSS_URL = "http://127.0.0.1:$nvPort/epss_scores-current.csv.gz"; $env:HOSTBADGER_NVD_PAUSE_MS = '0'; $env:NVD_API_KEY = 'regression-fake-nvd-key'
+$cvDl = Join-Path $work 'cvedl'; New-Item -ItemType Directory -Path $cvDl -Force | Out-Null
+try { & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $cvDl 'r.html') -CveOnline *>&1 | Out-Null }
+finally {
+    Remove-Item Env:\HOSTBADGER_NVD_URL, Env:\HOSTBADGER_EPSS_URL, Env:\HOSTBADGER_NVD_PAUSE_MS -ErrorAction SilentlyContinue
+    if ($savedNvdKey) { $env:NVD_API_KEY = $savedNvdKey } else { Remove-Item Env:\NVD_API_KEY -ErrorAction SilentlyContinue }
+    try { $nvListener.Stop() } catch { }; $nvPs.Dispose()
+}
+$allCpes = @($script:CveCpeMap.Values | ForEach-Object { $_ } | ForEach-Object { $_ -replace '\\', '' } | Sort-Object -Unique)
+Assert-True ((((@($nvCap.Cpes | ForEach-Object { $_ -replace '\\', '' }) | Sort-Object -Unique)) -join ',') -eq ($allCpes -join ',') -and @($nvCap.Queries | Where-Object { $_ -match 'cpe:2\.3:a:[^:&]+:[^:&]+:\d' }).Count -eq 0 -and @($nvCap.Cpes | Where-Object { $_ -eq 'videolan:vlc_media_player' }).Count -eq 2 -and $nvCap.Epss -eq 1) 'NVD online: every CPE of the list, by product and never by version, a second page when there is one, one EPSS file'
+Assert-True (@($nvCap.Keys | Where-Object { $_ -eq 'regression-fake-nvd-key' }).Count -ge $allCpes.Count -and ([System.IO.File]::ReadAllText((Join-Path $cvDl 'r_cve.json'))) -notmatch 'regression-fake-nvd-key') 'NVD online: the API key goes as a header, never into the kept copy'
+$cvRows = @(Import-Csv (Join-Path $cvDl 'r.csv') | Where-Object { $_.Type -eq 'software_cve' })
+Assert-True ($cvRows.Count -eq 1 -and $cvRows[0].Host -eq 'WKS-ACCT-017' -and $cvRows[0].Object -eq 'software: 7-Zip' -and $cvRows[0].Severity -eq 'High' -and $cvRows[0].Detail -match 'highest EPSS 0\.671') 'NVD online: 7-Zip 23.01 on the weak host, with KEV and EPSS'
+$cvFileOut = Join-Path $work 'cvefile'; New-Item -ItemType Directory -Path $cvFileOut -Force | Out-Null
+& (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $cvFileOut 'r.html') -CveFile (Join-Path $cvDl 'r_cve.json') *>&1 | Out-Null
+Assert-Equal (@(Import-Csv (Join-Path $cvFileOut 'r.csv') | Where-Object { $_.Type -eq 'software_cve' }) | ForEach-Object { "$($_.Host)|$($_.Object)|$($_.Severity)|$($_.Detail)" }) (@($cvRows) | ForEach-Object { "$($_.Host)|$($_.Object)|$($_.Severity)|$($_.Detail)" }) 'NVD file: -CveFile on the kept copy gives the same finding, no network'
 
 # Vulnerable drivers (LOLDrivers, by SHA-256): a malicious driver is Critical, a loaded vulnerable one
 # High; the blocklist off is Medium; the hardened host has none. The shipped catalog is used unless
@@ -869,10 +948,10 @@ function Read-AiMode { param($Prompt, $Default) 'D' }
 function Add-AiParams { param($Params, $Mode) $Params['AiDryRun'] = 'p.txt' }
 function Invoke-Sub { param($Script, $P) $script:aiRerun = $P }
 $offerDir = Join-Path $work 'offer'; New-Item -ItemType Directory -Path $offerDir -Force | Out-Null
-foreach ($n in 'r.html', 'r_kev.json', 'r_drivers.json', 'r_eol.json', 'r_choco.json') { Set-Content -LiteralPath (Join-Path $offerDir $n) -Value '{}' }
+foreach ($n in 'r.html', 'r_kev.json', 'r_drivers.json', 'r_eol.json', 'r_choco.json', 'r_cve.json') { Set-Content -LiteralPath (Join-Path $offerDir $n) -Value '{}' }
 $script:aiRerun = $null
-Invoke-AiOffer @{ Snapshot = $fleet; OutHtml = (Join-Path $offerDir 'r.html'); KevOnline = $true; DriversOnline = $true; EolOnline = $true; ChocoOnline = $true } 6>&1 | Out-Null
-Assert-True ($script:aiRerun -and -not $script:aiRerun.ContainsKey('KevOnline') -and -not $script:aiRerun.ContainsKey('DriversOnline') -and -not $script:aiRerun.ContainsKey('EolOnline') -and -not $script:aiRerun.ContainsKey('ChocoOnline') -and $script:aiRerun['ChocoFile'] -eq (Join-Path $offerDir 'r_choco.json') -and $script:aiRerun['KevFile'] -eq (Join-Path $offerDir 'r_kev.json') -and $script:aiRerun['DriversFile'] -eq (Join-Path $offerDir 'r_drivers.json') -and $script:aiRerun['EolFile'] -eq (Join-Path $offerDir 'r_eol.json') -and $script:aiRerun['AiDryRun']) 'AI offer: the re-run reuses the catalogs kept next to the report, nothing is downloaded again'
+Invoke-AiOffer @{ Snapshot = $fleet; OutHtml = (Join-Path $offerDir 'r.html'); KevOnline = $true; DriversOnline = $true; EolOnline = $true; ChocoOnline = $true; CveOnline = $true } 6>&1 | Out-Null
+Assert-True ($script:aiRerun -and -not $script:aiRerun.ContainsKey('KevOnline') -and -not $script:aiRerun.ContainsKey('DriversOnline') -and -not $script:aiRerun.ContainsKey('EolOnline') -and -not $script:aiRerun.ContainsKey('ChocoOnline') -and -not $script:aiRerun.ContainsKey('CveOnline') -and $script:aiRerun['CveFile'] -eq (Join-Path $offerDir 'r_cve.json') -and $script:aiRerun['ChocoFile'] -eq (Join-Path $offerDir 'r_choco.json') -and $script:aiRerun['KevFile'] -eq (Join-Path $offerDir 'r_kev.json') -and $script:aiRerun['DriversFile'] -eq (Join-Path $offerDir 'r_drivers.json') -and $script:aiRerun['EolFile'] -eq (Join-Path $offerDir 'r_eol.json') -and $script:aiRerun['AiDryRun']) 'AI offer: the re-run reuses the catalogs kept next to the report, nothing is downloaded again'
 Remove-Item Function:\Read-AiMode, Function:\Add-AiParams, Function:\Invoke-Sub, Function:\Invoke-AiOffer
 # -DriversFile reads the copy kept by -DriversOnline (and the original drivers.json, through the same converter).
 $dfOut = Join-Path $work 'driversfile'; New-Item -ItemType Directory -Path $dfOut -Force | Out-Null

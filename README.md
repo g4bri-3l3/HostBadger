@@ -9,7 +9,7 @@
       '--..--'
 ```
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![OpenSSF Baseline](https://www.bestpractices.dev/projects/15495/baseline)](https://www.bestpractices.dev/projects/15495)
 
 ![A tour of the demo report](examples/demo_report.gif)
 
@@ -22,7 +22,7 @@ is weak. It works in two steps. A single PowerShell script takes a
 Lines for a SIEM. Hand it one snapshot or a folder with hundreds and you get
 the whole fleet in one report, or one report per host.
 
-- **131 checks** and about 1,547 settings: 119 hand-written checks plus 1427 DISA
+- **132 checks** and about 1,548 settings: 120 hand-written checks plus 1427 DISA
   STIG registry rules, with the CIS Windows 11 benchmark as the baseline, and
   the drivers matched against 2,198 known vulnerable or malicious driver files
   (LOLDrivers).
@@ -35,7 +35,8 @@ the whole fleet in one report, or one report per host.
   www.cisa.gov), `-DriversOnline` (downloads the LOLDrivers catalog,
   www.loldrivers.io), `-EolOnline` (downloads software lifecycle data,
   endoflife.date), `-ChocoOnline` (downloads program versions,
-  community.chocolatey.org) and `-SendToAI` (Gemini). Each one is named where it is offered.
+  community.chocolatey.org), `-CveOnline` (downloads CVEs and EPSS scores,
+  services.nvd.nist.gov and epss.empiricalsecurity.com) and `-SendToAI` (Gemini). Each one is named where it is offered.
   `Test-HostBadgerSafety.ps1` proves the rest from the code.
 - **Honest about gaps**: what could not be read is listed as *not evaluated*,
   never as clean.
@@ -88,6 +89,17 @@ should.
   KeePass, Audacity, Mullvad VPN, OBS Studio and AnyDesk, from the versions and
   publication dates of their Chocolatey community packages (the same list is
   asked for whatever the hosts have, so the requests say nothing about them).
+  With `-CveOnline` (or `-CveFile`) `software_cve` lists the known
+  vulnerabilities of the installed version of Python, Node.js, .NET, Notepad++,
+  PowerShell 7, VirtualBox, Wireshark, 7-Zip, VLC, Git, GIMP, WinSCP, PuTTY,
+  FileZilla, KeePass, Audacity, Mullvad VPN and AnyDesk: the CVEs of each
+  product come from the [NVD](https://nvd.nist.gov) CVE API (asked for by
+  product, never by version) and their version ranges are judged locally; each
+  finding gives the count, the highest CVSS score, the CVEs in CISA KEV and the
+  highest [EPSS](https://www.first.org/epss/) score (probability of
+  exploitation), and names the release that fixes them all. NVD has a backlog
+  of CVEs without version data, so the newest ones can be missing. About 2.5
+  minutes without an NVD API key (`NVD_API_KEY` makes it faster).
 - **Vulnerable and malicious drivers**: the SHA-256 of every kernel driver file
   is matched against the [LOLDrivers](https://www.loldrivers.io) catalog
   (Apache License 2.0) of drivers used in "bring your own vulnerable driver"
@@ -179,7 +191,7 @@ own pages before relying on it, especially for licensing and editions.
 | CIS benchmarks | Yes: Windows 10/11 and Server 2016-2022 rule numbers | Yes: Windows 10/11, Server 2012 R2-2025 lists | No (Microsoft baselines) | No | Yes, full | Yes | Add-on |
 | DISA STIG | Registry rules only (1,427, twelve products) | Some lists (Windows 10, Server 2019, Defender, Firewall) | No | Yes, full SCAP content | Check with CIS | Yes | Add-on |
 | Microsoft security baselines | Partly, through CIS/STIG overlap | Yes | Yes | No | No | Yes | Yes |
-| Software and vulnerabilities | End of support, behind latest release, CISA KEV matches, vulnerable drivers (no CVE scan by version) | No | No | No | No | Yes, full CVE scanning | Yes |
+| Software and vulnerabilities | End of support, behind latest release, CVEs by installed version with CVSS, KEV and EPSS (about 20 mapped products), vulnerable drivers | No | No | No | No | Yes, full CVE scanning | Yes |
 | Collection | One read-only script, also through an EDR | Run on the host | Local or exported GPOs | Local or remote | Local or remote | Agent or credentialed scan | Defender sensor |
 | Offline analysis of saved snapshots | Yes | No | Yes (GPO backups) | No | No | No | No (cloud) |
 | Fleet report | HTML, CSV, JSON Lines | Per host (CSV) | Per comparison | Per host | Yes | Console | Console |
@@ -192,9 +204,9 @@ own pages before relying on it, especially for licensing and editions.
 
 - **A vulnerability scanner** (Tenable, Qualys, Rapid7, Defender Vulnerability
   Management) for CVEs by installed version, third-party patch status across
-  thousands of products and a central console. HostBadger only flags end of
-  support, releases a program is behind on for the products it maps, and CISA
-  KEV name matches.
+  thousands of products and a central console. HostBadger judges CVEs, end of
+  support and missed releases only for the products it maps (about twenty
+  common programs plus the Windows and lifecycle checks).
 - **DISA SCC** when the STIG result is the deliverable (an ATO, an audit): it
   runs the full SCAP content, including the rules that are not registry values.
   HostBadger judges the registry rules only.
@@ -484,7 +496,10 @@ or, without one, when they have the same title.
   (www.loldrivers.io/api/drivers.json, `-DriversOnline`), one GET of the
   endoflife.date lifecycle data (endoflife.date/api/v1/products/full,
   `-EolOnline`), GETs of the Chocolatey package versions
-  (community.chocolatey.org/api/v2/, `-ChocoOnline`) and the Gemini call
+  (community.chocolatey.org/api/v2/, `-ChocoOnline`), GETs of the NVD CVE API
+  (services.nvd.nist.gov, `-CveOnline`, by product, with `NVD_API_KEY` as a
+  header when set) and one GET of the FIRST EPSS file
+  (epss.empiricalsecurity.com, `-CveOnline`) and the Gemini call
   (`-SendToAI`). The code that sends or
   downloads lives in `lib\AI.ps1` only. `Test-HostBadgerSafety.ps1` checks all this from the code
   and fails on any command that is not on its reviewed list. The regression
@@ -554,6 +569,7 @@ standard user with Defender in passive mode.
     [-DriversFile drivers.json] | [-DriversOnline]   # a LOLDrivers catalog you have, or a fresh one (-DriversOnline downloads it from www.loldrivers.io)
     [-EolFile r_eol.json] | [-EolOnline] [-SoftwareGraceDays 30]   # software lifecycle data (-EolOnline downloads it from endoflife.date): current end-of-support dates and software_outdated
     [-ChocoFile r_choco.json] | [-ChocoOnline]   # program versions from community.chocolatey.org (7-Zip, VLC, Git, GIMP, WinSCP, PuTTY...) for software_outdated
+    [-CveFile r_cve.json] | [-CveOnline]         # CVEs from services.nvd.nist.gov and EPSS scores from epss.empiricalsecurity.com, for software_cve
     [-SnapshotPassword <SecureString>] [-SnapshotPfx <file.pfx> [-SnapshotPfxPassword <SecureString>]]   # open encrypted .hbx snapshots (asked for when missing)
     [-HideCis] [-HideStig]                       # keep those findings out of the HTML listing (CSV and JSON Lines keep them)
     [-AiIncludeStig]                             # also send the STIG findings to Gemini (large prompt, may time out)
@@ -729,6 +745,11 @@ How your data is protected:
   and busy-server errors are retried (`-AiMaxAttempts`, and 0 means keep
   trying). `Test-HostBadgerSafety.ps1` fails on network code outside
   `lib\AI.ps1` and on any address other than the Gemini endpoint.
+- **When Gemini is overloaded.** If the retries end on HTTP 503 (model
+  overloaded) or 429, a smaller model often gets through: run again with, for
+  example, `-Model gemini-3.5-flash-lite`. Model names change over time; the
+  current ones are listed on the
+  [Gemini models page](https://ai.google.dev/gemini-api/docs/models).
 
 The model is asked for defensive output only. The PowerShell snippets it
 suggests are just text in the report, and HostBadger never runs them.

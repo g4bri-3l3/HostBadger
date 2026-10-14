@@ -75,6 +75,18 @@
     (<report>_choco.json).
 .PARAMETER ChocoFile
     The <report>_choco.json that -ChocoOnline keeps. No network.
+.PARAMETER CveOnline
+    Download the known vulnerabilities (CVEs) of Python, Node.js, .NET, Notepad++,
+    PowerShell 7, VirtualBox, Wireshark, 7-Zip, VLC, Git, GIMP, WinSCP, PuTTY,
+    FileZilla, KeePass, Audacity, Mullvad VPN and AnyDesk from the NVD CVE API
+    (services.nvd.nist.gov, one GET per product and page, by product and never by
+    version, the same list whatever the hosts have; about 2.5 minutes without a
+    key, faster with an NVD API key in NVD_API_KEY), then the FIRST EPSS daily
+    file (epss.empiricalsecurity.com, one GET of about 3 MB). Nothing about the
+    hosts is sent. Turns on software_cve. The reduced copy is kept next to the
+    report (<report>_cve.json).
+.PARAMETER CveFile
+    The <report>_cve.json that -CveOnline keeps. No network.
 .PARAMETER SoftwareGraceDays
     Days a program may take to install a new release before software_outdated
     flags it (default 30).
@@ -180,6 +192,8 @@ param(
     [string]$EolFile = '',
     [switch]$ChocoOnline,
     [string]$ChocoFile = '',
+    [switch]$CveOnline,
+    [string]$CveFile = '',
     [int]$SoftwareGraceDays = 30,
     [System.Security.SecureString]$SnapshotPassword,
     [string]$SnapshotPfx = '',
@@ -344,6 +358,27 @@ elseif ($ChocoOnline) {
         Write-Host "Chocolatey: $($choco.Count) of $(@($script:ChocoProductMap).Count) packages, kept at $chocoCopy" -ForegroundColor DarkGray
     }
     else { Write-Host 'Chocolatey: nothing came back, those programs are not judged.' -ForegroundColor Yellow }
+}
+
+# Known vulnerabilities (NVD CVEs and EPSS scores): the copy kept by an earlier run, or a download.
+if ($CveFile) {
+    if (Test-Path -LiteralPath $CveFile) {
+        try { $config['Cve'] = ConvertFrom-CveCatalog ([System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $CveFile).Path)); Write-Host "NVD: $($config['Cve'].Products.Count) products from $CveFile" -ForegroundColor DarkGray }
+        catch { Write-Host "CVE file not readable: $($_.Exception.Message)" -ForegroundColor Yellow; $config.Remove('Cve') }
+    }
+    else { Write-Host "CVE file not found: $CveFile" -ForegroundColor Yellow }
+}
+elseif ($CveOnline) {
+    if (-not $env:NVD_API_KEY) { Write-Host 'NVD without an API key allows 5 requests in 30 seconds: this takes about 2.5 minutes (set NVD_API_KEY to go faster).' -ForegroundColor DarkGray }
+    $cveCat = Get-CveCatalogOnline
+    if ($cveCat.Products.Count -gt 0) {
+        $config['Cve'] = $cveCat
+        $cveCopy = ([System.IO.Path]::GetFullPath($OutHtml) -replace '\.html?$', '') + '_cve.json'
+        $cveSource = "NVD CVE API 2.0 ($($script:NvdApiUrl)) and FIRST EPSS ($($script:EpssUrl)); downloaded $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC"
+        [System.IO.File]::WriteAllText($cveCopy, (ConvertTo-CveCatalogJson $cveCat $cveSource), (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host "NVD: $($cveCat.Products.Count) of $(@($script:CveCpeMap.Keys).Count) products, EPSS scores of $($cveCat.EpssDate), kept at $cveCopy" -ForegroundColor DarkGray
+    }
+    else { Write-Host 'NVD: nothing came back, software_cve is not judged.' -ForegroundColor Yellow }
 }
 
 $files = @(Get-SnapshotFiles $Snapshot)

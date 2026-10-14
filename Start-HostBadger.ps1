@@ -237,6 +237,8 @@ function Get-AnalysisParams {
     if (Test-Yes 'Download software lifecycle data from endoflife.date? (y/N)') { $ap['EolOnline'] = $true }
     Write-Host "`nOther programs (7-Zip, VLC, Git, GIMP, WinSCP, PuTTY, FileZilla, KeePass, Audacity, Mullvad VPN, OBS Studio, AnyDesk) are compared with the versions published on the Chocolatey community repository. Downloading connects to community.chocolatey.org/api/v2/ (a few HTTPS GETs per program, the same list whatever the hosts have, nothing is sent); a copy is kept next to the report." -ForegroundColor DarkGray
     if (Test-Yes 'Download program versions from community.chocolatey.org? (y/N)') { $ap['ChocoOnline'] = $true }
+    Write-Host "`nKnown vulnerabilities: the installed versions of Python, Node.js, .NET, Notepad++, PowerShell 7, VirtualBox, Wireshark, 7-Zip, VLC, Git, GIMP, WinSCP, PuTTY, FileZilla, KeePass, Audacity, Mullvad VPN and AnyDesk can be checked against their CVEs, with the EPSS probability of exploitation. Downloading connects to services.nvd.nist.gov (the CVEs of each product, never its version: the same list whatever the hosts have; about 2.5 minutes, faster with NVD_API_KEY) and epss.empiricalsecurity.com (one file of about 3 MB). Nothing is sent; a copy is kept next to the report." -ForegroundColor DarkGray
+    if (Test-Yes 'Download CVEs from NVD and EPSS scores from FIRST? (y/N)') { $ap['CveOnline'] = $true }
     if (Test-Yes "Also write JSON Lines for a SIEM? (y/N)") { $ap['OutJsonl'] = Read-Path "JSON Lines path" ($ap['OutHtml'] -replace '\.html?$', '.jsonl') }
     $prev = Read-Path "Findings CSV of an earlier run, to show new and resolved (optional, Enter to skip)"
     if ($prev) { if (Test-Path -LiteralPath $prev) { $ap['CompareTo'] = $prev } else { Write-Host "Not found, comparison skipped: $prev" -ForegroundColor Yellow } }
@@ -310,6 +312,7 @@ function Invoke-AiOffer {
     if ($again['DriversOnline'] -and (Test-Path -LiteralPath "${stem}_drivers.json")) { $again.Remove('DriversOnline'); $again['DriversFile'] = "${stem}_drivers.json" }
     if ($again['EolOnline'] -and (Test-Path -LiteralPath "${stem}_eol.json")) { $again.Remove('EolOnline'); $again['EolFile'] = "${stem}_eol.json" }
     if ($again['ChocoOnline'] -and (Test-Path -LiteralPath "${stem}_choco.json")) { $again.Remove('ChocoOnline'); $again['ChocoFile'] = "${stem}_choco.json" }
+    if ($again['CveOnline'] -and (Test-Path -LiteralPath "${stem}_cve.json")) { $again.Remove('CveOnline'); $again['CveFile'] = "${stem}_cve.json" }
     Add-AiParams -Params $again -Mode $mode
     Invoke-Sub 'HostBadger.ps1' $again
 }

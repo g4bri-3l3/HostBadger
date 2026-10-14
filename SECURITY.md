@@ -32,4 +32,19 @@ Only with `-SendToAI` (or `Start-HostBadger.ps1` option 4), `HostBadger.ps1` sen
 
 ## Reporting a vulnerability
 
-Open a private security advisory on the repository rather than a public issue.
+Security contact: the maintainer, [@g4bri-3l3](https://github.com/g4bri-3l3).
+
+Report it privately through GitHub:
+[Report a vulnerability](https://github.com/g4bri-3l3/HostBadger/security/advisories/new)
+(Security tab, "Report a vulnerability"). Do not open a public issue for a
+security problem, and do not attach real snapshots or reports.
+
+Please include the version or commit, what an attacker can do and the steps to
+reproduce. You will get an answer within 7 days; a fix, or a plan for one, is
+published as a security advisory once it is ready, with credit if you want it.
+
+Only the latest commit on `main` is supported.
+
+Bugs that are not security problems go to the
+[issues](https://github.com/g4bri-3l3/HostBadger/issues); see
+[CONTRIBUTING.md](CONTRIBUTING.md).

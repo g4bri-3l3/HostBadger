@@ -122,7 +122,7 @@ function New-HostPseudonymizer {
         elseif ($o -match '^adapter: (.+)$') { & $add $Matches[1] 'ADAPTER' }
         elseif ($o -match '^account: (.+)$') { & $add $Matches[1] 'USER' }
         elseif ($o -match '^member: (.+)$') { & $addAccount $Matches[1] }
-        elseif (("$($f.Type)" -in 'kev_software_match', 'software_eol', 'software_outdated') -and "$($f.Detail)" -match '^Installed as (.+) \((?:version [^)]*|no version recorded)\)\.') { & $add $Matches[1] 'SOFTWARE' }
+        elseif (("$($f.Type)" -in 'kev_software_match', 'software_eol', 'software_outdated', 'software_cve') -and "$($f.Detail)" -match '^Installed as (.+) \((?:version [^)]*|no version recorded)\)\.') { & $add $Matches[1] 'SOFTWARE' }
         if ("$($f.Type)" -eq 'risky_listener' -and "$($f.Detail)" -match '^Listening on (\S+?)(?: by (.+?))?\.$') {
             if (@('0.0.0.0', '::', '127.0.0.1', '::1') -notcontains $Matches[1]) { & $add $Matches[1] 'IP' }
             if ($Matches[2]) { & $add $Matches[2] 'PROC' }
@@ -417,28 +417,35 @@ function Invoke-HttpPostWithSpinner {
 # --------------------------------------------------------------------------
 # Catalog downloads: one HTTPS GET each, nothing is sent, these addresses and no other.
 # CISA Known Exploited Vulnerabilities (-KevOnline), LOLDrivers (-DriversOnline, about 30 MB) and the
-# endoflife.date software lifecycle data (-EolOnline, about 3 MB) and the Chocolatey community package
-# versions (-ChocoOnline). HOSTBADGER_KEV_URL, HOSTBADGER_DRIVERS_URL, HOSTBADGER_EOL_URL and
-# HOSTBADGER_CHOCO_URL are the test hooks (the regression runs a local listener).
+# endoflife.date software lifecycle data (-EolOnline, about 3 MB), the Chocolatey community package
+# versions (-ChocoOnline), and the NVD CVEs and FIRST EPSS scores (-CveOnline). HOSTBADGER_KEV_URL,
+# HOSTBADGER_DRIVERS_URL, HOSTBADGER_EOL_URL, HOSTBADGER_CHOCO_URL, HOSTBADGER_NVD_URL and
+# HOSTBADGER_EPSS_URL are the test hooks (the regression runs a local listener).
 # --------------------------------------------------------------------------
 $script:KevFeedUrl = 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json'
 $script:LolDriversUrl = 'https://www.loldrivers.io/api/drivers.json'
 $script:EolApiUrl = 'https://endoflife.date/api/v1/products/full'
 $script:ChocoApiUrl = 'https://community.chocolatey.org/api/v2/'
+$script:NvdApiUrl = 'https://services.nvd.nist.gov/rest/json/cves/2.0'
+$script:EpssUrl = 'https://epss.empiricalsecurity.com/epss_scores-current.csv.gz'
 
+# -Headers: request headers (the NVD API key). -Binary: the body as bytes (the EPSS file is gzip).
 function Get-CatalogText {
-    param([string]$Uri, [string]$Label, [int]$TimeoutSeconds = 60)
+    param([string]$Uri, [string]$Label, [int]$TimeoutSeconds = 60, [hashtable]$Headers = @{}, [switch]$Binary)
     Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue
     try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
     $client = New-Object System.Net.Http.HttpClient
     $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSeconds)
     try {
-        $task = $client.GetAsync($Uri)
+        $req = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Get, $Uri)
+        foreach ($h in $Headers.Keys) { [void]$req.Headers.TryAddWithoutValidation($h, "$($Headers[$h])") }
+        $task = $client.SendAsync($req)
         $spin = @('|', '/', '-', '\'); $i = 0
         while (-not $task.IsCompleted) { Write-Host -NoNewline "`rDownloading the $Label catalog $($spin[$i % 4])  "; Start-Sleep -Milliseconds 120; $i++ }
         $resp = $task.GetAwaiter().GetResult()
         if (-not $resp.IsSuccessStatusCode) { Write-Host "`r$Label download failed: HTTP $([int]$resp.StatusCode).          " -ForegroundColor Red; return $null }
         Write-Host "`rDownloading the $Label catalog... done.          "
+        if ($Binary) { return , $resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult() }
         return $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
     }
     catch { Write-Host "`r$Label download failed: $($_.Exception.Message)          " -ForegroundColor Red; return $null }
@@ -495,6 +502,67 @@ function Get-ChocoCatalogOnline {
     return $out
 }
 
+# Known vulnerabilities (-CveOnline): the CVEs of every CPE of $script:CveCpeMap (lib\Checks.ps1) from
+# the NVD CVE API 2.0, by product and never by version (the whole list, whatever the hosts have), page
+# by page; then the EPSS daily file (one GET, every CVE; only the scores of these CVEs are kept).
+# Without a key NVD allows 5 requests in 30 seconds, so requests are 6.5 s apart (1 s with
+# NVD_API_KEY, sent as the apiKey header and never written anywhere). A product whose CVEs did not
+# come back whole is left out. Returns @{ Products; Epss; EpssDate } (no product when nothing came back).
+function Get-CveCatalogOnline {
+    param([int]$TimeoutSeconds = 120)
+    $base = if ($env:HOSTBADGER_NVD_URL) { $env:HOSTBADGER_NVD_URL } else { $script:NvdApiUrl }
+    $epssUri = if ($env:HOSTBADGER_EPSS_URL) { $env:HOSTBADGER_EPSS_URL } else { $script:EpssUrl }
+    $headers = @{}; if ($env:NVD_API_KEY) { $headers['apiKey'] = $env:NVD_API_KEY }
+    $pause = if ($env:NVD_API_KEY) { 1000 } else { 6500 }
+    if ($env:HOSTBADGER_NVD_PAUSE_MS) { $pause = [int]$env:HOSTBADGER_NVD_PAUSE_MS }
+    $products = @{}
+    $first = $true
+    foreach ($label in @($script:CveCpeMap.Keys)) {
+        $cves = New-Object System.Collections.Generic.List[object]
+        $ids = New-Object 'System.Collections.Generic.HashSet[string]'
+        $whole = $true
+        foreach ($cpe in @($script:CveCpeMap[$label])) {
+            $start = 0
+            do {
+                if (-not $first) { Start-Sleep -Milliseconds $pause }
+                $first = $false
+                $uri = $base + '?virtualMatchString=' + [uri]::EscapeDataString("cpe:2.3:a:$cpe") + "&startIndex=$start"
+                $page = $null
+                foreach ($wait in 10, 30, 0) {
+                    $text = Get-CatalogText -Uri $uri -Label "NVD ($label)" -TimeoutSeconds $TimeoutSeconds -Headers $headers
+                    if ($text) { try { $page = ConvertFrom-NvdPage $text $script:CveCpeMap[$label] } catch { $page = $null } }
+                    if ($page -or $wait -eq 0) { break }
+                    Start-Sleep -Seconds $wait
+                }
+                if (-not $page) { $whole = $false; break }
+                foreach ($c in $page.Cves) { if ($ids.Add($c.id)) { $cves.Add($c) } }
+                $start = $page.Start + $page.Count
+            } while ($page.Count -gt 0 -and $start -lt $page.Total)
+            if (-not $whole) { break }
+        }
+        if ($whole) { $products[$label] = $cves.ToArray() }
+        else { Write-Host "NVD: the CVEs of $label did not come back whole; it is not judged." -ForegroundColor Yellow }
+    }
+    $epss = @{}; $epssDate = ''
+    $wanted = New-Object 'System.Collections.Generic.HashSet[string]'
+    foreach ($l in $products.Keys) { foreach ($c in $products[$l]) { [void]$wanted.Add($c.id) } }
+    if ($wanted.Count -gt 0) {
+        $gz = Get-CatalogText -Uri $epssUri -Label 'FIRST EPSS' -TimeoutSeconds $TimeoutSeconds -Binary
+        if ($gz) {
+            try {
+                $in = New-Object System.IO.MemoryStream(, $gz)
+                $unzip = New-Object System.IO.Compression.GZipStream($in, [System.IO.Compression.CompressionMode]::Decompress)
+                $reader = New-Object System.IO.StreamReader($unzip)
+                $parsed = ConvertFrom-EpssCsv $reader.ReadToEnd() $wanted
+                $reader.Dispose()
+                $epss = $parsed.Scores; $epssDate = $parsed.Date
+            }
+            catch { Write-Host "EPSS file not readable: $($_.Exception.Message)" -ForegroundColor Yellow }
+        }
+    }
+    return @{ Products = $products; Epss = $epss; EpssDate = $epssDate }
+}
+
 # The caller converts it (ConvertFrom-EolCatalog in lib\Checks.ps1).
 function Get-EolCatalogOnline {
     param([int]$TimeoutSeconds = 120)
@@ -544,6 +612,8 @@ function Invoke-GeminiAnalysis {
             Start-Sleep -Seconds $wait; $result = $null; continue
         }
         Write-Host "ERROR: Gemini call failed: HTTP $($result.StatusCode). $($result.Body)" -ForegroundColor Red
+        # A model that stays busy: a smaller one is usually served (names change, so point at the list).
+        if (@(429, 503) -contains $result.StatusCode) { Write-Host "HTTP $($result.StatusCode) (model overloaded). When Gemini keeps answering $($result.StatusCode), a smaller model often gets through: run again with, for example, -Model gemini-3.5-flash-lite. The current model names are listed in the Gemini models page (ai.google.dev/gemini-api/docs/models)." -ForegroundColor Yellow }
         return $null
     }
     if (-not $result) { return $null }

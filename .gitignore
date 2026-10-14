@@ -23,4 +23,9 @@ output/
 session_*.txt
 testhtml.txt
 *_kev.json
+*_drivers.json
+*_eol.json
+*_choco.json
+*_cve.json
 *.hbx
+*.pfx

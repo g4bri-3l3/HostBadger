@@ -431,6 +431,10 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Installed software no longer supported by its vendor'
         Description = 'An installed program is a release that its vendor no longer fixes: Flash, Silverlight, Java 6/7, old Adobe Reader and Office, Exchange, SQL Server, Python, Node.js, .NET and Visual C++ runtimes past their end of life. New vulnerabilities in it stay open for good. The release is read from the Programs and Features name (and the version for Node.js) and compared with the lifecycle table in lib\Checks.ps1, or with the endoflife.date data when it was given (-EolFile or -EolOnline), which also covers Oracle Java, Eclipse Temurin, PowerShell 7, VirtualBox and Wireshark; per-user installs are not listed. Severity follows the product: High for browser plugins, old document readers and Exchange, Low for the Visual C++ runtimes, and Low while paid extended support still runs.'
         Remediation = 'Upgrade to a supported release, or uninstall it if nothing needs it. A Visual C++ runtime may be needed by an old program: remove it with that program. For SQL Server, Extended Security Updates can cover the gap while the upgrade is planned (add an exception if the host is enrolled).' }
+    software_cve = @{ Category = 'Software'; Severity = 'Medium'; Mitre = 'T1203'; Needs = @('software'); Roles = $script:AllRoles
+        Title = 'Installed software version with known vulnerabilities'
+        Description = 'The installed version of a program falls in the vulnerable version range of CVEs that NVD had published before the snapshot was taken. One finding per program, with the count, the highest CVSS score, the CVEs CISA lists as exploited (KEV, from the date they were added) and the highest EPSS score (probability of exploitation in the next 30 days, FIRST). High when one is in KEV, CVSS 9.0 or more or EPSS 0.1 or more; Medium for CVSS 7.0 or EPSS 0.01; Low otherwise. Covers Python, Node.js, .NET, Notepad++, PowerShell 7, VirtualBox, Wireshark, 7-Zip, VLC, Git, GIMP, WinSCP, PuTTY, FileZilla, KeePass, Audacity, Mullvad VPN and AnyDesk; NVD has a backlog of CVEs without version data, so a very recent CVE can be missing (never a false alarm from that). Only present when the data was given (-CveFile or -CveOnline).'
+        Remediation = 'Update the program to the release named in Expected (or later), starting with the ones whose CVEs are in KEV or have a high EPSS score. If the program is not needed, uninstall it.' }
     software_outdated = @{ Category = 'Software'; Severity = 'Low'; Mitre = 'T1203'; Needs = @('software'); Roles = $script:AllRoles
         Title = 'Installed software behind the latest release of its line'
         Description = 'The release line of an installed program is still maintained, but a newer version of that line came out before the snapshot was taken, with the security fixes since the installed one. For products that ship every few weeks (Firefox, Chrome, Notepad++) a line that has already been replaced counts here too. A release counts only once it is older than the grace period (-SoftwareGraceDays, 30 days), so a host waiting for its normal update is not flagged; a host several releases behind a recent one (8.9.1 when 8.9.8.1 is out) is flagged anyway, Low. Medium when the missing release is more than 180 days old. For 7-Zip, VLC, Git, GIMP, WinSCP, PuTTY, FileZilla, KeePass, Audacity, Mullvad VPN, OBS Studio and AnyDesk the versions and their dates come from the Chocolatey community repository, and the grace period counts from the first newer release. Only present when endoflife.date data (-EolFile or -EolOnline) or Chocolatey data (-ChocoFile or -ChocoOnline) was given.'
@@ -1169,6 +1173,146 @@ function Find-ChocoProduct {
     }
 }
 
+# Known vulnerabilities by installed version (-CveOnline / -CveFile): the CVEs of each product from
+# NVD (CPE vendor:product, every version asked for, so NVD never learns what is installed), judged
+# here against the version ranges of each CVE, and the EPSS score of each CVE (FIRST, the daily file
+# of every CVE). Keyed by the Label of $script:EolProductMap / $script:ChocoProductMap. Products whose
+# Windows builds are not described by version ranges in NVD (Office, Exchange, Oracle Java) and the
+# rapid-release browsers (software_outdated covers them) are not listed.
+$script:CveCpeMap = [ordered]@{
+    'Python'            = @('python:python')
+    'Node.js'           = @('nodejs:node.js')
+    'Microsoft .NET'    = @('microsoft:.net', 'microsoft:asp.net_core')
+    'Notepad++'         = @('notepad-plus-plus:notepad\+\+')
+    'PowerShell'        = @('microsoft:powershell')
+    'Oracle VirtualBox' = @('oracle:vm_virtualbox')
+    'Wireshark'         = @('wireshark:wireshark')
+    '7-Zip'             = @('7-zip:7-zip')
+    'VLC media player'  = @('videolan:vlc_media_player')
+    'Git for Windows'   = @('git-scm:git', 'git_for_windows_project:git_for_windows')
+    'GIMP'              = @('gimp:gimp')
+    'WinSCP'            = @('winscp:winscp')
+    'PuTTY'             = @('putty:putty', 'simon_tatham:putty')
+    'FileZilla'         = @('filezilla-project:filezilla_client')
+    'KeePass'           = @('keepass:keepass')
+    'Audacity'          = @('audacityteam:audacity')
+    'Mullvad VPN'       = @('mullvad:mullvad_vpn')
+    'AnyDesk'           = @('anydesk:anydesk')
+}
+
+function Find-InstalledProduct {
+    # The product (Label) and installed version of a program, from the endoflife.date and Chocolatey
+    # maps, or nothing when it is not mapped or no version can be read.
+    param($Software)
+    $n = "$($Software.name)"; $ver = "$($Software.version)"
+    foreach ($m in $script:EolProductMap) {
+        if ($n -notmatch $m.Name) { continue }
+        $g = $Matches
+        if ($m.Version) { if ($ver -match $m.Version) { $g = $Matches } else { return } }
+        if (-not "$($g['v'])") { return }
+        return [PSCustomObject]@{ Label = $m.Label; Version = "$($g['v'])" }
+    }
+    $c = Find-ChocoProduct $Software
+    if ($c) { return [PSCustomObject]@{ Label = $c.Map.Label; Version = $c.Version } }
+}
+
+function ConvertFrom-NvdPage {
+    # One page of the NVD CVE API 2.0: @{ Total; Start; Count; Cves }, each CVE reduced to what the
+    # check needs: id, publication date, CVSS base score (NVD's own v3.1 score first), the date CISA
+    # added it to KEV, and the vulnerable version ranges of the given CPE vendor:product names.
+    param([string]$Json, [string[]]$Cpe)
+    $doc = ConvertFrom-Json -InputObject $Json
+    $out = New-Object System.Collections.Generic.List[object]
+    foreach ($w in @($doc.vulnerabilities | ForEach-Object { $_ })) {
+        $c = $w.cve
+        if (-not $c.id -or "$($c.vulnStatus)" -match '(?i)rejected') { continue }
+        $ranges = New-Object System.Collections.Generic.List[object]
+        $stack = New-Object System.Collections.Generic.Stack[object]
+        foreach ($cfg in @($c.configurations | ForEach-Object { $_ })) { foreach ($nd in @($cfg.nodes | ForEach-Object { $_ })) { $stack.Push($nd) } }
+        while ($stack.Count -gt 0) {
+            $nd = $stack.Pop()
+            foreach ($ch in @($nd.children | Where-Object { $_ })) { $stack.Push($ch) }
+            foreach ($cm in @($nd.cpeMatch | Where-Object { $_ -and $_.vulnerable -eq $true })) {
+                $parts = "$($cm.criteria)" -split '(?<!\\):'
+                if ($parts.Count -lt 6) { continue }
+                $vp = "$($parts[3]):$($parts[4])"
+                if ($Cpe -notcontains $vp) { continue }
+                $exact = if ($parts[5] -notin '*', '-', '') { $parts[5] -replace '\\', '' } else { '' }
+                $ranges.Add([ordered]@{ cpe = $vp; version = $exact; si = "$($cm.versionStartIncluding)"; se = "$($cm.versionStartExcluding)"; ei = "$($cm.versionEndIncluding)"; ee = "$($cm.versionEndExcluding)" })
+            }
+        }
+        if ($ranges.Count -eq 0) { continue }
+        $score = $null
+        foreach ($set in 'cvssMetricV31', 'cvssMetricV40', 'cvssMetricV30', 'cvssMetricV2') {
+            $ms = @($c.metrics.$set | Where-Object { $_ })
+            if ($ms.Count -eq 0) { continue }
+            $pick = @($ms | Where-Object { $_.type -eq 'Primary' }) + $ms | Select-Object -First 1
+            $score = [double]$pick.cvssData.baseScore; break
+        }
+        $out.Add([ordered]@{ id = "$($c.id)"; published = (ConvertTo-EolDateText $c.published); score = $score; kev = (ConvertTo-EolDateText $c.cisaExploitAdd); ranges = $ranges.ToArray() })
+    }
+    return [PSCustomObject]@{ Total = [int]$doc.totalResults; Start = [int]$doc.startIndex; Count = @($doc.vulnerabilities).Count; Cves = $out.ToArray() }
+}
+
+function Test-CveAffects {
+    # Whether an installed version falls in one of a CVE's vulnerable ranges (or is its exact version).
+    param($Ranges, [string]$Version)
+    foreach ($r in @($Ranges | Where-Object { $_ })) {
+        if ($r.version) { if ((Compare-SoftwareVersion $Version $r.version) -eq 0) { return $true }; continue }
+        if ($r.si -and (Compare-SoftwareVersion $Version $r.si) -lt 0) { continue }
+        if ($r.se -and (Compare-SoftwareVersion $Version $r.se) -le 0) { continue }
+        if ($r.ei -and (Compare-SoftwareVersion $Version $r.ei) -gt 0) { continue }
+        if ($r.ee -and (Compare-SoftwareVersion $Version $r.ee) -ge 0) { continue }
+        return $true
+    }
+    return $false
+}
+
+function ConvertFrom-EpssCsv {
+    # The EPSS daily file (#model_version...,score_date:...; cve,epss,percentile): @{ Date; Scores },
+    # only for the CVEs asked for when a list is given.
+    param([string]$Text, $Wanted)
+    $date = if ($Text -match 'score_date:(\d{4}-\d{2}-\d{2})') { $Matches[1] } else { '' }
+    $scores = @{}
+    foreach ($line in $Text.Split("`n")) {
+        if (-not $line.StartsWith('CVE-')) { continue }
+        $f = $line.TrimEnd("`r").Split(',')
+        if ($f.Count -lt 3 -or ($Wanted -and -not $Wanted.Contains($f[0]))) { continue }
+        $scores[$f[0]] = [double]::Parse($f[1], [Globalization.CultureInfo]::InvariantCulture)
+    }
+    return [PSCustomObject]@{ Date = $date; Scores = $scores }
+}
+
+function ConvertFrom-CveCatalog {
+    # The copy kept next to the report (<report>_cve.json): @{ Products = @{ Label = cves }; Epss;
+    # EpssDate }.
+    param([string]$Json)
+    $doc = ConvertFrom-Json -InputObject $Json
+    $prod = @{}
+    foreach ($p in @($doc.products | ForEach-Object { $_ })) {
+        if (-not "$($p.label)") { continue }
+        $prod["$($p.label)"] = @($p.cves | ForEach-Object {
+                [ordered]@{ id = "$($_.id)"; published = (ConvertTo-EolDateText $_.published); score = $(if ($null -ne $_.score) { [double]$_.score } else { $null }); kev = (ConvertTo-EolDateText $_.kev)
+                    ranges = @($_.ranges | ForEach-Object { [ordered]@{ cpe = "$($_.cpe)"; version = "$($_.version)"; si = "$($_.si)"; se = "$($_.se)"; ei = "$($_.ei)"; ee = "$($_.ee)" } }) }
+            })
+    }
+    if ($prod.Count -eq 0) { throw 'no product in this file' }
+    $epss = @{}
+    foreach ($e in @($doc.epss | ForEach-Object { $_ })) { if ("$($e.cve)") { $epss["$($e.cve)"] = [double]$e.epss } }
+    return @{ Products = $prod; Epss = $epss; EpssDate = "$($doc.epssDate)" }
+}
+
+function ConvertTo-CveCatalogJson {
+    param($Catalog, [string]$Source)
+    $products = foreach ($l in @($Catalog.Products.Keys | Sort-Object | Where-Object { @($Catalog.Products[$_]).Count -gt 0 })) {
+        [ordered]@{ label = $l; cves = @($Catalog.Products[$l]) }
+    }
+    $epss = @(foreach ($k in @($Catalog.Epss.Keys | Sort-Object)) { [ordered]@{ cve = $k; epss = $Catalog.Epss[$k] } })
+    $doc = [ordered]@{ source = $Source; epssDate = "$($Catalog.EpssDate)"; products = @($products) }
+    if ($epss.Count -gt 0) { $doc['epss'] = $epss }
+    return ($doc | ConvertTo-Json -Depth 8)
+}
+
 function Get-VersionNumbers {
     # The numbers of a version in order, without build metadata ("25.0.4.1+1" -> 25, 0, 4, 1).
     param([string]$Version)
@@ -1206,7 +1350,7 @@ function Compare-SoftwareVersion {
 
 function Invoke-SoftwareChecks {
     param($S, $Config, $can)
-    if ((& $can 'software_eol') -or (& $can 'software_outdated')) {
+    if ((& $can 'software_eol') -or (& $can 'software_outdated') -or (& $can 'software_cve')) {
         # Days a program may take to pick up a new release (auto-update, a monthly ring) before it is late.
         $grace = if ($Config.SoftwareGraceDays) { [int]$Config.SoftwareGraceDays } else { 30 }
         $seen = @{}
@@ -1218,6 +1362,33 @@ function Invoke-SoftwareChecks {
         }
         foreach ($sw in @($S.software | Where-Object { $_ })) {
             if ($seen.Count -ge 100) { break }
+            if ($Config.Cve -and (& $can 'software_cve')) {
+                # Known vulnerabilities of the installed version: CVEs published before collection whose
+                # NVD ranges hold it. KEV only from the date CISA added the CVE, EPSS as downloaded.
+                $ip = Find-InstalledProduct $sw
+                $cves = if ($ip) { @($Config.Cve.Products[$ip.Label] | Where-Object { $_ }) } else { @() }
+                $hits = @($cves | Where-Object { ($d = ConvertTo-UtcDate $_.published) -and $d -le $script:RefDate -and (Test-CveAffects $_.ranges $ip.Version) })
+                if ($hits.Count -gt 0) {
+                    $epssOf = { param($id) if ($Config.Cve.Epss -and $Config.Cve.Epss.ContainsKey($id)) { [double]$Config.Cve.Epss[$id] } else { $null } }
+                    $kev = @($hits | Where-Object { $_.kev -and ($k = ConvertTo-UtcDate $_.kev) -and $k -le $script:RefDate })
+                    $byScore = @($hits | Sort-Object @{ Expression = { if ($null -ne $_.score) { [double]$_.score } else { -1 } }; Descending = $true }, @{ Expression = { $_.id }; Descending = $false })
+                    $byEpss = @($hits | Where-Object { $null -ne (& $epssOf $_.id) } | Sort-Object @{ Expression = { & $epssOf $_.id }; Descending = $true }, @{ Expression = { $_.id }; Descending = $false })
+                    $maxScore = if ($null -ne $byScore[0].score) { [double]$byScore[0].score } else { 0 }
+                    $maxEpss = if ($byEpss.Count -gt 0) { & $epssOf $byEpss[0].id } else { 0 }
+                    $sev = if ($kev.Count -gt 0 -or $maxScore -ge 9 -or $maxEpss -ge 0.1) { 'High' } elseif ($maxScore -ge 7 -or $maxEpss -ge 0.01) { 'Medium' } else { 'Low' }
+                    # The release that fixes them all, when every range has an upper bound.
+                    $fix = ''
+                    $ends = @($hits | ForEach-Object { $_.ranges } | Where-Object { $_ -and -not $_.version } | ForEach-Object { if ($_.ee) { $_.ee } elseif ($_.ei) { "after $($_.ei)" } else { '?' } })
+                    if ($ends.Count -gt 0 -and $ends -notcontains '?' -and -not ($ends | Where-Object { $_ -like 'after *' })) { $fix = $ends[0]; foreach ($e in $ends) { if ((Compare-SoftwareVersion $e $fix) -gt 0) { $fix = $e } } }
+                    $parts = New-Object System.Collections.Generic.List[string]
+                    $parts.Add("highest CVSS $(if ($maxScore -gt 0) { $maxScore.ToString('0.0', [Globalization.CultureInfo]::InvariantCulture) } else { 'not scored' }) ($($byScore[0].id))")
+                    if ($kev.Count -gt 0) { $parts.Add("$($kev.Count) in the CISA KEV catalog of exploited vulnerabilities ($((@($kev | Select-Object -First 3 | ForEach-Object { $_.id })) -join ', '))") }
+                    if ($byEpss.Count -gt 0) { $parts.Add("highest EPSS $($maxEpss.ToString('0.000', [Globalization.CultureInfo]::InvariantCulture)) ($($byEpss[0].id)$(if ($Config.Cve.EpssDate) { ", scores of $($Config.Cve.EpssDate)" }))") }
+                    $worst = @($byScore | Select-Object -First 5 | ForEach-Object { $_.id }) -join ', '
+                    $vver = if ("$($sw.version)") { "version $($sw.version)" } else { 'no version recorded' }
+                    & $emit 'software_cve' "software: $($ip.Label)" $sev ("Installed as {0} ({1}). {2} known vulnerabilit{3} published before collection affect{8} {4} {5} (NVD): {6}. Worst: {7}." -f $sw.name, $vver, $hits.Count, $(if ($hits.Count -eq 1) { 'y' } else { 'ies' }), $ip.Label, $ip.Version, ($parts -join '; '), $worst, $(if ($hits.Count -eq 1) { 's' } else { '' })) "$($ip.Version): $($hits.Count) CVE" $(if ($fix) { "$fix or later" } else { 'a release that fixes them' })
+                }
+            }
             $row = Get-SoftwareLifecycle $sw
             $hit = if ($Config.Eol) { Find-EolRelease $sw $Config.Eol } else { $null }
             $ver = if ("$($sw.version)") { "version $($sw.version)" } else { 'no version recorded' }
@@ -1596,6 +1767,7 @@ function Invoke-HostChecks {
     if (-not $Snapshot.meta.options.checkUpdates) { $optionalOff['updates_pending'] = $true }
     if (-not $Config.Kev -or @($Config.Kev).Count -eq 0) { $optionalOff['kev_software_match'] = $true }
     if ((-not $Config.Eol -or $Config.Eol.Count -eq 0) -and (-not $Config.Choco -or $Config.Choco.Count -eq 0)) { $optionalOff['software_outdated'] = $true }
+    if (-not $Config.Cve -or -not $Config.Cve.Products -or $Config.Cve.Products.Count -eq 0) { $optionalOff['software_cve'] = $true }
     $ne = @($ne | Where-Object { -not $optionalOff.ContainsKey($_.Type) })
     $skip = @{}; foreach ($n in $ne) { $skip[$n.Type] = $true }
     foreach ($k in $optionalOff.Keys) { $skip[$k] = $true }
