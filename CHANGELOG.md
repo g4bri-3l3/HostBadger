@@ -8,6 +8,29 @@ new major if the snapshot or the JSON Lines format ever breaks.
 
 ## [Unreleased]
 ### Added
+- Program versions from the Chocolatey community repository: `-ChocoOnline`
+  (GETs to community.chocolatey.org/api/v2/, page by page, nothing is sent; the
+  copy is kept as `<report>_choco.json`) or `-ChocoFile`. `software_outdated`
+  now also covers 7-Zip, VLC, Git for Windows, GIMP, WinSCP, PuTTY, FileZilla,
+  KeePass, Audacity, Mullvad VPN, OBS Studio and AnyDesk, which endoflife.date
+  lacks: every version has its publication date, so a host is late only for
+  releases that existed at collection, and the grace period counts from the
+  first one it missed. The same package list is asked for whatever the hosts
+  have. The feed is often busy (503/504): each page is tried three times, and a
+  package whose history did not come back whole is not judged. Guided menu
+  question, AI re-run reuses the copy, community.chocolatey.org allowed in
+  `Test-HostBadgerSafety.ps1`.
+- README: "How it compares" (HardeningKitty, Policy Analyzer, DISA SCC,
+  CIS-CAT Pro, Tenable/Qualys, Defender Vulnerability Management), with when to
+  use something else.
+- Eclipse Temurin JDK/JRE in the endoflife.date product map.
+### Changed
+- `software_outdated`: a program several releases behind a recent one (Notepad++
+  8.9.1 when 8.9.8.1 came out within the grace period) is now flagged, Low;
+  endoflife.date gives only the newest release's date, so the grace period
+  alone hid hosts that had missed months of updates. One release behind inside
+  the grace period is still not flagged. Build metadata ("+1") is ignored when
+  versions are compared.
 - `software_eol`: installed software past its vendor's end of support (Flash,
   Shockwave, Silverlight, Java 6/7, Adobe Reader/Acrobat XI, 2015 and 2017,
   Office/Visio/Project 2007 to LTSC 2021, Exchange 2010 to 2019, SQL Server 2008

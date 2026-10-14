@@ -34,7 +34,8 @@ the whole fleet in one report, or one report per host.
   searches for missing updates), `-KevOnline` (downloads the CISA KEV catalog,
   www.cisa.gov), `-DriversOnline` (downloads the LOLDrivers catalog,
   www.loldrivers.io), `-EolOnline` (downloads software lifecycle data,
-  endoflife.date) and `-SendToAI` (Gemini). Each one is named where it is offered.
+  endoflife.date), `-ChocoOnline` (downloads program versions,
+  community.chocolatey.org) and `-SendToAI` (Gemini). Each one is named where it is offered.
   `Test-HostBadgerSafety.ps1` proves the rest from the code.
 - **Honest about gaps**: what could not be read is listed as *not evaluated*,
   never as clean.
@@ -77,12 +78,16 @@ should.
   their end of support (Flash, Java 6/7, old Office, Exchange and SQL Server,
   Python, Node.js, .NET, old Visual C++ runtimes) are flagged from a lifecycle
   table, no download needed. With `-EolOnline` (or `-EolFile`) the dates come
-  from [endoflife.date](https://endoflife.date) (MIT), which adds Oracle Java,
+  from [endoflife.date](https://endoflife.date) (MIT), which adds Oracle Java, Eclipse Temurin,
   PowerShell 7, VirtualBox and Wireshark and flags programs behind the latest
   release of their line (`software_outdated`: Python 3.12.1 when 3.12.9 has been
   out for months, a Firefox, Chrome or Notepad++ that stopped updating). A
   release counts only if it came out before the snapshot and more than
-  `-SoftwareGraceDays` (30) earlier.
+  `-SoftwareGraceDays` (30) earlier. With `-ChocoOnline` (or `-ChocoFile`) the
+  same check covers 7-Zip, VLC, Git for Windows, GIMP, WinSCP, PuTTY, FileZilla,
+  KeePass, Audacity, Mullvad VPN, OBS Studio and AnyDesk, from the versions and
+  publication dates of their Chocolatey community packages (the same list is
+  asked for whatever the hosts have, so the requests say nothing about them).
 - **Vulnerable and malicious drivers**: the SHA-256 of every kernel driver file
   is matched against the [LOLDrivers](https://www.loldrivers.io) catalog
   (Apache License 2.0) of drivers used in "bring your own vulnerable driver"
@@ -160,6 +165,48 @@ should.
 - **Guided menu** (`Start-HostBadger.ps1`) for collecting, analyzing, the AI
   step and the safety review.
 
+
+## How it compares
+
+HostBadger sits next to the tools below, not in place of them. The table is a
+summary of their public documentation as of October 2026: check the vendors'
+own pages before relying on it, especially for licensing and editions.
+
+| | HostBadger | HardeningKitty | Microsoft Policy Analyzer (SCT) | DISA SCC | CIS-CAT Pro | Tenable Nessus / Qualys Policy Compliance | Microsoft Defender Vulnerability Management |
+|---|---|---|---|---|---|---|---|
+| License | MIT, free | MIT, free | Free | Free | Commercial (CIS SecureSuite) | Commercial | Commercial (Defender for Endpoint / add-on) |
+| Focus | Windows host hardening | Windows host hardening | GPO and local policy against Microsoft baselines | DISA STIG through SCAP | CIS benchmarks | Vulnerabilities and compliance, many platforms | Endpoint vulnerabilities and configuration |
+| CIS benchmarks | Yes: Windows 10/11 and Server 2016-2022 rule numbers | Yes: Windows 10/11, Server 2012 R2-2025 lists | No (Microsoft baselines) | No | Yes, full | Yes | Add-on |
+| DISA STIG | Registry rules only (1,427, twelve products) | Some lists (Windows 10, Server 2019, Defender, Firewall) | No | Yes, full SCAP content | Check with CIS | Yes | Add-on |
+| Microsoft security baselines | Partly, through CIS/STIG overlap | Yes | Yes | No | No | Yes | Yes |
+| Software and vulnerabilities | End of support, behind latest release, CISA KEV matches, vulnerable drivers (no CVE scan by version) | No | No | No | No | Yes, full CVE scanning | Yes |
+| Collection | One read-only script, also through an EDR | Run on the host | Local or exported GPOs | Local or remote | Local or remote | Agent or credentialed scan | Defender sensor |
+| Offline analysis of saved snapshots | Yes | No | Yes (GPO backups) | No | No | No | No (cloud) |
+| Fleet report | HTML, CSV, JSON Lines | Per host (CSV) | Per comparison | Per host | Yes | Console | Console |
+| Value found next to value required | Yes | Yes | Yes | Yes | Yes | Yes | Partly |
+| Fixes | Reversible scripts with rollback, never run by the tool | Can apply the settings (HailMary), GPO export | No | No | No | No | Recommendations |
+| AI summary | Optional (Gemini), names tokenized and a leak check before anything is sent | No | No | No | No | Vendor cloud AI, licensed separately | Microsoft Security Copilot, licensed separately |
+| What the code can do, checked from the code | Yes (`Test-HostBadgerSafety.ps1`) | No | No | No | No | No | No |
+
+**When to use something else (or as well):**
+
+- **A vulnerability scanner** (Tenable, Qualys, Rapid7, Defender Vulnerability
+  Management) for CVEs by installed version, third-party patch status across
+  thousands of products and a central console. HostBadger only flags end of
+  support, releases a program is behind on for the products it maps, and CISA
+  KEV name matches.
+- **DISA SCC** when the STIG result is the deliverable (an ATO, an audit): it
+  runs the full SCAP content, including the rules that are not registry values.
+  HostBadger judges the registry rules only.
+- **CIS-CAT Pro** when you need the CIS assessment itself (certified results,
+  every benchmark section, other platforms).
+- **HardeningKitty** to apply a hardening list on a host or build a GPO from
+  it, or for the Microsoft security baselines and BSI lists. HostBadger never
+  changes a setting.
+- **Policy Analyzer** to compare Group Policy objects before they are deployed.
+  HostBadger reads what the host actually does, not what the GPO says.
+- **PingCastle** (or similar) for Active Directory itself. HostBadger looks at
+  each host, including domain controllers, not at the directory.
 
 ## The pieces
 
@@ -436,7 +483,8 @@ or, without one, when they have the same title.
   `-KevOnline`), one GET of the LOLDrivers catalog
   (www.loldrivers.io/api/drivers.json, `-DriversOnline`), one GET of the
   endoflife.date lifecycle data (endoflife.date/api/v1/products/full,
-  `-EolOnline`) and the Gemini call
+  `-EolOnline`), GETs of the Chocolatey package versions
+  (community.chocolatey.org/api/v2/, `-ChocoOnline`) and the Gemini call
   (`-SendToAI`). The code that sends or
   downloads lives in `lib\AI.ps1` only. `Test-HostBadgerSafety.ps1` checks all this from the code
   and fails on any command that is not on its reviewed list. The regression
@@ -505,6 +553,7 @@ standard user with Defender in passive mode.
     [-KevFile known_exploited_vulnerabilities.json] | [-KevOnline]   # match installed software to the CISA KEV catalog (-KevOnline downloads it from www.cisa.gov)
     [-DriversFile drivers.json] | [-DriversOnline]   # a LOLDrivers catalog you have, or a fresh one (-DriversOnline downloads it from www.loldrivers.io)
     [-EolFile r_eol.json] | [-EolOnline] [-SoftwareGraceDays 30]   # software lifecycle data (-EolOnline downloads it from endoflife.date): current end-of-support dates and software_outdated
+    [-ChocoFile r_choco.json] | [-ChocoOnline]   # program versions from community.chocolatey.org (7-Zip, VLC, Git, GIMP, WinSCP, PuTTY...) for software_outdated
     [-SnapshotPassword <SecureString>] [-SnapshotPfx <file.pfx> [-SnapshotPfxPassword <SecureString>]]   # open encrypted .hbx snapshots (asked for when missing)
     [-HideCis] [-HideStig]                       # keep those findings out of the HTML listing (CSV and JSON Lines keep them)
     [-AiIncludeStig]                             # also send the STIG findings to Gemini (large prompt, may time out)

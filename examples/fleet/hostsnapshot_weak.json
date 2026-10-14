@@ -3274,6 +3274,11 @@
       "name": "Microsoft Visual C++ 2010  x64 Redistributable - 10.0.40219",
       "version": "10.0.40219",
       "publisher": "Microsoft Corporation"
+    },
+    {
+      "name": "7-Zip 23.01 (x64)",
+      "version": "23.01",
+      "publisher": "Igor Pavlov"
     }
   ],
   "updatesPending": {

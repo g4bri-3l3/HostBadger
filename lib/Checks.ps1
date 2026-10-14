@@ -429,11 +429,11 @@ $script:CheckCatalog = [ordered]@{
         Remediation = 'Compare the installed version with the advisories for the listed CVEs, update the program or remove it if it is not needed, and add an exception if the installed version is not affected.' }
     software_eol = @{ Category = 'Software'; Severity = 'Medium'; Mitre = 'T1203'; Needs = @('software'); Roles = $script:AllRoles
         Title = 'Installed software no longer supported by its vendor'
-        Description = 'An installed program is a release that its vendor no longer fixes: Flash, Silverlight, Java 6/7, old Adobe Reader and Office, Exchange, SQL Server, Python, Node.js, .NET and Visual C++ runtimes past their end of life. New vulnerabilities in it stay open for good. The release is read from the Programs and Features name (and the version for Node.js) and compared with the lifecycle table in lib\Checks.ps1, or with the endoflife.date data when it was given (-EolFile or -EolOnline), which also covers Oracle Java, PowerShell 7, VirtualBox and Wireshark; per-user installs are not listed. Severity follows the product: High for browser plugins, old document readers and Exchange, Low for the Visual C++ runtimes, and Low while paid extended support still runs.'
+        Description = 'An installed program is a release that its vendor no longer fixes: Flash, Silverlight, Java 6/7, old Adobe Reader and Office, Exchange, SQL Server, Python, Node.js, .NET and Visual C++ runtimes past their end of life. New vulnerabilities in it stay open for good. The release is read from the Programs and Features name (and the version for Node.js) and compared with the lifecycle table in lib\Checks.ps1, or with the endoflife.date data when it was given (-EolFile or -EolOnline), which also covers Oracle Java, Eclipse Temurin, PowerShell 7, VirtualBox and Wireshark; per-user installs are not listed. Severity follows the product: High for browser plugins, old document readers and Exchange, Low for the Visual C++ runtimes, and Low while paid extended support still runs.'
         Remediation = 'Upgrade to a supported release, or uninstall it if nothing needs it. A Visual C++ runtime may be needed by an old program: remove it with that program. For SQL Server, Extended Security Updates can cover the gap while the upgrade is planned (add an exception if the host is enrolled).' }
     software_outdated = @{ Category = 'Software'; Severity = 'Low'; Mitre = 'T1203'; Needs = @('software'); Roles = $script:AllRoles
         Title = 'Installed software behind the latest release of its line'
-        Description = 'The release line of an installed program is still maintained, but a newer version of that line came out before the snapshot was taken, with the security fixes since the installed one. For products that ship every few weeks (Firefox, Chrome, Notepad++) a line that has already been replaced counts here too. A release counts only once it is older than the grace period (-SoftwareGraceDays, 30 days), so a host waiting for its normal update is not flagged. Medium when the missing release is more than 180 days old. Only present when lifecycle data from endoflife.date was given (-EolFile or -EolOnline).'
+        Description = 'The release line of an installed program is still maintained, but a newer version of that line came out before the snapshot was taken, with the security fixes since the installed one. For products that ship every few weeks (Firefox, Chrome, Notepad++) a line that has already been replaced counts here too. A release counts only once it is older than the grace period (-SoftwareGraceDays, 30 days), so a host waiting for its normal update is not flagged; a host several releases behind a recent one (8.9.1 when 8.9.8.1 is out) is flagged anyway, Low. Medium when the missing release is more than 180 days old. For 7-Zip, VLC, Git, GIMP, WinSCP, PuTTY, FileZilla, KeePass, Audacity, Mullvad VPN, OBS Studio and AnyDesk the versions and their dates come from the Chocolatey community repository, and the grace period counts from the first newer release. Only present when endoflife.date data (-EolFile or -EolOnline) or Chocolatey data (-ChocoFile or -ChocoOnline) was given.'
         Remediation = 'Update the program, and check why it did not update itself: auto-update turned off, a deployment ring that does not include it, or a copy that nobody manages.' }
 
     # ---------------- Further settings (Microsoft documentation, DISA STIG and ACSC guidance) ----------------
@@ -1005,6 +1005,7 @@ $script:EolProductMap = @(
     @{ Slug = 'office'; Label = 'Microsoft Office'; Name = '^Microsoft (?:Office|Visio|Project)\b.*\b(?<c>20\d\d)\b' }
     @{ Slug = 'msexchange'; Label = 'Microsoft Exchange Server'; Name = '^Microsoft Exchange Server (?<c>20\d\d)\b'; Severity = 'High' }
     @{ Slug = 'oracle-jdk'; Label = 'Java'; Name = '^Java(?:\(TM\))? (?:SE Development Kit )?(?<v>(?<c>\d+)(?: Update \d+|(?:\.\d+)+)?)(?!\S)'; Severity = 'High' }
+    @{ Slug = 'eclipse-temurin'; Label = 'Eclipse Temurin'; Name = '^Eclipse Temurin J(?:DK|RE) with Hotspot (?<v>(?<c>\d+)(?:\.\d+)*(?:\+\d+)?)' }
     @{ Slug = 'firefox'; Label = 'Mozilla Firefox'; Name = '^Mozilla Firefox\b'; Version = '^(?<v>(?<c>\d+)\.\d+(?:\.\d+)*)'; Rapid = $true }
     @{ Slug = 'chrome'; Label = 'Google Chrome'; Name = '^Google Chrome$'; Version = '^(?<v>(?<c>\d+)\.\d+(?:\.\d+)*)'; Rapid = $true }
     @{ Slug = 'notepad-plus-plus'; Label = 'Notepad++'; Name = '^Notepad\+\+'; Version = '^(?<v>(?<c>\d+\.\d+)(?:\.\d+)*)'; Rapid = $true }
@@ -1075,11 +1076,124 @@ function Find-EolRelease {
     }
 }
 
+# Programs that endoflife.date does not cover, judged on the versions of their Chocolatey community
+# package (-ChocoOnline / -ChocoFile): every version with the date it was published, so a host is late
+# only for releases that existed at collection. Id is the package id; v the installed version (from
+# the version, else from the name). The download asks for every package in this list, whatever the
+# hosts have, so the requests say nothing about the fleet.
+$script:ChocoProductMap = @(
+    @{ Id = '7zip'; Label = '7-Zip'; Name = '^7-Zip \d'; Version = '^(?<v>\d+\.\d+)' }
+    @{ Id = 'vlc'; Label = 'VLC media player'; Name = '^VLC media player$'; Version = '^(?<v>\d+(?:\.\d+)+)' }
+    @{ Id = 'git'; Label = 'Git for Windows'; Name = '^Git(?: version [\d.]+)?$'; Version = '^(?<v>\d+(?:\.\d+)+)' }
+    @{ Id = 'gimp'; Label = 'GIMP'; Name = '^GIMP \d'; Version = '^(?<v>\d+(?:\.\d+)+)' }
+    @{ Id = 'winscp'; Label = 'WinSCP'; Name = '^WinSCP \d'; Version = '^(?<v>\d+(?:\.\d+)+)' }
+    @{ Id = 'putty'; Label = 'PuTTY'; Name = '^PuTTY release \d'; Version = '^(?<v>\d+\.\d+)' }
+    @{ Id = 'filezilla'; Label = 'FileZilla'; Name = '^FileZilla(?: Client)? \d'; Version = '^(?<v>\d+(?:\.\d+)+)' }
+    @{ Id = 'keepass'; Label = 'KeePass'; Name = '^KeePass Password Safe 2'; Version = '^(?<v>\d+(?:\.\d+)+)' }
+    @{ Id = 'audacity'; Label = 'Audacity'; Name = '^Audacity \d'; Version = '^(?<v>\d+(?:\.\d+)+)' }
+    @{ Id = 'mullvad-app'; Label = 'Mullvad VPN'; Name = '^Mullvad VPN\b'; Version = '^(?<v>\d+(?:\.\d+)+)' }
+    @{ Id = 'obs-studio'; Label = 'OBS Studio'; Name = '^OBS Studio$'; Version = '^(?<v>\d+(?:\.\d+)+)' }
+    @{ Id = 'anydesk'; Label = 'AnyDesk'; Name = '^AnyDesk$'; Version = '(?<v>\d+(?:\.\d+)+)' }
+)
+
+function ConvertTo-ChocoVersion {
+    # A package version as the program's own: a pre-release is dropped, and a package fix version
+    # (a fourth part that is a date, 18.5.0.20180730) is the program version 18.5.0.
+    param([string]$Version)
+    if (-not $Version -or $Version -match '-') { return '' }
+    return ($Version -replace '\.(?:19|20)\d{6}$', '')
+}
+
+function ConvertFrom-ChocoFeed {
+    # One page of the Chocolatey OData feed (FindPackagesById, Atom XML): @{ Versions; Entries } (Entries
+    # counts pre-releases too, for paging), or nothing when the text is not a feed (an unknown package
+    # id ends on an HTML error page).
+    param([string]$Xml)
+    try { $doc = [xml]$Xml } catch { return }
+    if (-not $doc.feed) { return }
+    $vers = New-Object System.Collections.Generic.List[object]
+    # A property with an m:type attribute is an element, one without is plain text.
+    $text = { param($x) if ($x -is [System.Xml.XmlElement]) { $x.InnerText } else { "$x" } }
+    foreach ($e in @($doc.feed.entry | Where-Object { $_ })) {
+        $p = $e.properties
+        if ((& $text $p.IsPrerelease) -match '(?i)true') { continue }
+        $raw = & $text $p.Version
+        $pub = & $text $p.Published
+        $v = ConvertTo-ChocoVersion $raw
+        if ($v -and $pub) { $vers.Add([PSCustomObject]@{ Version = $v; Published = (ConvertTo-EolDateText $pub) }) }
+    }
+    return [PSCustomObject]@{ Versions = $vers.ToArray(); Entries = @($doc.feed.entry | Where-Object { $_ }).Count }
+}
+
+function Merge-ChocoVersions {
+    # One entry per version, with its earliest publication date (a package fix republishes a version).
+    param($Versions)
+    $by = @{}
+    foreach ($v in @($Versions | Where-Object { $_ -and $_.Version -and $_.Published })) {
+        if (-not $by.ContainsKey($v.Version) -or $v.Published -lt $by[$v.Version].Published) { $by[$v.Version] = [PSCustomObject]@{ Version = $v.Version; Published = $v.Published } }
+    }
+    return @($by.Values | Sort-Object Published)
+}
+
+function ConvertFrom-ChocoCatalog {
+    # The copy kept next to the report (<report>_choco.json): @{ id = versions }.
+    param([string]$Json)
+    $doc = ConvertFrom-Json -InputObject $Json
+    $out = @{}
+    foreach ($p in @($doc.products | ForEach-Object { $_ })) {
+        if (-not "$($p.id)") { continue }
+        $out["$($p.id)"] = @(Merge-ChocoVersions @($p.versions | ForEach-Object { [PSCustomObject]@{ Version = (ConvertTo-ChocoVersion "$($_.version)"); Published = (ConvertTo-EolDateText $_.published) } }))
+    }
+    if ($out.Count -eq 0) { throw 'no package in this file' }
+    return $out
+}
+
+function ConvertTo-ChocoCatalogJson {
+    param($Catalog, [string]$Source)
+    # A package with no version is left out (an empty array would become {} on Windows PowerShell 5.1).
+    $products = foreach ($id in @($Catalog.Keys | Sort-Object | Where-Object { @($Catalog[$_]).Count -gt 0 })) {
+        [ordered]@{ id = $id; versions = @($Catalog[$id] | ForEach-Object { [ordered]@{ version = $_.Version; published = $_.Published } }) }
+    }
+    return ([ordered]@{ source = $Source; products = @($products) } | ConvertTo-Json -Depth 6)
+}
+
+function Find-ChocoProduct {
+    # The Chocolatey entry of an installed program and its version, or nothing.
+    param($Software)
+    $n = "$($Software.name)"; $ver = "$($Software.version)"
+    foreach ($m in $script:ChocoProductMap) {
+        if ($n -notmatch $m.Name) { continue }
+        $v = if ($ver -match $m.Version) { $Matches['v'] } elseif ($n -match $m.Version.TrimStart('^')) { $Matches['v'] } else { '' }
+        if (-not $v) { return }
+        return [PSCustomObject]@{ Map = $m; Version = "$v" }
+    }
+}
+
+function Get-VersionNumbers {
+    # The numbers of a version in order, without build metadata ("25.0.4.1+1" -> 25, 0, 4, 1).
+    param([string]$Version)
+    return @([regex]::Matches(($Version -replace '\+\S*$', ''), '\d+') | ForEach-Object { [long]$_.Value })
+}
+
+function Get-SoftwareVersionGap {
+    # How far the first number that differs is behind, below the release line: 8.9.1 -> 8.9.8.1 is 7,
+    # 7.4.20 -> 7.4.21 is 1. 0 when equal or when the major version differs.
+    param([string]$Installed, [string]$Latest)
+    $x = Get-VersionNumbers $Installed; $y = Get-VersionNumbers $Latest
+    for ($i = 0; $i -lt [Math]::Max($x.Count, $y.Count); $i++) {
+        $p = if ($i -lt $x.Count) { $x[$i] } else { [long]0 }
+        $q = if ($i -lt $y.Count) { $y[$i] } else { [long]0 }
+        if ($p -ne $q) { if ($i -eq 0) { return 0 }; return [Math]::Max(0, $q - $p) }
+    }
+    return 0
+}
+
 function Compare-SoftwareVersion {
     # -1, 0 or 1, comparing the numbers in order: "8 Update 431" < "8u503", "157.0" < "157.0.1".
+    # Build metadata after "+" is not compared.
     param([string]$A, [string]$B)
-    $x = @([regex]::Matches($A, '\d+') | ForEach-Object { [long]$_.Value })
-    $y = @([regex]::Matches($B, '\d+') | ForEach-Object { [long]$_.Value })
+    $x = Get-VersionNumbers $A
+    $y = Get-VersionNumbers $B
     for ($i = 0; $i -lt [Math]::Max($x.Count, $y.Count); $i++) {
         # Not $a/$b: variables ignore case, and those would be the [string] parameters.
         $p = if ($i -lt $x.Count) { $x[$i] } else { [long]0 }
@@ -1132,12 +1246,33 @@ function Invoke-SoftwareChecks {
                 elseif ($hit.Version -and $r.Latest) {
                     # Only a release out before collection, and long enough ago to have been installed.
                     $rd = ConvertTo-UtcDate $r.LatestDate
-                    if (-not $rd -or ($script:RefDate - $rd).TotalDays -le $grace) { continue }
+                    if (-not $rd -or $rd -gt $script:RefDate) { continue }
                     if ((Compare-SoftwareVersion $hit.Version $r.Latest) -ge 0) { continue }
                     $lag = [int][Math]::Floor(($script:RefDate - $rd).TotalDays)
-                    & $emit 'software_outdated' "software: $($hit.Map.Label)" $(if ($lag -gt 180) { 'Medium' } else { 'Low' }) ("Installed as {0} ({1}). {2} {3} is still supported, but {4} came out {5}, {6} days before collection, with the fixes since {7} (endoflife.date)." -f $sw.name, $ver, $hit.Map.Label, $hit.Cycle, $r.Latest, $rd.ToString('yyyy-MM-dd'), $lag, $hit.Version) $hit.Version "$($r.Latest) or later"
+                    if ($lag -gt $grace) {
+                        & $emit 'software_outdated' "software: $($hit.Map.Label)" $(if ($lag -gt 180) { 'Medium' } else { 'Low' }) ("Installed as {0} ({1}). {2} {3} is still supported, but {4} came out {5}, {6} days before collection, with the fixes since {7} (endoflife.date)." -f $sw.name, $ver, $hit.Map.Label, $hit.Cycle, $r.Latest, $rd.ToString('yyyy-MM-dd'), $lag, $hit.Version) $hit.Version "$($r.Latest) or later"
+                    }
+                    elseif ((Get-SoftwareVersionGap $hit.Version $r.Latest) -ge 2) {
+                        # The newest release is recent, but the host is several releases behind it: the
+                        # ones in between are older (the data gives only the newest one's date).
+                        & $emit 'software_outdated' "software: $($hit.Map.Label)" 'Low' ("Installed as {0} ({1}). {2} {3} is still supported, but the installed version is several releases behind {4} (out {5}); the releases in between came out earlier, on dates endoflife.date does not give." -f $sw.name, $ver, $hit.Map.Label, $hit.Cycle, $r.Latest, $rd.ToString('yyyy-MM-dd')) $hit.Version "$($r.Latest) or later"
+                    }
                 }
                 continue
+            }
+            $choco = if ($Config.Choco) { Find-ChocoProduct $sw } else { $null }
+            if ($choco -and $Config.Choco.ContainsKey($choco.Map.Id)) {
+                # Only versions published before collection; late once the first of them is older than
+                # the grace period.
+                $newer = @($Config.Choco[$choco.Map.Id] | Where-Object { $_ -and ($d = ConvertTo-UtcDate $_.Published) -and $d -le $script:RefDate -and (Compare-SoftwareVersion $_.Version $choco.Version) -gt 0 } | Sort-Object Published)
+                if ($newer.Count -gt 0) {
+                    $first = $newer[0]
+                    $top = $newer[0]; foreach ($n in $newer) { if ((Compare-SoftwareVersion $n.Version $top.Version) -gt 0) { $top = $n } }
+                    $lag = Get-AgeDays $first.Published
+                    if ($lag -gt $grace) {
+                        & $emit 'software_outdated' "software: $($choco.Map.Label)" $(if ($lag -gt 180) { 'Medium' } else { 'Low' }) ("Installed as {0} ({1}). {2} newer release{3} came out before collection: the first, {4}, on {5} ({6} days before collection), the newest {7} on {8} (Chocolatey community repository)." -f $sw.name, $ver, $newer.Count, $(if ($newer.Count -eq 1) { '' } else { 's' }), $first.Version, $first.Published, $lag, $top.Version, $top.Published) $choco.Version "$($top.Version) or later"
+                    }
+                }
             }
             if (-not $row) { continue }
             $left = Get-AgeDays $row.End
@@ -1460,7 +1595,7 @@ function Invoke-HostChecks {
     $optionalOff = @{}
     if (-not $Snapshot.meta.options.checkUpdates) { $optionalOff['updates_pending'] = $true }
     if (-not $Config.Kev -or @($Config.Kev).Count -eq 0) { $optionalOff['kev_software_match'] = $true }
-    if (-not $Config.Eol -or $Config.Eol.Count -eq 0) { $optionalOff['software_outdated'] = $true }
+    if ((-not $Config.Eol -or $Config.Eol.Count -eq 0) -and (-not $Config.Choco -or $Config.Choco.Count -eq 0)) { $optionalOff['software_outdated'] = $true }
     $ne = @($ne | Where-Object { -not $optionalOff.ContainsKey($_.Type) })
     $skip = @{}; foreach ($n in $ne) { $skip[$n.Type] = $true }
     foreach ($k in $optionalOff.Keys) { $skip[$k] = $true }

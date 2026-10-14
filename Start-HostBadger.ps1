@@ -235,6 +235,8 @@ function Get-AnalysisParams {
     if (Test-Yes 'Download a fresh LOLDrivers catalog from www.loldrivers.io? (y/N)') { $ap['DriversOnline'] = $true }
     Write-Host "`nSoftware lifecycle: without a download, programs past their end of support are found with the table HostBadger ships. With current data from endoflife.date the dates are up to date and programs that missed a newer release of their line are flagged too (Python, Node.js, .NET, Office, Exchange, Java, Firefox, Chrome, Notepad++, PowerShell, VirtualBox, Wireshark). Downloading connects to endoflife.date/api/v1/products/full (one HTTPS GET of about 3 MB, nothing is sent); a copy is kept next to the report." -ForegroundColor DarkGray
     if (Test-Yes 'Download software lifecycle data from endoflife.date? (y/N)') { $ap['EolOnline'] = $true }
+    Write-Host "`nOther programs (7-Zip, VLC, Git, GIMP, WinSCP, PuTTY, FileZilla, KeePass, Audacity, Mullvad VPN, OBS Studio, AnyDesk) are compared with the versions published on the Chocolatey community repository. Downloading connects to community.chocolatey.org/api/v2/ (a few HTTPS GETs per program, the same list whatever the hosts have, nothing is sent); a copy is kept next to the report." -ForegroundColor DarkGray
+    if (Test-Yes 'Download program versions from community.chocolatey.org? (y/N)') { $ap['ChocoOnline'] = $true }
     if (Test-Yes "Also write JSON Lines for a SIEM? (y/N)") { $ap['OutJsonl'] = Read-Path "JSON Lines path" ($ap['OutHtml'] -replace '\.html?$', '.jsonl') }
     $prev = Read-Path "Findings CSV of an earlier run, to show new and resolved (optional, Enter to skip)"
     if ($prev) { if (Test-Path -LiteralPath $prev) { $ap['CompareTo'] = $prev } else { Write-Host "Not found, comparison skipped: $prev" -ForegroundColor Yellow } }
@@ -307,6 +309,7 @@ function Invoke-AiOffer {
     if ($again['KevOnline'] -and (Test-Path -LiteralPath "${stem}_kev.json")) { $again.Remove('KevOnline'); $again['KevFile'] = "${stem}_kev.json" }
     if ($again['DriversOnline'] -and (Test-Path -LiteralPath "${stem}_drivers.json")) { $again.Remove('DriversOnline'); $again['DriversFile'] = "${stem}_drivers.json" }
     if ($again['EolOnline'] -and (Test-Path -LiteralPath "${stem}_eol.json")) { $again.Remove('EolOnline'); $again['EolFile'] = "${stem}_eol.json" }
+    if ($again['ChocoOnline'] -and (Test-Path -LiteralPath "${stem}_choco.json")) { $again.Remove('ChocoOnline'); $again['ChocoFile'] = "${stem}_choco.json" }
     Add-AiParams -Params $again -Mode $mode
     Invoke-Sub 'HostBadger.ps1' $again
 }

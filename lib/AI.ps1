@@ -417,12 +417,14 @@ function Invoke-HttpPostWithSpinner {
 # --------------------------------------------------------------------------
 # Catalog downloads: one HTTPS GET each, nothing is sent, these addresses and no other.
 # CISA Known Exploited Vulnerabilities (-KevOnline), LOLDrivers (-DriversOnline, about 30 MB) and the
-# endoflife.date software lifecycle data (-EolOnline, about 3 MB). HOSTBADGER_KEV_URL, HOSTBADGER_DRIVERS_URL and
-# HOSTBADGER_EOL_URL are the test hooks (the regression runs a local listener).
+# endoflife.date software lifecycle data (-EolOnline, about 3 MB) and the Chocolatey community package
+# versions (-ChocoOnline). HOSTBADGER_KEV_URL, HOSTBADGER_DRIVERS_URL, HOSTBADGER_EOL_URL and
+# HOSTBADGER_CHOCO_URL are the test hooks (the regression runs a local listener).
 # --------------------------------------------------------------------------
 $script:KevFeedUrl = 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json'
 $script:LolDriversUrl = 'https://www.loldrivers.io/api/drivers.json'
 $script:EolApiUrl = 'https://endoflife.date/api/v1/products/full'
+$script:ChocoApiUrl = 'https://community.chocolatey.org/api/v2/'
 
 function Get-CatalogText {
     param([string]$Uri, [string]$Label, [int]$TimeoutSeconds = 60)
@@ -454,6 +456,43 @@ function Get-LolDriversOnline {
     param([int]$TimeoutSeconds = 180)
     $uri = if ($env:HOSTBADGER_DRIVERS_URL) { $env:HOSTBADGER_DRIVERS_URL } else { $script:LolDriversUrl }
     return Get-CatalogText -Uri $uri -Label 'LOLDrivers' -TimeoutSeconds $TimeoutSeconds
+}
+
+# Chocolatey community package versions (-ChocoOnline): for each package of $script:ChocoProductMap
+# (lib\Checks.ps1), all of the list whatever the hosts have, GETs of its versions page by page ($skip)
+# until an empty page, half a second apart. The first page asks only for the three fields it needs;
+# later pages ask for whole entries, because the feed answers 503 to $select with paging. The feed
+# also limits how often it is called: a page is tried three times (3 and 10 seconds apart), and if it
+# still fails the download stops there instead of insisting. A package whose history did not come
+# back whole is left out rather than judged on part of it. Returns @{ id = versions }.
+function Get-ChocoCatalogOnline {
+    param([int]$TimeoutSeconds = 30)
+    $base = if ($env:HOSTBADGER_CHOCO_URL) { $env:HOSTBADGER_CHOCO_URL } else { $script:ChocoApiUrl }
+    $out = @{}
+    foreach ($m in $script:ChocoProductMap) {
+        $all = New-Object System.Collections.Generic.List[object]
+        $skip = 0; $whole = $false
+        for ($page = 0; $page -lt 50; $page++) {
+            $uri = $base + "FindPackagesById()?id='" + $m.Id + "'" + $(if ($skip -gt 0) { "&`$skip=$skip" } else { "&`$select=Version,Published,IsPrerelease" })
+            $feed = $null
+            foreach ($wait in 3, 10, 0) {
+                $text = Get-CatalogText -Uri $uri -Label "Chocolatey ($($m.Id))" -TimeoutSeconds $TimeoutSeconds
+                $feed = if ($text) { ConvertFrom-ChocoFeed $text } else { $null }
+                if ($feed -or $wait -eq 0) { break }
+                Start-Sleep -Seconds $wait
+            }
+            if (-not $feed) { break }
+            if ($feed.Entries -eq 0) { $whole = $true; break }
+            foreach ($v in $feed.Versions) { $all.Add($v) }
+            $skip += $feed.Entries
+            Start-Sleep -Milliseconds 500
+        }
+        if ($whole) { if ($all.Count -gt 0) { $out[$m.Id] = @(Merge-ChocoVersions $all.ToArray()) }; continue }
+        $left = @($script:ChocoProductMap | Select-Object -Skip ([array]::IndexOf(@($script:ChocoProductMap | ForEach-Object { $_.Id }), $m.Id)) | ForEach-Object { $_.Label })
+        Write-Host "Chocolatey is not answering (it limits how often it is called): stopped. Not judged: $($left -join ', '). Try again later; -ChocoFile reuses a copy kept by an earlier run." -ForegroundColor Yellow
+        break
+    }
+    return $out
 }
 
 # The caller converts it (ConvertFrom-EolCatalog in lib\Checks.ps1).

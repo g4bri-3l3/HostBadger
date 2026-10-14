@@ -28,8 +28,9 @@
       - a web address other than the MITRE ATT&CK links in the report and, in
         lib\AI.ps1 only, the Gemini endpoint of the optional AI step and the
         CISA KEV catalog address (www.cisa.gov, -KevOnline), the LOLDrivers
-        catalog address (www.loldrivers.io, -DriversOnline) and the software
-        lifecycle address (endoflife.date, -EolOnline);
+        catalog address (www.loldrivers.io, -DriversOnline), the software
+        lifecycle address (endoflife.date, -EolOnline) and the Chocolatey
+        package feed (community.chocolatey.org, -ChocoOnline);
       - HTTP or socket code outside lib\AI.ps1. The collector and the checks
         never touch the network. Gemini is called only after -SendToAI, from
         HostBadger.ps1, once names have been replaced by tokens;
@@ -83,9 +84,9 @@ $bannedText = [ordered]@{
 $allowedHosts = @('attack.mitre.org')
 # lib\AI.ps1 is the only code that may reach the network, and only these addresses: Gemini (-SendToAI),
 # the CISA KEV catalog (-KevOnline), the LOLDrivers catalog (-DriversOnline) and the endoflife.date
-# software lifecycle data (-EolOnline).
+# software lifecycle data (-EolOnline) and the Chocolatey package feed (-ChocoOnline).
 $aiFile = 'lib/AI.ps1'
-$aiHosts = @('generativelanguage.googleapis.com', 'www.cisa.gov', 'www.loldrivers.io', 'endoflife.date')
+$aiHosts = @('generativelanguage.googleapis.com', 'www.cisa.gov', 'www.loldrivers.io', 'endoflife.date', 'community.chocolatey.org')
 $networkText = '(?i)System\.Net\.Http|HttpClient|PostAsync|GetAsync|TcpClient|UdpClient|System\.Net\.Sockets|\[Net\.WebRequest\]|\[System\.Net\.WebRequest\]'
 
 $root = (Resolve-Path -LiteralPath $Path).Path

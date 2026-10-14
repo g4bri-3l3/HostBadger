@@ -65,6 +65,16 @@
 .PARAMETER EolFile
     endoflife.date data you already have: the <report>_eol.json that -EolOnline
     keeps, or an API v1 response (/products/full or one product). No network.
+.PARAMETER ChocoOnline
+    Download the version history of programs that endoflife.date does not cover
+    (7-Zip, VLC, Git for Windows, GIMP, WinSCP, PuTTY, FileZilla, KeePass,
+    Audacity, Mullvad VPN, OBS Studio, AnyDesk) from the Chocolatey community
+    repository: a few HTTPS GETs per package to community.chocolatey.org/api/v2/,
+    the same list whatever the hosts have; nothing is sent. Turns on
+    software_outdated for them. The copy is kept next to the report
+    (<report>_choco.json).
+.PARAMETER ChocoFile
+    The <report>_choco.json that -ChocoOnline keeps. No network.
 .PARAMETER SoftwareGraceDays
     Days a program may take to install a new release before software_outdated
     flags it (default 30).
@@ -168,6 +178,8 @@ param(
     [string]$DriversFile = '',
     [switch]$EolOnline,
     [string]$EolFile = '',
+    [switch]$ChocoOnline,
+    [string]$ChocoFile = '',
     [int]$SoftwareGraceDays = 30,
     [System.Security.SecureString]$SnapshotPassword,
     [string]$SnapshotPfx = '',
@@ -312,6 +324,26 @@ if ($EolFile -or $EolOnline) {
         }
         catch { Write-Host "endoflife.date data not readable, using the lifecycle table in lib\: $($_.Exception.Message)" -ForegroundColor Yellow; $config.Remove('Eol') }
     }
+}
+
+# Chocolatey package versions: the copy kept by an earlier run, or a download.
+if ($ChocoFile) {
+    if (Test-Path -LiteralPath $ChocoFile) {
+        try { $config['Choco'] = ConvertFrom-ChocoCatalog ([System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $ChocoFile).Path)); Write-Host "Chocolatey: $($config['Choco'].Count) packages from $ChocoFile" -ForegroundColor DarkGray }
+        catch { Write-Host "Chocolatey file not readable: $($_.Exception.Message)" -ForegroundColor Yellow; $config.Remove('Choco') }
+    }
+    else { Write-Host "Chocolatey file not found: $ChocoFile" -ForegroundColor Yellow }
+}
+elseif ($ChocoOnline) {
+    $choco = Get-ChocoCatalogOnline
+    if ($choco.Count -gt 0) {
+        $config['Choco'] = $choco
+        $chocoCopy = ([System.IO.Path]::GetFullPath($OutHtml) -replace '\.html?$', '') + '_choco.json'
+        $chocoSource = "Chocolatey community repository ($($script:ChocoApiUrl)); downloaded $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC"
+        [System.IO.File]::WriteAllText($chocoCopy, (ConvertTo-ChocoCatalogJson $choco $chocoSource), (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host "Chocolatey: $($choco.Count) of $(@($script:ChocoProductMap).Count) packages, kept at $chocoCopy" -ForegroundColor DarkGray
+    }
+    else { Write-Host 'Chocolatey: nothing came back, those programs are not judged.' -ForegroundColor Yellow }
 }
 
 $files = @(Get-SnapshotFiles $Snapshot)

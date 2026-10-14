@@ -484,7 +484,7 @@ Assert-True ($aiHtml -notmatch 'HOST-99') 'unknown host tokens are dropped'
 $psExe = (Get-Process -Id $PID).Path
 $wizDir = Join-Path $work 'wizard'; New-Item -ItemType Directory -Path $wizDir -Force | Out-Null
 $launcher = Join-Path $root 'Start-HostBadger.ps1'
-$wizAnswers = { param($offer) (@('2', $fleet, (Join-Path $wizDir 'w.html'), '', '', '', '', '', 'n', '', '', '', '', '', '', $offer) + $(if ($offer -eq 'd') { @('', (Join-Path $wizDir 'w_prompt.txt')) } else { @() }) + @('q')) -join "`n" }
+$wizAnswers = { param($offer) (@('2', $fleet, (Join-Path $wizDir 'w.html'), '', '', '', '', '', 'n', '', '', '', '', '', '', '', $offer) + $(if ($offer -eq 'd') { @('', (Join-Path $wizDir 'w_prompt.txt')) } else { @() }) + @('q')) -join "`n" }
 $wizNo = (& $wizAnswers 'n') | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
 Assert-True ($wizNo -match 'Report ready:' -and -not (Test-Path (Join-Path $wizDir 'w_prompt.txt')) -and [regex]::Matches($wizNo, 'Hosts analyzed').Count -eq 1) 'launcher: after the report it offers the AI summary, and "n" does nothing more'
 $wizDry = (& $wizAnswers 'd') | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
@@ -497,8 +497,8 @@ Copy-Item (Join-Path $fleet 'hostsnapshot_weak.json') (Join-Path $scanDir 'snaps
 Copy-Item (Join-Path $fleet 'hostsnapshot_hardened.json') (Join-Path $scanDir 'snapshots\hostsnapshot_SRV-APP-02_20261001080000.json')
 Push-Location $scanDir
 try {
-    $scanAll = (@('2', '', '', '', '', '', '', '', 'n', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
-    $scanOne = (@('2', '2', '', '', '', '', '', 'n', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    $scanAll = (@('2', '', '', '', '', '', '', '', 'n', '', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    $scanOne = (@('2', '2', '', '', '', '', '', 'n', '', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
 }
 finally { Pop-Location }
 Assert-True ($scanAll -match 'Snapshots found in .*snapshots: 3 for 2 host\(s\)' -and $scanAll -match 'WKS-ACCT-017' -and $scanAll -match 'SRV-APP-02' -and $scanAll -match 'older: a folder run ignores it') 'launcher: it lists the snapshots it finds and marks the older one of a host'
@@ -698,37 +698,63 @@ Assert-Equal @((Invoke-HostChecks -Snapshot $eolSoon -Config $config).Findings |
 # software_outdated for a program behind the latest release of its line. Collected 2026-10-01.
 $eolSample = Join-Path $work 'eol_sample.json'
 $eolRel = { param($n, $isEol, $eol, $latest, $date, $eoes) [ordered]@{ name = $n; isEol = $isEol; eolFrom = $eol; eoesFrom = $eoes; latest = $(if ($latest) { [ordered]@{ name = $latest; date = $date } } else { $null }) } }
-[System.IO.File]::WriteAllText($eolSample, ([ordered]@{ schema_version = '1.2.1'; total = 6; result = @(
+[System.IO.File]::WriteAllText($eolSample, ([ordered]@{ schema_version = '1.2.1'; total = 8; result = @(
                 [ordered]@{ name = 'python'; releases = @((& $eolRel '3.12' $false '2028-10-31' '3.12.9' '2026-06-01'), (& $eolRel '2.7' $true '2020-01-01' '2.7.18' '2020-04-19')) },
                 [ordered]@{ name = 'nodejs'; releases = @((& $eolRel '22' $false '2027-04-30' '22.9.0' '2026-09-21'), (& $eolRel '16' $true '2023-09-11' '16.20.2' '2023-08-08')) },
                 [ordered]@{ name = 'firefox'; releases = @((& $eolRel '157' $false '2026-10-13' '157.0' '2026-09-15'), (& $eolRel '118' $true '2023-10-24' '118.0.2' '2023-10-10')) },
                 [ordered]@{ name = 'oracle-jdk'; releases = @((& $eolRel '8' $true '2022-03-31' '8u503' '2026-07-21' '2030-12-31')) },
                 [ordered]@{ name = 'powershell'; releases = @((& $eolRel '7.4' $false '2026-11-10' '7.4.20' '2026-10-06')) },
+                [ordered]@{ name = 'notepad-plus-plus'; releases = @((& $eolRel '8.9' $false $null '8.9.8.1' '2026-09-24')) },
+                [ordered]@{ name = 'eclipse-temurin'; releases = @((& $eolRel '25' $false '2031-09-30' '25.0.4.1+1' '2026-08-19')) },
                 [ordered]@{ name = 'adonisjs'; releases = @((& $eolRel '7' $false $null '7.0.0' '2026-01-01')) })
         } | ConvertTo-Json -Depth 8), (New-Object System.Text.UTF8Encoding($false)))
 $eolCat = ConvertFrom-EolCatalog ([System.IO.File]::ReadAllText($eolSample))
-Assert-True ($eolCat.Count -eq 5 -and -not $eolCat.ContainsKey('adonisjs') -and @($eolCat['oracle-jdk'])[0].EoesFrom -eq '2030-12-31' -and @($eolCat['python'] | Where-Object { $_.Name -eq '3.12' })[0].Latest -eq '3.12.9') 'endoflife.date: the products HostBadger maps are read, with end of support, extended support and latest release'
+Assert-True ($eolCat.Count -eq 7 -and -not $eolCat.ContainsKey('adonisjs') -and @($eolCat['oracle-jdk'])[0].EoesFrom -eq '2030-12-31' -and @($eolCat['python'] | Where-Object { $_.Name -eq '3.12' })[0].Latest -eq '3.12.9') 'endoflife.date: the products HostBadger maps are read, with end of support, extended support and latest release'
 Assert-Equal (@((ConvertFrom-EolCatalog (ConvertTo-EolCatalogJson $eolCat 'test'))['oracle-jdk']) | ConvertTo-Json -Compress) (@($eolCat['oracle-jdk']) | ConvertTo-Json -Compress) 'endoflife.date: the copy kept next to the report reads back the same'
-Assert-True ((Compare-SoftwareVersion '8 Update 431' '8u503') -lt 0 -and (Compare-SoftwareVersion '157.0' '157.0.1') -lt 0 -and (Compare-SoftwareVersion '3.12.9' '3.12.9') -eq 0 -and (Compare-SoftwareVersion '21.0.12' '21.0.5') -gt 0) 'versions compared number by number'
+Assert-True ((Compare-SoftwareVersion '8 Update 431' '8u503') -lt 0 -and (Compare-SoftwareVersion '157.0' '157.0.1') -lt 0 -and (Compare-SoftwareVersion '3.12.9' '3.12.9') -eq 0 -and (Compare-SoftwareVersion '21.0.12' '21.0.5') -gt 0 -and (Compare-SoftwareVersion '25.0.4.1+1' '25.0.4.1+7') -eq 0) 'versions compared number by number, build metadata ignored'
+Assert-Equal ((@(@('8.9.1', '8.9.8.1'), @('7.4.20', '7.4.21'), @('157.0', '157.0.1'), @('22.1.0', '23.0.0'), @('3.12.9', '3.12.9')) | ForEach-Object { Get-SoftwareVersionGap $_[0] $_[1] }) -join ',') '7,1,1,0,0' 'version gap: how far behind inside the release line'
 $eolHost = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_hardened.json'); $eolHost.meta.collectedAtUtc = '2026-10-01T08:00:00Z'
 $eolHost.software = @(
     [ordered]@{ name = 'Python 3.12.1 (64-bit)'; version = '3.12.1150.0'; publisher = 'Python Software Foundation' },
     [ordered]@{ name = 'Python 2.7.18 (64-bit)'; version = '2.7.18150'; publisher = 'Python Software Foundation' },
-    [ordered]@{ name = 'Node.js'; version = '22.1.0'; publisher = 'Node.js Foundation' },
+    [ordered]@{ name = 'Node.js'; version = '22.8.0'; publisher = 'Node.js Foundation' },
     [ordered]@{ name = 'Mozilla Firefox (x64 en-US)'; version = '118.0'; publisher = 'Mozilla' },
     [ordered]@{ name = 'Java 8 Update 431 (64-bit)'; version = '8.0.4310.11'; publisher = 'Oracle Corporation' },
     [ordered]@{ name = 'PowerShell 7-x64'; version = '7.4.6.0'; publisher = 'Microsoft Corporation' },
-    [ordered]@{ name = 'Adobe Flash Player 32 NPAPI'; version = '32.0.0.465'; publisher = 'Adobe' })
+    [ordered]@{ name = 'Adobe Flash Player 32 NPAPI'; version = '32.0.0.465'; publisher = 'Adobe' },
+    [ordered]@{ name = 'Notepad++ (64-bit x64)'; version = '8.9.1'; publisher = 'Notepad++ Team' },
+    [ordered]@{ name = 'Eclipse Temurin JDK with Hotspot 25.0.2+10 (x64)'; version = '25.0.2.10'; publisher = 'Eclipse Adoptium' })
 $cfgEol = $config.Clone(); $cfgEol['Eol'] = $eolCat
 $eolRes = @((Invoke-HostChecks -Snapshot $eolHost -Config $cfgEol).Findings | Where-Object { $_.Type -like 'software_*' })
-Assert-Equal (($eolRes | Sort-Object Type, Object | ForEach-Object { "$($_.Type)|$($_.Object)|$($_.Severity)" }) -join ';') 'software_eol|software: Adobe Flash Player|High;software_eol|software: Java 8|Low;software_eol|software: Python 2|Medium;software_outdated|software: Mozilla Firefox|Medium;software_outdated|software: Python|Low' 'endoflife.date: what is judged and how (Node.js 22.9.0 inside the grace period, PowerShell 7.4.20 released after collection)'
+Assert-Equal (($eolRes | Sort-Object Type, Object | ForEach-Object { "$($_.Type)|$($_.Object)|$($_.Severity)" }) -join ';') 'software_eol|software: Adobe Flash Player|High;software_eol|software: Java 8|Low;software_eol|software: Python 2|Medium;software_outdated|software: Eclipse Temurin|Low;software_outdated|software: Mozilla Firefox|Medium;software_outdated|software: Notepad++|Low;software_outdated|software: Python|Low' 'endoflife.date: what is judged and how (Node.js one release behind inside the grace period, PowerShell 7.4.20 released after collection)'
 Assert-True (@($eolRes | Where-Object { $_.Object -eq 'software: Python' -and $_.Detail -match 'Python 3\.12 is still supported, but 3\.12\.9 came out 2026-06-01, 122 days before collection' -and $_.Found -eq '3.12.1' -and $_.Expected -eq '3.12.9 or later' }).Count -eq 1) 'software outdated: names the release line, the missing release and its date'
+Assert-True (@($eolRes | Where-Object { $_.Object -eq 'software: Notepad++' -and $_.Detail -match 'several releases behind 8\.9\.8\.1 \(out 2026-09-24\)' }).Count -eq 1) 'software outdated: several releases behind a recent one is flagged inside the grace period'
 Assert-True (@($eolRes | Where-Object { $_.Object -eq 'software: Java 8' -and $_.Detail -match 'Support for Java 8 ended 2022-03-31' -and $_.Detail -match 'Paid extended support runs until 2030-12-31' }).Count -eq 1) 'software EOL: paid extended support still running is Low and says until when'
 Assert-True (@($eolRes | Where-Object { $_.Object -eq 'software: Mozilla Firefox' -and $_.Detail -match 'Release line 118 stopped receiving fixes 2023-10-24' }).Count -eq 1 -and @($eolRes | Where-Object { $_.Type -eq 'software_eol' -and $_.Object -match 'Firefox' }).Count -eq 0) 'software outdated: a rapid-release browser on an ended line is behind, not out of support'
 Assert-True (@($eolRes | Where-Object { $_.Object -eq 'software: Python 2' -and $_.Detail -match '\(endoflife\.date\)' }).Count -eq 1 -and @($eolRes | Where-Object { $_.Object -eq 'software: Adobe Flash Player' -and $_.Detail -notmatch 'endoflife' }).Count -eq 1) 'software EOL: the downloaded data wins, the table keeps the Object and covers what the data lacks'
 $cfgEol['SoftwareGraceDays'] = 5
 Assert-True (@((Invoke-HostChecks -Snapshot $eolHost -Config $cfgEol).Findings | Where-Object { $_.Type -eq 'software_outdated' -and $_.Object -eq 'software: Node.js' }).Count -eq 1) 'software outdated: -SoftwareGraceDays sets how long a host may take to update'
 Assert-Equal @($weak.NotEvaluated | Where-Object { $_.Type -eq 'software_outdated' }).Count 0 'software outdated: without endoflife.date data the check is off, not "not evaluated"'
+# Chocolatey package versions (-ChocoFile / -ChocoOnline) for programs endoflife.date lacks: every
+# version with its publication date. A feed page as the OData API writes it (typed properties are
+# elements with an m:type attribute), with a pre-release, a package fix version (24.9.0.20241201 is
+# 24.9.0, first published 2024-11-30) and a release after collection (2026-10-01).
+$chocoEntry = { param($v, $d, $pre) "<entry><id>x</id><m:properties><d:Version>$v</d:Version><d:IsPrerelease m:type=`"Edm.Boolean`">$pre</d:IsPrerelease><d:Published m:type=`"Edm.DateTime`">${d}T12:00:00.123</d:Published></m:properties></entry>" }
+$chocoFeed = { param($entries) "<?xml version=`"1.0`" encoding=`"utf-8`"?><feed xml:base=`"https://community.chocolatey.org/api/v2/`" xmlns:d=`"http://schemas.microsoft.com/ado/2007/08/dataservices`" xmlns:m=`"http://schemas.microsoft.com/ado/2007/08/dataservices/metadata`" xmlns=`"http://www.w3.org/2005/Atom`"><title type=`"text`">FindPackagesById</title>$($entries -join '')</feed>" }
+$chocoPage = & $chocoFeed @((& $chocoEntry '26.4.0' '2026-10-06' 'false'), (& $chocoEntry '24.9.0.20241201' '2024-12-01' 'false'), (& $chocoEntry '24.5.0' '2024-05-15' 'false'), (& $chocoEntry '25.0.0-beta' '2025-01-10' 'true'), (& $chocoEntry '24.9.0' '2024-11-30' 'false'), (& $chocoEntry '24.8.0' '2024-08-20' 'false'), (& $chocoEntry '23.1.0' '2023-06-21' 'false'))
+$chocoParsed = ConvertFrom-ChocoFeed $chocoPage
+$chocoVers = @(Merge-ChocoVersions $chocoParsed.Versions)
+Assert-Equal "$($chocoParsed.Entries)|$((($chocoVers | ForEach-Object { "$($_.Version)@$($_.Published)" }) -join ','))" '7|23.1.0@2023-06-21,24.5.0@2024-05-15,24.8.0@2024-08-20,24.9.0@2024-11-30,26.4.0@2026-10-06' 'Chocolatey feed: versions with their first publication date, pre-releases dropped, a package fix is the program version'
+Assert-True ($null -eq (ConvertFrom-ChocoFeed '<!DOCTYPE html><html><body>Error</body></html>') -and (ConvertFrom-ChocoFeed (& $chocoFeed @())).Entries -eq 0) 'Chocolatey feed: an error page is no feed, an empty page ends the paging'
+$chocoCat = @{ '7zip' = $chocoVers; 'winscp' = @([PSCustomObject]@{ Version = '6.5.7'; Published = '2026-09-20' }) }
+Assert-Equal ((@(ConvertFrom-ChocoCatalog (ConvertTo-ChocoCatalogJson $chocoCat 'test'))[0]['7zip'] | ForEach-Object { $_.Version }) -join ',') '23.1.0,24.5.0,24.8.0,24.9.0,26.4.0' 'Chocolatey: the copy kept next to the report reads back the same'
+$chocoHost = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_hardened.json')
+$chocoHost.software = @([ordered]@{ name = '7-Zip 24.01 (x64)'; version = '24.01'; publisher = 'Igor Pavlov' }, [ordered]@{ name = 'WinSCP 6.5.6'; version = '6.5.6'; publisher = 'Martin Prikryl' }, [ordered]@{ name = 'VLC media player'; version = '3.0.21'; publisher = 'VideoLAN' })
+$cfgChoco = $config.Clone(); $cfgChoco['Choco'] = $chocoCat
+$chocoRes = @((Invoke-HostChecks -Snapshot $chocoHost -Config $cfgChoco).Findings | Where-Object { $_.Type -eq 'software_outdated' })
+Assert-Equal (($chocoRes | ForEach-Object { "$($_.Object)|$($_.Severity)|$($_.Found)|$($_.Expected)" }) -join ';') 'software: 7-Zip|Medium|24.01|24.9.0 or later' 'Chocolatey: 7-Zip behind its releases (26.4.0 came out after collection), WinSCP one release behind inside the grace period, VLC without data not judged'
+Assert-True ($chocoRes[0].Detail -match '^Installed as 7-Zip 24\.01 \(x64\) \(version 24\.01\)\. 3 newer releases came out before collection: the first, 24\.5\.0, on 2024-05-15 \(869 days before collection\), the newest 24\.9\.0 on 2024-11-30 \(Chocolatey community repository\)\.$') 'Chocolatey: the finding names the first and the newest release it missed, with their dates'
+Assert-Equal @((Invoke-HostChecks -Snapshot $chocoHost -Config $config).Findings | Where-Object { $_.Type -eq 'software_outdated' }).Count 0 'Chocolatey: without the data nothing is judged'
 # Pending updates (collected with -CheckUpdates)
 Assert-True (Has $weak 'updates_pending' 'update: KB5099999' 'High') 'updates: a Critical missing update is High'
 Assert-True (Has $weak 'updates_pending' 'update: KB5088888' 'Medium') 'updates: an Important missing update is Medium'
@@ -774,6 +800,35 @@ Assert-True ((Test-Path (Join-Path $eolDl 'r_eol.json')) -and (([System.IO.File]
 $eolFileOut = Join-Path $work 'eolfile'; New-Item -ItemType Directory -Path $eolFileOut -Force | Out-Null
 & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $eolFileOut 'r.html') -EolFile (Join-Path $eolDl 'r_eol.json') *>&1 | Out-Null
 Assert-Equal ((@(Import-Csv (Join-Path $eolFileOut 'r.csv') | Where-Object { $_.Type -like 'software_*' }) | ForEach-Object { "$($_.Type)|$($_.Host)|$($_.Object)|$($_.Severity)" }) -join ';') (($eolRows | ForEach-Object { "$($_.Type)|$($_.Host)|$($_.Object)|$($_.Severity)" }) -join ';') 'endoflife.date file: -EolFile on the kept copy gives the same findings, no network'
+# Chocolatey download: every package of the map is asked for, whatever the hosts have, page by page
+# until an empty page; a busy answer (503) is tried again.
+foreach ($try in 1..8) { $chPort = Get-Random -Minimum 20000 -Maximum 60000; $chListener = New-Object System.Net.HttpListener; $chListener.Prefixes.Add("http://127.0.0.1:$chPort/"); try { $chListener.Start(); break } catch { $chListener.Close() } }
+$chPs = [powershell]::Create(); $chCap = [hashtable]::Synchronized(@{ Ids = (New-Object System.Collections.ArrayList); Methods = (New-Object System.Collections.ArrayList); Busy = 0 })
+$chPs.Runspace.SessionStateProxy.SetVariable('l', $chListener); $chPs.Runspace.SessionStateProxy.SetVariable('cap', $chCap)
+$chPs.Runspace.SessionStateProxy.SetVariable('page', $chocoPage); $chPs.Runspace.SessionStateProxy.SetVariable('empty', (& $chocoFeed @()))
+[void]$chPs.AddScript({
+        while ($l.IsListening) {
+            try { $ctx = $l.GetContext() } catch { break }
+            $q = [System.Uri]::UnescapeDataString($ctx.Request.Url.Query)
+            $id = if ($q -match "id='([^']+)'") { $Matches[1] } else { '' }
+            [void]$cap.Methods.Add($ctx.Request.HttpMethod)
+            if ($q -notmatch 'skip=') { [void]$cap.Ids.Add($id) }
+            if ($id -eq 'vlc' -and $cap.Busy -eq 0) { $cap.Busy = 1; $ctx.Response.StatusCode = 503; $ctx.Response.Close(); continue }
+            $body = if ($id -eq '7zip' -and $q -notmatch 'skip=') { $page } else { $empty }
+            $buf = [System.Text.Encoding]::UTF8.GetBytes($body); $ctx.Response.ContentType = 'application/atom+xml'; $ctx.Response.OutputStream.Write($buf, 0, $buf.Length); $ctx.Response.Close()
+        }
+    })
+$chAsync = $chPs.BeginInvoke()
+$env:HOSTBADGER_CHOCO_URL = "http://127.0.0.1:$chPort/api/v2/"
+$chDl = Join-Path $work 'chocodl'; New-Item -ItemType Directory -Path $chDl -Force | Out-Null
+try { & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $chDl 'r.html') -ChocoOnline *>&1 | Out-Null }
+finally { Remove-Item Env:\HOSTBADGER_CHOCO_URL -ErrorAction SilentlyContinue; try { $chListener.Stop() } catch { }; $chPs.Dispose() }
+Assert-True ((($chCap.Ids | Sort-Object -Unique) -join ',') -eq (($script:ChocoProductMap | ForEach-Object { $_.Id } | Sort-Object -Unique) -join ',') -and @($chCap.Methods | Where-Object { $_ -ne 'GET' }).Count -eq 0 -and $chCap.Busy -eq 1) 'Chocolatey online: only GETs, every package of the list (not just what the hosts have), a busy answer tried again'
+$chRows = @(Import-Csv (Join-Path $chDl 'r.csv') | Where-Object { $_.Type -eq 'software_outdated' })
+Assert-True ((Test-Path (Join-Path $chDl 'r_choco.json')) -and $chRows.Count -eq 1 -and $chRows[0].Object -eq 'software: 7-Zip' -and $chRows[0].Host -eq 'WKS-ACCT-017' -and $chRows[0].Detail -match '3 newer releases') 'Chocolatey online: the copy is kept next to the report and 7-Zip 23.01 is behind'
+$chFileOut = Join-Path $work 'chocofile'; New-Item -ItemType Directory -Path $chFileOut -Force | Out-Null
+& (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $chFileOut 'r.html') -ChocoFile (Join-Path $chDl 'r_choco.json') *>&1 | Out-Null
+Assert-Equal @(Import-Csv (Join-Path $chFileOut 'r.csv') | Where-Object { $_.Type -eq 'software_outdated' -and $_.Object -eq 'software: 7-Zip' }).Count 1 'Chocolatey file: -ChocoFile on the kept copy gives the same finding, no network'
 
 # Vulnerable drivers (LOLDrivers, by SHA-256): a malicious driver is Critical, a loaded vulnerable one
 # High; the blocklist off is Medium; the hardened host has none. The shipped catalog is used unless
@@ -814,10 +869,10 @@ function Read-AiMode { param($Prompt, $Default) 'D' }
 function Add-AiParams { param($Params, $Mode) $Params['AiDryRun'] = 'p.txt' }
 function Invoke-Sub { param($Script, $P) $script:aiRerun = $P }
 $offerDir = Join-Path $work 'offer'; New-Item -ItemType Directory -Path $offerDir -Force | Out-Null
-foreach ($n in 'r.html', 'r_kev.json', 'r_drivers.json', 'r_eol.json') { Set-Content -LiteralPath (Join-Path $offerDir $n) -Value '{}' }
+foreach ($n in 'r.html', 'r_kev.json', 'r_drivers.json', 'r_eol.json', 'r_choco.json') { Set-Content -LiteralPath (Join-Path $offerDir $n) -Value '{}' }
 $script:aiRerun = $null
-Invoke-AiOffer @{ Snapshot = $fleet; OutHtml = (Join-Path $offerDir 'r.html'); KevOnline = $true; DriversOnline = $true; EolOnline = $true } 6>&1 | Out-Null
-Assert-True ($script:aiRerun -and -not $script:aiRerun.ContainsKey('KevOnline') -and -not $script:aiRerun.ContainsKey('DriversOnline') -and -not $script:aiRerun.ContainsKey('EolOnline') -and $script:aiRerun['KevFile'] -eq (Join-Path $offerDir 'r_kev.json') -and $script:aiRerun['DriversFile'] -eq (Join-Path $offerDir 'r_drivers.json') -and $script:aiRerun['EolFile'] -eq (Join-Path $offerDir 'r_eol.json') -and $script:aiRerun['AiDryRun']) 'AI offer: the re-run reuses the catalogs kept next to the report, nothing is downloaded again'
+Invoke-AiOffer @{ Snapshot = $fleet; OutHtml = (Join-Path $offerDir 'r.html'); KevOnline = $true; DriversOnline = $true; EolOnline = $true; ChocoOnline = $true } 6>&1 | Out-Null
+Assert-True ($script:aiRerun -and -not $script:aiRerun.ContainsKey('KevOnline') -and -not $script:aiRerun.ContainsKey('DriversOnline') -and -not $script:aiRerun.ContainsKey('EolOnline') -and -not $script:aiRerun.ContainsKey('ChocoOnline') -and $script:aiRerun['ChocoFile'] -eq (Join-Path $offerDir 'r_choco.json') -and $script:aiRerun['KevFile'] -eq (Join-Path $offerDir 'r_kev.json') -and $script:aiRerun['DriversFile'] -eq (Join-Path $offerDir 'r_drivers.json') -and $script:aiRerun['EolFile'] -eq (Join-Path $offerDir 'r_eol.json') -and $script:aiRerun['AiDryRun']) 'AI offer: the re-run reuses the catalogs kept next to the report, nothing is downloaded again'
 Remove-Item Function:\Read-AiMode, Function:\Add-AiParams, Function:\Invoke-Sub, Function:\Invoke-AiOffer
 # -DriversFile reads the copy kept by -DriversOnline (and the original drivers.json, through the same converter).
 $dfOut = Join-Path $work 'driversfile'; New-Item -ItemType Directory -Path $dfOut -Force | Out-Null

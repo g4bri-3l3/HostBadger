@@ -347,7 +347,9 @@ switch ($Scenario) {
             [ordered]@{ name = 'Adobe Flash Player 32 NPAPI'; version = '32.0.0.465'; publisher = 'Adobe' },
             [ordered]@{ name = 'Python 2.7.18 (64-bit)'; version = '2.7.18150'; publisher = 'Python Software Foundation' },
             [ordered]@{ name = 'Node.js'; version = '16.20.2'; publisher = 'Node.js Foundation' },
-            [ordered]@{ name = 'Microsoft Visual C++ 2010  x64 Redistributable - 10.0.40219'; version = '10.0.40219'; publisher = 'Microsoft Corporation' })
+            [ordered]@{ name = 'Microsoft Visual C++ 2010  x64 Redistributable - 10.0.40219'; version = '10.0.40219'; publisher = 'Microsoft Corporation' },
+            # Behind its newer releases (judged only with Chocolatey data).
+            [ordered]@{ name = '7-Zip 23.01 (x64)'; version = '23.01'; publisher = 'Igor Pavlov' })
         $s.meta.options.checkUpdates = $true; $s.meta.sectionsCollected = @($s.meta.sectionsCollected) + 'updatesPending'
         $s.updatesPending = [ordered]@{ searched = $true; source = 'WSUS'; pending = @(
                 [ordered]@{ kb = 'KB5099999'; title = '2026-09 Cumulative Update for Windows 10 Version 22H2 (KB5099999)'; severity = 'Critical'; categories = 'Security Updates'; downloaded = $true; rebootRequired = $true },
