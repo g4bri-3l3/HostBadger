@@ -27,7 +27,8 @@
         method calls;
       - a web address other than the MITRE ATT&CK links in the report and, in
         lib\AI.ps1 only, the Gemini endpoint of the optional AI step and the
-        CISA KEV catalog address (www.cisa.gov, -KevOnline);
+        CISA KEV catalog address (www.cisa.gov, -KevOnline) and the LOLDrivers
+        catalog address (www.loldrivers.io, -DriversOnline);
       - HTTP or socket code outside lib\AI.ps1. The collector and the checks
         never touch the network. Gemini is called only after -SendToAI, from
         HostBadger.ps1, once names have been replaced by tokens;
@@ -52,6 +53,7 @@ $allowed = [ordered]@{
         'Get-ItemProperty', 'Get-Item', 'Get-CimInstance', 'Get-MpComputerStatus', 'Get-MpPreference', 'Get-BitLockerVolume',
         'Get-SmbServerConfiguration', 'Get-SmbClientConfiguration', 'Get-NetFirewallProfile', 'Get-NetTCPConnection', 'Get-NetUDPEndpoint',
         'Get-Process', 'Get-LocalUser', 'Get-ScheduledTask', 'Get-Acl', 'Get-WinEvent', 'auditpol.exe', 'secedit.exe')
+    'Read driver files to hash them (SHA-256, matched against the LOLDrivers catalog)' = @('Get-FileHash')
     'Files: read snapshots, write the snapshot / report' = @('Get-Content', 'Set-Content', 'Export-Csv', 'Import-Csv', 'Get-ChildItem', 'Test-Path', 'Resolve-Path',
         'Join-Path', 'Split-Path', 'New-Item', 'Remove-Item', 'Compress-Archive')
     'Environment' = @('Add-Type', 'Get-Date')
@@ -78,10 +80,10 @@ $bannedText = [ordered]@{
     'Registry write (.NET)'   = '(?i)\.(SetValue|DeleteValue|DeleteSubKey\w*|CreateSubKey)\('
 }
 $allowedHosts = @('attack.mitre.org')
-# lib\AI.ps1 is the only code that may reach the network, and only these addresses: Gemini (-SendToAI)
-# and the CISA KEV catalog (-KevOnline).
+# lib\AI.ps1 is the only code that may reach the network, and only these addresses: Gemini (-SendToAI),
+# the CISA KEV catalog (-KevOnline) and the LOLDrivers catalog (-DriversOnline).
 $aiFile = 'lib/AI.ps1'
-$aiHosts = @('generativelanguage.googleapis.com', 'www.cisa.gov')
+$aiHosts = @('generativelanguage.googleapis.com', 'www.cisa.gov', 'www.loldrivers.io')
 $networkText = '(?i)System\.Net\.Http|HttpClient|PostAsync|GetAsync|TcpClient|UdpClient|System\.Net\.Sockets|\[Net\.WebRequest\]|\[System\.Net\.WebRequest\]'
 
 $root = (Resolve-Path -LiteralPath $Path).Path

@@ -31,7 +31,7 @@ $script:AiTokenPattern = '\b(?:HOSTFQDN|HOST|DOMAIN|NETBIOS|USER|GROUP|SID|PATH|
 $script:AiSidPattern = 'S-1-(?:5-21|12-1|5-80|5-82|5-83)(?:-\d+)+'
 # Not inside a longer dotted number, and not a CIS rule number ("CIS 18.10.7.3"), because those are
 # not addresses.
-$script:AiIpPattern = '(?<!CIS )(?<![\d.])(?!0\.0\.0\.0(?!\d)|127\.0\.0\.1(?!\d))(?:\d{1,3}\.){3}\d{1,3}(?!\d|\.\d)'
+$script:AiIpPattern = '(?<!CIS (?:Server \d{4} |Windows 1[01] )?)(?<![\d.])(?!0\.0\.0\.0(?!\d)|127\.0\.0\.1(?!\d))(?:\d{1,3}\.){3}\d{1,3}(?!\d|\.\d)'
 
 # --------------------------------------------------------------------------
 # Pseudonymizer
@@ -106,6 +106,8 @@ function New-HostPseudonymizer {
             foreach ($a in @($t.actions | Where-Object { $_ })) { & $add $a.execute 'PATH'; & $add $a.executable 'PATH' }
         }
         foreach ($r in @($s.autoruns | Where-Object { $_ })) { & $add $r.command 'PATH'; & $add $r.executable 'PATH' }
+        # A driver loaded from a user folder names the user in its path.
+        if ($s.drivers) { foreach ($dv in @($s.drivers.list | Where-Object { $_ })) { & $add $dv.path 'PATH' } }
         foreach ($p in @($s.defender.exclusionPaths | Where-Object { $_ })) { & $add $p 'PATH' }
         foreach ($p in @($s.defender.exclusionProcesses | Where-Object { $_ })) { & $add $p $(if ("$p" -match '[\\/]') { 'PATH' } else { 'PROC' }) }
     }
@@ -160,8 +162,9 @@ function Get-AiMatchOptions {
 }
 
 # "CIS 2.3.7.5, 2.3.7.6" is a list of rule numbers, and four dotted numbers look like an address.
-# The references are set aside while we look for addresses.
-$script:AiCisRefPattern = 'CIS \d+(?:\.\d+)*(?:(?:, and |, | - | and )\d+(?:\.\d+)*)*'
+# The references are set aside while we look for addresses. On servers a finding names the benchmark
+# too: "CIS Server 2022 2.3.5.2", "CIS Windows 11 2.3.10.2".
+$script:AiCisRefPattern = 'CIS (?:Server \d{4} |Windows 1[01] )?\d+(?:\.\d+)*(?:(?:, and |, | - | and )\d+(?:\.\d+)*)*'
 
 function Protect-AiText {
     param($Pz, [string]$Text)
@@ -419,6 +422,29 @@ function Get-KevCatalogOnline {
         return $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
     }
     catch { Write-Host "`rCISA KEV download failed: $($_.Exception.Message)          " -ForegroundColor Red; return $null }
+    finally { $client.Dispose() }
+}
+
+# LOLDrivers catalog of known vulnerable and malicious drivers (-DriversOnline). One HTTPS GET of
+# about 30 MB, nothing is sent; the caller converts it (ConvertFrom-LolDrivers in lib\Checks.ps1).
+$script:LolDriversUrl = 'https://www.loldrivers.io/api/drivers.json'
+function Get-LolDriversOnline {
+    param([int]$TimeoutSeconds = 180)
+    Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue
+    try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
+    $uri = if ($env:HOSTBADGER_DRIVERS_URL) { $env:HOSTBADGER_DRIVERS_URL } else { $script:LolDriversUrl }
+    $client = New-Object System.Net.Http.HttpClient
+    $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSeconds)
+    try {
+        $task = $client.GetAsync($uri)
+        $spin = @('|', '/', '-', '\'); $i = 0
+        while (-not $task.IsCompleted) { Write-Host -NoNewline "`rDownloading the LOLDrivers catalog $($spin[$i % 4])  "; Start-Sleep -Milliseconds 120; $i++ }
+        $resp = $task.GetAwaiter().GetResult()
+        if (-not $resp.IsSuccessStatusCode) { Write-Host "`rLOLDrivers download failed: HTTP $([int]$resp.StatusCode).          " -ForegroundColor Red; return $null }
+        Write-Host "`rDownloading the LOLDrivers catalog... done.          "
+        return $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+    }
+    catch { Write-Host "`rLOLDrivers download failed: $($_.Exception.Message)          " -ForegroundColor Red; return $null }
     finally { $client.Dispose() }
 }
 

@@ -22,20 +22,23 @@ is weak. It works in two steps. A single PowerShell script takes a
 Lines for a SIEM. Hand it one snapshot or a folder with hundreds and you get
 the whole fleet in one report, or one report per host.
 
-- **105 checks** and about 730 settings: 97 hand-written checks plus 638 DISA
-  STIG registry rules, with the CIS Windows 11 benchmark as the baseline.
+- **129 checks** and about 1,545 settings: 117 hand-written checks plus 1427 DISA
+  STIG registry rules, with the CIS Windows 11 benchmark as the baseline, and
+  the drivers matched against 2,198 known vulnerable or malicious driver files
+  (LOLDrivers).
 - **Collect anywhere, analyze anywhere**: the collector is one `.ps1` file made
   to run as SYSTEM through an EDR (CrowdStrike Falcon RTR or any tool that runs
   scripts) on many hosts in about 15 seconds.
 - **Read only**: it changes nothing and starts nothing, and it makes no network
   call unless you ask for one: `-CheckUpdates` (the Windows Update service
   searches for missing updates), `-KevOnline` (downloads the CISA KEV catalog,
-  www.cisa.gov) and `-SendToAI` (Gemini). Each one is named where it is offered.
+  www.cisa.gov), `-DriversOnline` (downloads the LOLDrivers catalog,
+  www.loldrivers.io) and `-SendToAI` (Gemini). Each one is named where it is offered.
   `Test-HostBadgerSafety.ps1` proves the rest from the code.
 - **Honest about gaps**: what could not be read is listed as *not evaluated*,
   never as clean.
 - **Nothing to install**: Windows PowerShell 5.1 or PowerShell 7.
-- **Windows 10, Windows 11 and Windows Server**: every host gets the general checks and the STIGs of Defender, Firewall, Edge, Chrome, Firefox and Office (when installed); a Windows 10 host also gets the Windows 10 STIG and a Windows 11 host the Windows 11 STIG. The CIS rule numbers are those of the Windows 11 benchmark. A server gets no Windows STIG (there is no server STIG data yet) and not the workstation-only checks (user rights, local password policy).
+- **Windows 10, Windows 11 and Windows Server**: every host gets the general checks and the STIGs of Defender, Firewall, Edge, Chrome, Firefox and Office (when installed); a Windows 10 host also gets the Windows 10 STIG and a Windows 11 host the Windows 11 STIG. The CIS rule numbers are those of the host's own benchmark: Windows 11, Windows 10, Windows Server 2022, 2019 or 2016 (other versions keep the Windows 11 numbers). A Windows Server 2016, 2019, 2022 or 2025 host gets its own STIG, the domain controller or the member server rules by role (other server versions get no Windows STIG); its user rights are judged against the member server or domain controller list of the CIS Server benchmark.
 
 It reads what a host actually *does*, which is not always what policy says it
 should.
@@ -70,12 +73,21 @@ should.
   or `-KevOnline`) each program that matches a product with vulnerabilities
   known to be exploited becomes a lead to verify (the catalog has no version
   ranges, so the match is by vendor and product name only).
+- **Vulnerable and malicious drivers**: the SHA-256 of every kernel driver file
+  is matched against the [LOLDrivers](https://www.loldrivers.io) catalog
+  (Apache License 2.0) of drivers used in "bring your own vulnerable driver"
+  attacks. A known malicious driver is Critical, a loaded vulnerable one High.
+  The match is by exact hash, so a fixed version of the same driver does not
+  match. A copy of the catalog ships in `data\vulnerable-drivers.json`
+  (rebuilt by `tools\Convert-LolDrivers.ps1`); `-DriversOnline` downloads a
+  fresh one. The Microsoft vulnerable driver blocklist turned off is a finding
+  too.
 - **System hardening**: autoplay, automatic logon, screen lock, SmartScreen and
   the other CIS Windows 11 baseline settings.
 
 ### Compliance
 
-- **DISA STIG, 638 registry rules** across eight products, one finding per
+- **DISA STIG, 1427 registry rules** across twelve products, one finding per
   rule that differs (a setting that is not configured counts, as the STIG
   asks):
 
@@ -83,6 +95,10 @@ should.
   |---|---|---|
   | Windows 10 | V3R6 | 137 |
   | Windows 11 | V2R7 | 133 |
+  | Windows Server 2025 (domain controller / member server) | V1R1 | 94 / 94 |
+  | Windows Server 2022 (domain controller / member server) | V2R8 | 99 / 102 |
+  | Windows Server 2019 (domain controller / member server) | V3R8 | 98 / 102 |
+  | Windows Server 2016 (domain controller / member server) | V2R10 | 98 / 102 |
   | Microsoft Defender Antivirus | V2R8 | 67 |
   | Windows Defender Firewall | V2R2 | 38 |
   | Microsoft Edge | V2R5 | 53 |
@@ -91,7 +107,8 @@ should.
   | Microsoft Office 365 ProPlus | V3R5 | 127 |
 
   Severity follows the STIG category (CAT I High, CAT II Medium, CAT III Low).
-  Browser and Office rules apply only when the product is installed, and
+  A server gets the domain controller or the member server rules of its
+  version, by role. Browser and Office rules apply only when the product is installed, and
   Office rules are per-user policies, judged on the user profiles loaded when
   the snapshot was taken. Rules that need an organization decision (a banner
   text, an approved URL list) are not judged. The data comes from the
@@ -100,7 +117,10 @@ should.
 - **CIS Windows 11 Enterprise benchmark v3.0.0**: rule numbers in the findings,
   taken from the MIT-licensed
   [ansible-lockdown/Windows-11-CIS](https://github.com/ansible-lockdown/Windows-11-CIS)
-  role.
+  role. On Windows 10 and on Windows Server 2022, 2019 and 2016 the same
+  findings quote the rule of that version's CIS benchmark (Windows 10
+  Enterprise v3.0.0, Server 2022 and 2019 v4.0.0, Server 2016 v3.0.0; domain
+  controller or member server variant), from `data\cis-map.json`.
 - **Compliance charts** at the top of the report: how much of the STIG and of
   the CIS-based checks the hosts meet. `-HideCis` and `-HideStig` take those
   findings out of the report listing (the CSV and JSON Lines keep them) and
@@ -110,10 +130,14 @@ should.
 
 ### Reporting and fixing
 
-- **HTML report** with scores per host (A to F), pie charts, findings grouped
+- **HTML report** with scores per host (A to F), pie charts (severity,
+  category, grades, compliance, software, and local accounts: enabled
+  administrators versus standard users and disabled accounts), findings grouped
   by check, a fix script under each fixable check, filters and a
   *not evaluated* section; **CSV** and **JSON Lines** for a SIEM with stable
-  finding ids.
+  finding ids. Every CIS and STIG finding shows the value **found** on the
+  host next to the value the framework **requires** (for example found "not
+  configured", required "1"), in the report table, the CSV and the JSON Lines.
 - **One report per host** with `-PerHost`, or one fleet report.
 - **Comparison with an earlier run** (new and resolved findings) and **accepted
   risks** with an owner and an expiry.
@@ -176,6 +200,33 @@ For a fleet, add `-PerHost` to get one report per host next to the fleet report
 (`fleet_<HOST>.html`, each with only that host's findings). The guided menu
 (`Start-HostBadger.ps1`) offers it, on by default, whenever the folder holds
 snapshots of more than one host.
+
+### Encrypted snapshots
+
+A snapshot describes the host in detail, and it waits in a temp folder and in
+the EDR's file store. The collector can encrypt it: the output is then
+`hostsnapshot_<host>_<time>.hbx`, the zip is built in memory, and nothing is
+written in clear. Two ways:
+
+```text
+# A password: AES-256 with an HMAC-SHA256, keys from PBKDF2 (600,000 rounds of SHA-256).
+runscript -CloudFile="Collect-HostSnapshot" -CommandLine="-EncryptPassword 'long passphrase'" -Timeout=600
+
+# A certificate (CMS, AES-256): only its public key is needed on the host, as a .cer file
+# put there first, or the thumbprint of a certificate deployed to the machine store.
+runscript -CloudFile="Collect-HostSnapshot" -CommandLine="-EncryptCertificate C:\Windows\Temp\hostbadger.cer" -Timeout=600
+```
+
+A password given on a command line is kept in the EDR's command history; a
+certificate leaves no secret on the host or in any log, so it is the better
+choice for a fleet. HostBadger.ps1 reads `.hbx` files like zips: it asks for
+the password (or takes `-SnapshotPassword`, a SecureString), and opens a
+certificate snapshot with the private key from the certificate store or from
+`-SnapshotPfx` (its password is asked for, or `-SnapshotPfxPassword`). A wrong
+password or a changed file is reported and that snapshot is skipped. The guided
+menu asks for encryption when it collects, a password by default. Deriving the
+key takes about 3 seconds per snapshot on Windows PowerShell 5.1 (well under one
+on PowerShell 7).
 
 ### If PowerShell won't run the scripts
 
@@ -244,7 +295,7 @@ the same way as on a standalone machine, elevated or as SYSTEM. What to expect:
 | Network Exposure | 17 | SMBv1, SMB signing on server and client, LLMNR, NetBIOS, firewall profiles that are off or allow everything in, dropped packet logging, risky listeners (Telnet, FTP, TFTP, SNMP, VNC, databases, caches, WinRM over HTTP on workstations). From CIS: insecure SMB guest logons, LDAP client signing, anonymous shares and pipes, the domain secure channel, clear-text SMB passwords, WinRM Basic, Digest and unencrypted traffic, the SMBv1 client driver, IP source routing and ICMP redirects. |
 | Remote Access | 3 | RDP without NLA, RDP on workstations. From CIS: RDP security layer, encryption, password prompt, drive redirection. |
 | Local Accounts | 15 | The built-in Administrator, Guest, extra members of local Administrators, accounts that may have an empty password, passwords that never expire, LAPS (Windows or legacy), UAC off or silent, LocalAccountTokenFilterPolicy. From CIS: blank passwords over the network, ForceGuest, UAC secure desktop and the other UAC options, the local password and lockout policy, Guests and local accounts denied remote logon. |
-| Privilege Escalation | 7 | Services, privileged scheduled tasks and machine-wide autoruns whose program (High) or folder (Medium) can be written by low-privileged users, unquoted service paths, AlwaysInstallElevated, Print Spooler on DCs. From CIS: user rights held by more principals than the Level 1 workstation baseline allows (debug, act as part of the OS, load drivers and a few more are High). |
+| Privilege Escalation | 7 | Services, privileged scheduled tasks and machine-wide autoruns whose program (High) or folder (Medium) can be written by low-privileged users, unquoted service paths, AlwaysInstallElevated, Print Spooler on DCs. From CIS: user rights held by more principals than the Level 1 baseline allows, with the member server and domain controller lists on servers (debug, act as part of the OS, load drivers and a few more are High). |
 | Logging | 7 | The 16 audit subcategories the CIS benchmark expects (matched by GUID, so any language works), command lines in event 4688, PowerShell script block logging, the PowerShell 2.0 downgrade engine, Security log size. From CIS: Application and System log size, PowerShell transcription. |
 | Patching | 4 | A Windows build and edition that is out of support or about to be, no Windows update installed within the threshold, Automatic Updates turned off by policy. |
 | System Hardening | 7 | All from CIS: AutoPlay and AutoRun, inactivity lock, logon message, last user shown, SEHOP, safe DLL search, and the services the baseline wants disabled (workstations). |
@@ -304,18 +355,67 @@ restriction).
 HostBadger is not a CIS conformance scanner. The benchmark has several hundred
 rules and HostBadger reads a part of them. It covers the local password and
 lockout policy and the Level 1 user rights, but only a few of the
-administrative templates. Servers and domain controllers have their own
-benchmarks, which are different documents.
+administrative templates.
+
+Windows 10, servers and domain controllers have their own benchmarks, with
+other rule numbers. On Windows 10 a finding quotes the *CIS Microsoft Windows 10
+Enterprise Benchmark v3.0.0*; on Windows Server 2022 and 2019 the *CIS
+Microsoft Windows Server 2022 / 2019 Benchmark v4.0.0*, on Server 2016 the
+*v3.0.0* of its benchmark: the domain controller or the member server variant,
+by the host's role, with that benchmark's profile level. Other versions
+(Windows Server 2025, 2012 R2) keep the Windows 11 numbers. The
+`cis_benchmark` field of the JSON Lines (and the `CisBenchmark` column of the
+CSV) names the benchmark. The expected values the checks use are the same in
+these benchmarks for every setting HostBadger reads; one exception is handled
+(a domain controller needs the LSARPC, NETLOGON and SAMR pipes open to
+anonymous users). A rule with no counterpart in the host's benchmark
+(BitLocker on a server, for instance) is quoted as `Windows 11 x.y.z`, never
+with a guessed number.
+
+User rights and the deny logon rights follow the member server and domain
+controller lists of the server benchmark (for example, a domain controller
+also expects Authenticated Users and ENTERPRISE DOMAIN CONTROLLERS on network
+logon, and only Administrators may add workstations to the domain: CIS Server
+2.2.5, which Windows grants to every authenticated user by default). The local
+password and lockout policy is not judged on domain controllers, where it is the
+domain policy; the CIS list of services to disable is the workstation one.
+
+A few rules exist only in the server benchmarks and have their own checks:
+on domain controllers the Zerologon exception list, refused machine account
+password changes, Server Operators scheduling tasks and LDAP signing and
+channel binding (2.3.5.x); on servers the shutdown button on the logon screen,
+unlocking without a domain controller and the Windows LAPS password expiration
+protection, the minimum SMB dialect and SMB client encryption (18.6.7.1,
+18.6.8.2), Defender exclusions hidden from local users and scanned on a quick
+scan (18.10.43.13.1, 18.10.43.17), the Remote Desktop per-session temporary
+folders and single-session limit (18.10.57.3.x), the Mark of the Web on files
+copied from insecure sources (18.10.29.2), the App Installer / winget
+restrictions (18.10.18.x), the default IPv6 DNS servers and Internet Explorer
+feed Basic authentication (18.6.4.3, 18.10.58.2) and the LDAP client encryption
+requirement (2.3.11.8); and on domain controllers the ROCA-vulnerable Windows
+Hello for Business key validation and NTLM-in-domain auditing (18.9.39.1,
+2.3.11.13). On a server that is not 2022,
+2019 or 2016 they quote the Server
+2022 number; so does the Windows LAPS rule on Server 2016, whose benchmark
+still covers legacy LAPS.
 
 The rule numbers and expected values come from the MIT-licensed
 [ansible-lockdown/Windows-11-CIS](https://github.com/ansible-lockdown/Windows-11-CIS)
-role.
+role; the mapping to the other benchmarks (`data\cis-map.json`, built by
+`tools\Convert-CisMapping.ps1`) from the
+[Windows-10-CIS](https://github.com/ansible-lockdown/Windows-10-CIS),
+[Windows-2022-CIS](https://github.com/ansible-lockdown/Windows-2022-CIS),
+[Windows-2019-CIS](https://github.com/ansible-lockdown/Windows-2019-CIS) and
+[Windows-2016-CIS](https://github.com/ansible-lockdown/Windows-2016-CIS) roles
+(MIT): two rules are the same setting when they write the same registry value,
+or, without one, when they have the same title.
 
 ## Design rules
 
 - **Read only.** The collector reads the registry, CIM classes, the Defender,
   SMB, firewall, BitLocker, local account and scheduled task cmdlets, and file
-  ACLs (`Get-Acl`). It reads the audit policy with `auditpol /backup` and the
+  ACLs (`Get-Acl`), and it reads each driver file to compute its SHA-256
+  (`Get-FileHash`). It reads the audit policy with `auditpol /backup` and the
   local security policy with `secedit /export`, each into a temporary file
   that is deleted right away. It never uses `/configure` or `/import`. It
   changes no setting and starts no process. Network traffic exists only when
@@ -323,11 +423,16 @@ role.
   Agent's own search (`-CheckUpdates`, the WSUS server set by policy or
   Microsoft Update), one GET of the CISA KEV catalog
   (www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json,
-  `-KevOnline`) and the Gemini call (`-SendToAI`). The code that sends or
+  `-KevOnline`), one GET of the LOLDrivers catalog
+  (www.loldrivers.io/api/drivers.json, `-DriversOnline`) and the Gemini call
+  (`-SendToAI`). The code that sends or
   downloads lives in `lib\AI.ps1` only. `Test-HostBadgerSafety.ps1` checks all this from the code
   and fails on any command that is not on its reviewed list. The regression
   suite runs it on the real code and on a tampered copy.
-- **STIG values are a fixed list.** The `stig` section reads the 506 registry
+- **An encrypted snapshot is never in clear on disk.** With `-EncryptPassword`
+  or `-EncryptCertificate` the zip is built in memory and only the `.hbx` is
+  written; the snapshot records which mode was used, never the password.
+- **STIG values are a fixed list.** The `stig` section reads the 514 registry
   values of `data\stig-catalog.json` (embedded in the collector, which stays one
   file) from HKLM and from the HKU hives of users who are signed in. It reads
   nothing else and loads no hive. `tools\Convert-PowerStigData.ps1` rebuilds
@@ -374,6 +479,7 @@ standard user with Defender in passive mode.
 
 ```powershell
 .\HostBadger.ps1 -Snapshot <files|zips|folders>
+    [-OutDir .\output]                           # default output folder; a bare -Out* name lands here
     [-OutHtml report.html] [-OutCsv findings.csv] [-OutJsonl siem.jsonl]
     [-CompareTo previous_findings.csv]           # new and resolved findings
     [-ExceptionsFile exceptions.json]            # accepted risks, with an owner and an expiry
@@ -383,13 +489,16 @@ standard user with Defender in passive mode.
     [-ExpectedEdr CrowdStrike] [-ExtraEdrServices MyAgentService]   # the EDR every host should run; services to count as an agent
     [-OutRemediation .\fixes]                    # one remediate_<host>.ps1 per host, with a rollback file
     [-PerHost]                                   # also one HTML report per host: <report>_<HOST>.html
-    [-SkipStig]                                  # leave out the DISA STIG checks (about 500 registry rules)
+    [-SkipStig]                                  # leave out the DISA STIG checks (about 1,400 registry rules)
     [-KevFile known_exploited_vulnerabilities.json] | [-KevOnline]   # match installed software to the CISA KEV catalog (-KevOnline downloads it from www.cisa.gov)
+    [-DriversFile drivers.json] | [-DriversOnline]   # a LOLDrivers catalog you have, or a fresh one (-DriversOnline downloads it from www.loldrivers.io)
+    [-SnapshotPassword <SecureString>] [-SnapshotPfx <file.pfx> [-SnapshotPfxPassword <SecureString>]]   # open encrypted .hbx snapshots (asked for when missing)
     [-HideCis] [-HideStig]                       # keep those findings out of the HTML listing (CSV and JSON Lines keep them)
     [-AiIncludeStig]                             # also send the STIG findings to Gemini (large prompt, may time out)
-    [-SendToAI [-AiConfirm]] [-AiDryRun prompt.txt] [-ApiKey <key>] [-Model gemini-3.7-flash] [-AiMaxAttempts 3]
+    [-SendToAI [-AiConfirm]] [-AiDryRun prompt.txt] [-ApiKey <key>] [-Model gemini-3.8-flash] [-AiMaxAttempts 3]
 
 .\Collect-HostSnapshot.ps1 [-OutDir <folder>] [-NoZip] [-SkipAcl] [-CheckUpdates]   # -CheckUpdates: the Windows Update service searches for missing updates (network)
+    [-EncryptPassword <text> | -EncryptCertificate <.cer file or thumbprint>]   # write an encrypted .hbx, nothing in clear
 ```
 
 An exception (see `examples/exceptions.example.json`) has a `type`, a `host`
@@ -566,7 +675,10 @@ suggests are just text in the report, and HostBadger never runs them.
 
 `-OutJsonl` writes one JSON object per line. A `finding` has a stable
 `finding_id` for each check, host and object, plus a `status` of new or
-persisting when you use `-CompareTo`. A `resolved` line says the finding has
+persisting when you use `-CompareTo`. `found` and `expected` hold the value
+on the host and the value the CIS benchmark or the DISA STIG requires (null
+when the check has no single value, such as the list of audit subcategories),
+and `cis_benchmark` names the CIS benchmark the `cis` rule comes from. A `resolved` line says the finding has
 gone. There is also one `host_summary` per host, with score, grade, counts,
 `not_evaluated_checks` and whether it was collected as SYSTEM. Fields are only
 ever added, never renamed.

@@ -11,7 +11,7 @@ $script:AllRoles = @('workstation', 'server', 'dc')
 
 $script:CheckCatalog = [ordered]@{
     # ---------------- Credential protection ----------------
-    lsa_not_protected = @{ Category = 'Credential Protection'; Severity = 'Medium'; Mitre = 'T1003.001'; Needs = @('credentialProtection'); Roles = $script:AllRoles
+    lsa_not_protected = @{ Category = 'Credential Protection'; Severity = 'Medium'; Mitre = 'T1003.001'; Cis = '18.9.26.2 (L1)'; Needs = @('credentialProtection'); Roles = $script:AllRoles
         Title = 'LSASS not running as a protected process'
         Description = 'RunAsPPL is not set, so any process with debug rights can open LSASS and read the credentials cached in it (Mimikatz-style dumping).'
         Remediation = 'Set HKLM\SYSTEM\CurrentControlSet\Control\Lsa RunAsPPL = 1 (or 2 for UEFI lock) through Group Policy or Intune, after checking that no LSA plug-in or driver is incompatible.' }
@@ -75,6 +75,18 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Fixed data volume not encrypted'
         Description = 'A fixed data disk is not protected by BitLocker; its content is readable offline.'
         Remediation = 'Encrypt fixed data volumes too (auto-unlock with the OS volume).' }
+    bitlocker_weak_encryption = @{ Category = 'Disk and Boot'; Severity = 'Low'; Mitre = 'T1005'; Needs = @('bitlocker'); Roles = $script:AllRoles
+        Title = 'BitLocker volume uses a weak encryption method'
+        Description = 'An encrypted volume relies on the drive''s own hardware encryption (self-encrypting drives: several were broken so that the data could be read without the key, CVE-2018-12037; Medium), or uses a 128-bit key or the older CBC mode instead of XTS-AES 256 (Low).'
+        Remediation = 'Set "Choose drive encryption method and cipher strength" to XTS-AES 256 for operating system and fixed drives and turn off hardware-based encryption, then decrypt and encrypt the volume again (the method of an encrypted volume does not change on its own).' }
+    bitlocker_policy_weak = @{ Category = 'Disk and Boot'; Severity = 'Medium'; Mitre = 'T1005'; Cis = '18.10.9.x (BitLocker profile)'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'BitLocker policy weakens the protection of the disks'
+        Description = 'A BitLocker Group Policy value lowers the protection itself: drive self-encryption trusted (several SSDs were broken, CVE-2018-12037), BitLocker allowed without a TPM, Secure Boot not used for integrity validation, no additional authentication at startup, a password protector on the OS drive. On workstations it also flags two settings whose Windows default is the problem: new DMA devices accepted while the computer is locked, and writes allowed to removable drives that are not encrypted.'
+        Remediation = 'Set the listed BitLocker policies (Computer Configuration > Administrative Templates > Windows Components > BitLocker Drive Encryption) to the CIS value. Denying writes to unencrypted removable drives changes how users work with USB sticks: roll it out with BitLocker To Go. No fix script: BitLocker policy is an organizational choice.' }
+    bitlocker_policy_gaps = @{ Category = 'Disk and Boot'; Severity = 'Low'; Mitre = 'T1005'; Cis = '18.10.9.1.1 - 18.10.9.3.15 (BitLocker profile)'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'BitLocker policy differs from the CIS BitLocker profile'
+        Description = 'A BitLocker Group Policy value is set and differs from the CIS optional BitLocker profile: recovery options and their escrow to AD DS, data recovery agent, smart cards or passwords on data drives, TPM startup key and PIN combinations, access from earlier versions of Windows. These are organizational choices (for example escrow to Entra ID instead of AD DS): read them as a comparison with the profile, not as a vulnerability. Values that are not set are not judged.'
+        Remediation = 'Compare the listed values with your BitLocker design; align them with the CIS BitLocker profile where it fits. No fix script: BitLocker policy is an organizational choice.' }
     secure_boot_off = @{ Category = 'Disk and Boot'; Severity = 'Medium'; Mitre = 'T1542.003'; Needs = @('boot'); Roles = $script:AllRoles
         Title = 'Secure Boot off'
         Description = 'Secure Boot is disabled or the host boots in legacy BIOS mode, so bootkits can load before Windows and its defenses.'
@@ -93,7 +105,7 @@ $script:CheckCatalog = [ordered]@{
         Title = 'SMB client signing not required'
         Description = 'The SMB client accepts unsigned sessions, so its traffic can be tampered with or relayed.'
         Remediation = 'Enable "Microsoft network client: Digitally sign communications (always)".' }
-    llmnr_enabled = @{ Category = 'Network Exposure'; Severity = 'Medium'; Mitre = 'T1557.001'; Needs = @('network'); Roles = $script:AllRoles
+    llmnr_enabled = @{ Category = 'Network Exposure'; Severity = 'Medium'; Mitre = 'T1557.001'; Cis = '18.6.4.3 (L1)'; Needs = @('network'); Roles = $script:AllRoles
         Title = 'LLMNR not disabled'
         Description = 'Multicast name resolution lets anyone on the same subnet answer a mistyped name and capture or relay the NTLM authentication that follows (Responder).'
         Remediation = 'Group Policy: DNS Client > Turn off multicast name resolution = Enabled.' }
@@ -187,17 +199,25 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Machine-wide autorun points to a user-writable program'
         Description = 'An HKLM Run key or the common Startup folder starts, for every user who logs on (administrators included), a program that low privileged users can change (High) or whose folder they can write (Medium).'
         Remediation = 'Fix the ACL of the program and its folder, or remove the autorun.' }
+    vulnerable_driver_present = @{ Category = 'Privilege Escalation'; Severity = 'High'; Mitre = 'T1068'; Needs = @('drivers'); Roles = $script:AllRoles
+        Title = 'Known vulnerable or malicious driver on the host'
+        Description = 'The file of a kernel driver installed on the host has the SHA-256 of a driver in the LOLDrivers catalog. A vulnerable driver is signed and loads normally, but its flaws let an administrator, or malware that got admin rights, read and write kernel memory: that is how attackers switch off EDR agents and protections ("bring your own vulnerable driver"). Critical when the driver is a known malicious one, High for a vulnerable driver that is loaded, Medium when it is installed but not running; one level lower when LOLDrivers has not verified the sample. The match is by exact file hash, so a fixed version of the same driver does not match.'
+        Remediation = 'Find the software that installed the driver; update it to a version with a fixed driver, or uninstall it and delete the driver service. A known malicious driver means the host is compromised: isolate it and investigate. Keep the Microsoft vulnerable driver blocklist on, with HVCI where the hardware allows.' }
+    driver_blocklist_off = @{ Category = 'Privilege Escalation'; Severity = 'Medium'; Mitre = 'T1068'; Needs = @('drivers'); Roles = $script:AllRoles
+        Title = 'Microsoft vulnerable driver blocklist turned off'
+        Description = 'VulnerableDriverBlocklistEnable is set to 0: Windows loads drivers that Microsoft has blocked because attackers abuse them to reach the kernel. It is on by default on Windows 11 22H2 and later and with HVCI; a value that is not set is not judged.'
+        Remediation = 'Turn on Windows Security > Device security > Core isolation > Microsoft Vulnerable Driver Blocklist (VulnerableDriverBlocklistEnable = 1, restart). If a business driver is blocked, update it instead of turning the list off.' }
     spooler_on_dc = @{ Category = 'Privilege Escalation'; Severity = 'Medium'; Mitre = 'T1187'; Needs = @('services'); Roles = @('dc')
         Title = 'Print Spooler running on a domain controller'
         Description = 'The spooler lets any domain user coerce the DC into authenticating to them (PrinterBug), feeding NTLM relay and unconstrained delegation attacks.'
         Remediation = 'Stop and disable the Print Spooler service on domain controllers.' }
 
     # ---------------- Logging ----------------
-    audit_policy_gaps = @{ Category = 'Logging'; Severity = 'Medium'; Mitre = 'T1562.002'; Needs = @('audit'); Roles = $script:AllRoles
+    audit_policy_gaps = @{ Category = 'Logging'; Severity = 'Medium'; Mitre = 'T1562.002'; Cis = '17.1.1, 17.2.1 - 17.2.3, 17.3.1 - 17.3.2, 17.5.1 - 17.5.6, 17.6.1 - 17.6.4, 17.7.1 - 17.7.5, 17.8.1, 17.9.1 - 17.9.5 (L1)'; Needs = @('audit'); Roles = $script:AllRoles
         Title = 'Audit policy gaps'
-        Description = 'Subcategories the CIS benchmark expects (logon, credential validation, process creation, account and group changes, policy changes, privilege use; Kerberos and directory changes on DCs) are not audited, so attacks leave no event to detect.'
+        Description = 'Subcategories the CIS benchmark expects (all 27 rules of CIS section 17: account logon and management, detailed tracking, logon/logoff, object access, policy change, privilege use, system; plus Kerberos and directory changes on DCs) are not audited, so attacks leave no event to detect.'
         Remediation = 'Configure the Advanced Audit Policy for the listed subcategories (Group Policy: Advanced Audit Policy Configuration) and forward the Security log.' }
-    cmdline_audit_off = @{ Category = 'Logging'; Severity = 'Medium'; Mitre = 'T1562.002'; Needs = @('audit'); Roles = $script:AllRoles
+    cmdline_audit_off = @{ Category = 'Logging'; Severity = 'Medium'; Mitre = 'T1562.002'; Cis = '18.9.3.1 (L1)'; Needs = @('audit'); Roles = $script:AllRoles
         Title = 'Command lines missing from process events'
         Description = 'Event 4688 does not record the command line, which is what tells a normal PowerShell or cmd.exe start from a malicious one.'
         Remediation = 'Enable "Include command line in process creation events" with Audit Process Creation (Success).' }
@@ -270,10 +290,22 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Unencrypted passwords sent to third-party SMB servers'
         Description = 'EnablePlainTextPassword = 1 lets the SMB client send the password in clear text to servers that ask for it, so anyone on the path reads it.'
         Remediation = 'Set "Microsoft network client: Send unencrypted password to third-party SMB servers" to Disabled.' }
-    winrm_insecure_auth = @{ Category = 'Network Exposure'; Severity = 'Medium'; Mitre = 'T1021.006'; Cis = '18.10.88.1.1 - 18.10.88.2.3 (L1)'; Needs = @('hardening'); Roles = $script:AllRoles
-        Title = 'WinRM allows Basic, Digest or unencrypted traffic'
-        Description = 'The WinRM client or service policy explicitly allows Basic authentication, Digest authentication or unencrypted traffic, which exposes credentials and commands to anyone who can observe or relay the connection.'
-        Remediation = 'Set the WinRM client and service policies to disallow Basic, Digest and unencrypted traffic (use Kerberos, or HTTPS listeners).' }
+    winrm_insecure_auth = @{ Category = 'Network Exposure'; Severity = 'Medium'; Mitre = 'T1021.006'; Cis = '18.10.88.1.1 - 18.10.88.2.4 (L1/L2)'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'WinRM allows Basic, Digest, unencrypted traffic, or an unsafe service configuration'
+        Description = 'The WinRM client or service policy explicitly allows Basic authentication, Digest authentication or unencrypted traffic, which exposes credentials and commands to anyone who can observe or relay the connection. The service can also store RunAs credentials for a listener (DisableRunAs = 0) or allow its configuration to be changed remotely over WinRM itself (AllowAutoConfig = 1, Level 2); disallowing remote AllowAutoConfig can break EDR/RMM tooling that configures WinRM remotely, so treat that one finding as a decision, not a default fix.'
+        Remediation = 'Set the WinRM client and service policies to disallow Basic, Digest and unencrypted traffic (use Kerberos, or HTTPS listeners), and disallow storing RunAs credentials. Leave AllowAutoConfig alone if remote tooling depends on it.' }
+    mdns_enabled = @{ Category = 'Network Exposure'; Severity = 'Low'; Mitre = 'T1557.001'; CisServer = '18.6.4.1 (L1)'; Needs = @('network'); Roles = $script:AllRoles
+        Title = 'Multicast DNS (mDNS) enabled'
+        Description = 'The host answers and asks multicast DNS on the local network, on by default. Like LLMNR and NetBIOS name resolution, it lets anyone on the segment answer a name lookup (Responder) and collect NTLM hashes or relay them.'
+        Remediation = 'Set "Configure multicast DNS (mDNS) protocol" to Disabled (HKLM\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient EnableMDNS = 0), together with LLMNR and NetBIOS over TCP/IP.' }
+    authenticode_padding_check_off = @{ Category = 'System Hardening'; Severity = 'Low'; Mitre = 'T1553.002'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'Stricter Authenticode signature check not enabled (CVE-2013-3900)'
+        Description = 'EnableCertPaddingCheck is not 1: Windows accepts a signed file with extra data appended after its signature, so a signed installer can carry an attacker''s payload and still show as signed (CVE-2013-3900, in the CISA Known Exploited Vulnerabilities catalog). Microsoft left the fix opt-in because some installers built that way then look unsigned.'
+        Remediation = 'After testing the installers you deploy, set EnableCertPaddingCheck = "1" under HKLM\Software\Microsoft\Cryptography\Wintrust\Config and, on 64-bit Windows, HKLM\Software\Wow6432Node\Microsoft\Cryptography\Wintrust\Config, then restart. No fix script: an installer that breaks needs a decision.' }
+    firewall_notifications_on = @{ Category = 'Network Exposure'; Severity = 'Low'; Mitre = 'T1562.004'; Cis = '9.1.3, 9.2.3, 9.3.3 (L1)'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'Windows Firewall shows notifications when it blocks a program'
+        Description = 'The firewall policy of a profile explicitly sets DisableNotifications = 0. CIS expects the notification off (1): a pop-up lets a standard user be talked into allowing a program through, and the firewall rule is created by the user, not by the administrator.'
+        Remediation = 'Set "Windows Firewall: <profile>: Settings: Display a notification" to No for the Domain, Private and Public profiles.' }
     smb1_client_driver_enabled = @{ Category = 'Network Exposure'; Severity = 'Low'; Mitre = 'T1210'; Cis = '18.4.3 (L1)'; Needs = @('hardening'); Roles = $script:AllRoles
         Title = 'SMBv1 client driver enabled'
         Description = 'The mrxsmb10 driver is not disabled (Start is not 4), so this host can still talk SMBv1 to old servers, with all its known weaknesses.'
@@ -326,9 +358,9 @@ $script:CheckCatalog = [ordered]@{
         Title = 'PowerShell transcription off'
         Description = 'EnableTranscripting is not 1, so there is no text record of what was typed and shown in PowerShell sessions (a CIS Level 2 control).'
         Remediation = 'Turn on PowerShell transcription to a protected, central folder, and keep script block logging on as well.' }
-    service_should_be_disabled = @{ Category = 'System Hardening'; Severity = 'Low'; Mitre = 'T1021'; Cis = '5.3 - 5.44, Level 1 services (L1)'; Needs = @('services'); Roles = @('workstation')
+    service_should_be_disabled = @{ Category = 'System Hardening'; Severity = 'Low'; Mitre = 'T1021'; Cis = '5.1 - 5.44, Level 1 services (L1)'; Needs = @('services'); Roles = @('workstation')
         Title = 'Service the baseline says to disable is running or automatic'
-        Description = 'A service the CIS Level 1 workstation baseline wants disabled (Computer Browser, IIS, FTP, SSH server, RPC Locator, Routing and Remote Access, SNMP-like Simple TCP/IP, SSDP, UPnP, Xbox services, WSL and others) is running or starts automatically. Network-facing ones are Medium. Services that are stopped and set to Manual are not listed.'
+        Description = 'A service the CIS workstation baseline wants disabled (Bluetooth Audio Gateway, Bluetooth Support, Computer Browser, IIS, FTP, SSH server, RPC Locator, Routing and Remote Access, SNMP-like Simple TCP/IP, SSDP, UPnP, Xbox services, WSL and others) is running or starts automatically. Network-facing ones are Medium. Bluetooth Audio Gateway (5.1) and Bluetooth Support (5.2) are Level 2 in the benchmark; the finding still quotes the (L1) tag that this check uses throughout, since each finding carries only its own rule number, not a per-rule level. Services that are stopped and set to Manual are not listed.'
         Remediation = 'Disable the service (and uninstall the feature if it is not needed). On a server that legitimately runs the role, record an exception.' }
     defender_network_protection_off = @{ Category = 'Antivirus'; Severity = 'Medium'; Mitre = 'T1189'; Cis = '18.10.42.6.3.1 (L1)'; Needs = @('defender', 'defender.preferences'); Roles = $script:AllRoles
         Title = 'Defender Network Protection not enabled'
@@ -368,14 +400,14 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Account lockout missing or too lenient'
         Description = 'Local accounts are never locked after failed logons (threshold 0) or after more than 5 attempts, or the lockout lasts or resets in less than 15 minutes, which leaves password guessing against local accounts practical.'
         Remediation = 'Set the account lockout threshold to 5 or fewer attempts (not 0), the lockout duration to 15 minutes or more, and reset the counter after 15 minutes or more.' }
-    user_rights_excessive = @{ Category = 'Privilege Escalation'; Severity = 'Medium'; Mitre = 'T1134'; Cis = '2.2.1 - 2.2.39, Level 1 rights (L1)'; Needs = @('securityPolicy'); Roles = @('workstation')
+    user_rights_excessive = @{ Category = 'Privilege Escalation'; Severity = 'Medium'; Mitre = 'T1134'; Cis = '2.2.1 - 2.2.39, Level 1 rights (L1)'; Needs = @('securityPolicy'); Roles = $script:AllRoles
         Title = 'User right granted to more principals than the baseline'
-        Description = 'A privilege or logon right is held by principals the CIS Level 1 workstation baseline does not list. Rights such as debug programs, act as part of the operating system, create a token or load drivers are a direct path to SYSTEM, so those are High; the rest are Medium. Default Windows grants some rights more widely than CIS (for example Backup Operators), so review before tightening.'
+        Description = 'A privilege or logon right is held by principals the CIS Level 1 baseline does not list: the Windows 11 workstation list, or on servers the member server or domain controller list of the CIS Windows Server benchmark (for example a domain controller also expects Authenticated Users and ENTERPRISE DOMAIN CONTROLLERS on network logon, and only Administrators may add workstations to the domain, which Windows grants to every authenticated user by default). Rights such as debug programs, act as part of the operating system, create a token or load drivers are a direct path to SYSTEM, so those are High; the rest are Medium. Default Windows grants some rights more widely than CIS (for example Backup Operators), so review before tightening.'
         Remediation = 'Remove the extra principals from the right (Local Security Policy > User Rights Assignment, or the matching Group Policy), after checking that no service or backup job depends on them.' }
-    deny_logon_rights_missing = @{ Category = 'Local Accounts'; Severity = 'Low'; Mitre = 'T1078.001'; Cis = '2.2.16 - 2.2.20 (L1)'; Needs = @('securityPolicy'); Roles = @('workstation')
+    deny_logon_rights_missing = @{ Category = 'Local Accounts'; Severity = 'Low'; Mitre = 'T1078.001'; Cis = '2.2.16 - 2.2.20 (L1)'; Needs = @('securityPolicy'); Roles = $script:AllRoles
         Title = 'Guests or local accounts not denied network or remote logon'
-        Description = 'The deny rights for network, batch, service, local and Remote Desktop logon do not list Guests (and, for network and Remote Desktop, "Local account"), so the Guest account or a local account can log on remotely if it is ever enabled or reused.'
-        Remediation = 'Add Guests to the five deny logon rights and Local account to "Deny access to this computer from the network" and "Deny log on through Remote Desktop Services".' }
+        Description = 'The deny rights for network, batch, service, local and Remote Desktop logon do not list Guests (and, for network and Remote Desktop, "Local account"), so the Guest account or a local account can log on remotely if it is ever enabled or reused. Member servers deny network logon to "Local account and member of Administrators" instead; domain controllers, which have no local accounts, only need Guests.'
+        Remediation = 'Add Guests to the five deny logon rights and Local account to "Deny access to this computer from the network" and "Deny log on through Remote Desktop Services" (on member servers: "Local account and member of Administrators group" for network logon; on domain controllers Guests only).' }
     lsa_weak_auth_options = @{ Category = 'Credential Protection'; Severity = 'Medium'; Mitre = 'T1557'; Cis = '2.3.11.2, 2.3.11.3 (L1)'; Needs = @('hardening'); Roles = $script:AllRoles
         Title = 'LocalSystem NULL session fallback or PKU2U online identities allowed'
         Description = 'AllowNullSessionFallback or PKU2U AllowOnlineID is explicitly 1: services running as LocalSystem may fall back to anonymous NTLM sessions, or the host accepts authentication with online identities.'
@@ -401,7 +433,7 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Other attack surface reduction rules not in block mode'
         Description = 'Microsoft documents 13 more ASR rules beyond the standard three: Office child processes, code injection and executable content, obfuscated and downloaded scripts, executables from email or USB, PSExec/WMI process creation, Adobe Reader child processes and advanced ransomware protection. The finding lists the rules that are not set to Block.'
         Remediation = 'Set the listed rules to Audit first, read the events (Microsoft-Windows-Windows Defender/Operational 1121/1122), then to Block through Intune, Group Policy or Set-MpPreference. The PSExec/WMI rule conflicts with Configuration Manager clients and the prevalence rule blocks unknown tools: judge those two separately.' }
-    defender_protection_features_off = @{ Category = 'Antivirus'; Severity = 'Medium'; Mitre = 'T1562.001'; Needs = @('defender', 'defender.preferences'); Roles = $script:AllRoles
+    defender_protection_features_off = @{ Category = 'Antivirus'; Severity = 'Medium'; Mitre = 'T1562.001'; Cis = '18.10.42.5.2, 18.10.42.10.1, 18.10.42.10.4 (L1/L2)'; Needs = @('defender', 'defender.preferences'); Roles = $script:AllRoles
         Title = 'Defender protection feature turned off'
         Description = 'Behavior monitoring, scanning of downloaded files and attachments, script scanning, cloud-delivered protection (MAPS) or block at first sight is off while Defender is the active antivirus. Each one removes a layer that catches new or obfuscated malware.'
         Remediation = 'Turn the feature back on (Set-MpPreference, Group Policy or Intune) and find out why it was disabled.' }
@@ -417,11 +449,59 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Legacy TLS/SSL protocol or weak cipher explicitly enabled'
         Description = 'The SCHANNEL registry keys switch on SSL 2.0/3.0, TLS 1.0/1.1 or a weak cipher (NULL, DES, RC2, RC4, 3DES). Only values somebody set are judged: an unset value is the Windows default. SSL and the NULL/DES/RC2/RC4 ciphers are Medium, TLS 1.0/1.1 and 3DES Low.'
         Remediation = 'Remove the Enabled = 1 value (or set it to 0) for the listed protocol or cipher, after checking that no old client or server depends on it.' }
-    ldap_server_signing_off = @{ Category = 'Network Exposure'; Severity = 'Medium'; Mitre = 'T1557'; Needs = @('hardening'); Roles = @('dc')
+    ldap_server_signing_off = @{ Category = 'Network Exposure'; Severity = 'Medium'; Mitre = 'T1557'; CisServer = '2.3.5.3, 2.3.5.4 (L1)'; Needs = @('hardening'); Roles = @('dc')
         Title = 'Domain controller does not require LDAP signing or channel binding'
         Description = 'LDAPServerIntegrity is not 2 (require signing) or LdapEnforceChannelBinding is not 2 (always), so a relayed or downgraded LDAP bind is accepted. Unset counts, because the default is not enforcing.'
         Remediation = 'Set "Domain controller: LDAP server signing requirements" to Require signing and "Domain controller: LDAP server channel binding token requirements" to Always, after auditing clients with events 2886 to 2889.' }
-    print_point_and_print_weak = @{ Category = 'Privilege Escalation'; Severity = 'Medium'; Mitre = 'T1068'; Needs = @('hardening'); Roles = $script:AllRoles
+    dc_netlogon_policy_weak = @{ Category = 'Network Exposure'; Severity = 'High'; Mitre = 'T1210'; CisServer = '2.3.5.1, 2.3.5.2, 2.3.5.5 (L1)'; Needs = @('hardening'); Roles = @('dc')
+        Title = 'Domain controller weakens Netlogon or lets Server Operators schedule tasks'
+        Description = 'The domain controller keeps an exception list for vulnerable Netlogon secure channel connections (the Zerologon, CVE-2020-1472, enforcement exceptions: the accounts listed can still use the vulnerable protocol; High), refuses machine account password changes (machine passwords never rotate; Medium), or lets Server Operators schedule tasks, which run as SYSTEM on the domain controller (Medium).'
+        Remediation = 'Remove the accounts from "Domain controller: Allow vulnerable Netlogon secure channel connections" (leave it Not Configured) once the devices are patched or replaced, and set "Refuse machine account password changes" and "Allow server operators to schedule tasks" to Disabled.' }
+    server_baseline_gaps = @{ Category = 'System Hardening'; Severity = 'Low'; Mitre = 'T1078'; CisServer = '2.3.7.8, 2.3.13.1, 18.9.25.2 (L1)'; Needs = @('hardening'); Roles = @('server', 'dc')
+        Title = 'Server setting differs from the CIS Windows Server baseline'
+        Description = 'A setting that only the CIS Windows Server benchmarks ask for: the server can be shut down from the logon screen without signing in, a member server unlocks with cached credentials instead of asking a domain controller (a disabled or changed account can still unlock it), or Windows LAPS, backing up to Active Directory, does not enforce the password expiration (an administrator can push the expiry out and keep the same password).'
+        Remediation = 'Set "Shutdown: Allow system to be shut down without having to log on" to Disabled; on member servers set "Interactive logon: Require Domain Controller authentication to unlock workstation" to Enabled (the server then needs a domain controller to unlock); in the Windows LAPS policy enable "Do not allow password expiration time longer than required by policy".' }
+    smb_server_hardening_gaps = @{ Category = 'Network Exposure'; Severity = 'Medium'; Mitre = 'T1557'; CisServer = '18.6.7.1, 18.6.8.2 (L1)'; Needs = @('hardening'); Roles = @('server', 'dc')
+        Title = 'Server does not mandate a minimum SMB dialect or SMB client encryption'
+        Description = 'A setting the CIS Windows Server benchmark asks for and Windows 11 does not: the SMB server has no minimum SMB 2/3 dialect set (MinSmb2Dialect), so an old client can negotiate SMB 2.0.2, or the SMB client does not require encryption (RequireEncryption), so a share without encryption is still used. Unset counts, because the Windows default enforces neither.'
+        Remediation = 'Set "Mandate the minimum version of SMB" to Enabled: 3.1.1 (MinSmb2Dialect = 785) and "Require Encryption" to Enabled (RequireEncryption = 1), after checking that no legacy SMB client or server depends on the weaker setting.' }
+    defender_server_baseline_gaps = @{ Category = 'Antivirus'; Severity = 'Low'; Mitre = 'T1562.001'; CisServer = '18.10.43.13.1, 18.10.43.17 (L1)'; Needs = @('hardening'); Roles = @('server', 'dc')
+        Title = 'Server Defender policy differs from the CIS Windows Server baseline'
+        Description = 'A Microsoft Defender policy the CIS Windows Server benchmark asks for and Windows 11 does not: the antivirus exclusions are visible to local users (HideExclusionsFromLocalUsers not 1), which tells an attacker which paths are not scanned, or a quick scan does not also scan the excluded locations (QuickScanIncludeExclusions not 1). Unset counts.'
+        Remediation = 'Set "Control whether exclusions are visible to local users" to Enabled (HideExclusionsFromLocalUsers = 1) and "Scan excluded files and directories during quick scans" to Enabled (QuickScanIncludeExclusions = 1) through Group Policy (Windows Components > Microsoft Defender Antivirus).' }
+    terminal_services_server_gaps = @{ Category = 'System Hardening'; Severity = 'Low'; Mitre = 'T1563.002'; CisServer = '18.10.57.3.2.1 (L2), 18.10.57.3.11.2 (L1)'; Needs = @('hardening'); Roles = @('server', 'dc')
+        Title = 'Remote Desktop session settings differ from the CIS Windows Server baseline'
+        Description = 'A Remote Desktop Session Host setting the CIS Windows Server benchmark asks for and Windows 11 does not: temporary folders are shared between sessions instead of one per session (PerSessionTempDir not 1), so one session can read another''s temp files, or a user is not restricted to a single session (fSingleSessionPerUser not 1, Level 2). Unset counts.'
+        Remediation = 'Set "Do not use temporary folders per session" to Disabled (PerSessionTempDir = 1) and "Restrict Remote Desktop Services users to a single Remote Desktop Services session" to Enabled (fSingleSessionPerUser = 1) through Group Policy (Remote Desktop Session Host > Temporary folders / Connections).' }
+    explorer_motw_bypass = @{ Category = 'System Hardening'; Severity = 'Medium'; Mitre = 'T1553.005'; CisServer = '18.10.29.2 (L1)'; Needs = @('hardening'); Roles = @('server', 'dc')
+        Title = 'Mark of the Web is not applied to files copied from insecure sources'
+        Description = 'The "Do not apply the Mark of the Web tag to files copied from insecure sources" policy is Enabled (DisableMotWOnInsecurePathCopy = 1), so files copied from a network share or other insecure location keep no zone marker. SmartScreen, Office Protected View and macro blocking all rely on that marker, so the setting removes a key defence against downloaded malware.'
+        Remediation = 'Set "Do not apply the Mark of the Web tag to files copied from insecure sources" to Disabled (DisableMotWOnInsecurePathCopy = 0) through Group Policy (Windows Components > File Explorer).' }
+    app_installer_policy_gaps = @{ Category = 'System Hardening'; Severity = 'Low'; Mitre = 'T1059'; CisServer = '18.10.18.4, 18.10.18.6 (L1), 18.10.18.7 (L2)'; Needs = @('hardening'); Roles = @('server', 'dc')
+        Title = 'App Installer (winget) is not restricted per the CIS Windows Server baseline'
+        Description = 'An App Installer / Windows Package Manager policy the CIS Windows Server benchmark asks for and Windows 11 does not: the local archive malware scan can be overridden (EnableLocalArchiveMalwareScanOverride not 0), the Microsoft Store source certificate pinning can be bypassed (EnableBypassCertificatePinningForMicrosoftStore not 0), or the winget command-line interfaces are enabled (EnableWindowsPackageManagerCommandLineInterfaces not 0, Level 2). Each widens how software can be installed on a server. Unset counts, because the default leaves them enabled.'
+        Remediation = 'Through Group Policy (Windows Components > Desktop App Installer) disable the local archive malware scan override and the Microsoft Store certificate pinning bypass, and, where winget is not needed on the server, disable the Windows Package Manager command-line interfaces.' }
+    server_network_policy_gaps = @{ Category = 'Network Exposure'; Severity = 'Low'; Mitre = 'T1557'; CisServer = '18.6.4.3 (L2), 18.10.58.2 (L1)'; Needs = @('hardening'); Roles = @('server', 'dc')
+        Title = 'Server network setting differs from the CIS Windows Server baseline'
+        Description = 'A network setting the CIS Windows Server benchmark asks for and Windows 11 does not: the default IPv6 DNS servers are still used (DisableIPv6DefaultDnsServers not 1, Level 2), or Internet Explorer feeds send Basic authentication in clear text over HTTP (AllowBasicAuthInClear not 0), which exposes the credentials on the wire. Unset counts, because the default is the weaker state.'
+        Remediation = 'Set "Turn off default IPv6 DNS Servers" to Enabled (DisableIPv6DefaultDnsServers = 1) and "Turn on Basic feed authentication over HTTP" to Disabled (AllowBasicAuthInClear = 0) through Group Policy.' }
+    ldap_client_encryption_weak = @{ Category = 'Network Exposure'; Severity = 'Medium'; Mitre = 'T1557'; CisServer = '2.3.11.8 (L1)'; Needs = @('hardening'); Roles = @('server', 'dc')
+        Title = 'LDAP client does not require encryption'
+        Description = 'Network security: LDAP client encryption requirements (LDAPClientConfidentiality) is below Negotiate sealing (1), so the server can make LDAP binds that are not encrypted and a man in the middle can read or tamper with the directory traffic. Unset counts as None (0).'
+        Remediation = 'Set "Network security: LDAP client encryption requirements" to Negotiate sealing or Require sealing (LDAPClientConfidentiality = 1 or 2) through Group Policy, after confirming the directory clients support it.' }
+    dc_security_policy_gaps = @{ Category = 'Credential Protection'; Severity = 'Medium'; Mitre = 'T1556'; CisServer = '18.9.39.1, 2.3.11.13 (L1)'; Needs = @('hardening'); Roles = @('dc')
+        Title = 'Domain controller is missing a CIS Windows Server security setting'
+        Description = 'A domain-controller setting the CIS Windows Server benchmark asks for and Windows 11 does not: validation of ROCA-vulnerable Windows Hello for Business keys during authentication is not at Audit or higher (SamNGCKeyROCAValidation not 1 or 2; Medium), so weak WHfB keys are accepted, or inbound NTLM authentication in the domain is not audited (AuditNTLMInDomain not 7; Low), so NTLM use across the domain is invisible. Unset counts.'
+        Remediation = 'Set "Configure validation of ROCA-vulnerable WHfB keys during authentication" to Enabled: Audit (SamNGCKeyROCAValidation = 1) or Block (2), and "Network security: Restrict NTLM: Audit NTLM authentication in this domain" to Enable all (AuditNTLMInDomain = 7), through Group Policy on the domain controllers.' }
+    webclient_webdav_enabled = @{ Category = 'Network Exposure'; Severity = 'Low'; Mitre = 'T1187'; Needs = @('services'); Roles = $script:AllRoles
+        Title = 'WebClient (WebDAV) service is enabled'
+        Description = 'The WebClient (WebDAV Redirector) service is installed and not disabled. Where it runs, authentication coercion (PetitPotam, PrinterBug) can force the host to authenticate over HTTP instead of SMB, which is not protected by SMB signing and can be relayed to LDAP or AD CS web enrollment (ESC8). The service starts on a trigger, so Manual is enough to abuse. On a domain controller this is High (a relay to LDAP or AD CS is domain takeover).'
+        Remediation = 'Set the WebClient service to Disabled where WebDAV is not needed (or remove the WebDAV Redirector feature), and enforce it through Group Policy (System Services).' }
+    wpad_not_disabled = @{ Category = 'Network Exposure'; Severity = 'Low'; Mitre = 'T1557.001'; Needs = @('hardening', 'services'); Roles = $script:AllRoles
+        Title = 'WPAD auto-discovery is not disabled'
+        Description = 'Web Proxy Auto-Discovery is not turned off: DisableWpad is not 1 and the WinHTTP Web Proxy Auto-Discovery service (WinHttpAutoProxySvc) is not disabled. Clients keep looking for a "wpad" host through DNS, LLMNR, mDNS and NBT-NS, and whoever answers becomes their proxy and can capture or relay NTLM authentication.'
+        Remediation = 'Set HKLM\SYSTEM\CurrentControlSet\Services\WinHttp\Parameters\DisableWpad = 1 (or disable the WinHttpAutoProxySvc service) where proxy auto-discovery is not used, and keep "wpad" in the DNS global query block list.' }
+    print_point_and_print_weak = @{ Category = 'Privilege Escalation'; Severity = 'Medium'; Mitre = 'T1068'; Cis = '18.7.8, 18.7.10, 18.7.11 (L1)'; Needs = @('hardening'); Roles = $script:AllRoles
         Title = 'Point and Print allows driver installation without elevation'
         Description = 'The Point and Print policy lets standard users install printer drivers (RestrictDriverInstallationToAdministrators = 0) or suppresses the elevation prompt (NoWarningNoElevationOnInstall / NoWarningNoElevationOnUpdate = 1). That is the PrintNightmare condition: a standard user gets code running as SYSTEM through a driver.'
         Remediation = 'Set RestrictDriverInstallationToAdministrators = 1 and remove the NoWarningNoElevation values (Group Policy: Point and Print Restrictions, "Show warning and elevation prompt").' }
@@ -435,6 +515,22 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Windows 11 setting differs from the DISA STIG'
         Description = 'One finding per registry rule of the DISA Microsoft Windows 11 STIG (V2R7) whose value is not the required one. A value that is not configured counts, because the STIG asks for the policy to be set. Severity follows the STIG category (CAT I High, CAT II Medium, CAT III Low). Rules that need an organization decision (a banner text, an approved list) are not judged.'
         Remediation = 'Set the policy in the finding through Group Policy or Intune, or accept the risk with an exception. The STIG rule id (V-number) in the finding identifies the rule in the DISA STIG Viewer.' }
+    stig_server2016 = @{ Category = 'DISA STIG'; Severity = 'Medium'; Mitre = 'T1112'; Needs = @('stig'); Roles = @('server', 'dc')
+        Title = 'Windows Server 2016 setting differs from the DISA STIG'
+        Description = 'One finding per registry rule of the DISA Microsoft Windows Server 2016 STIG (V2R10) whose value is not the required one: the domain controller rules on a domain controller, the member server rules on a member server. A value that is not configured counts, because the STIG asks for the policy to be set. Severity follows the STIG category (CAT I High, CAT II Medium, CAT III Low). Rules that need an organization decision are not judged.'
+        Remediation = 'Apply the setting through Group Policy to match the Windows Server 2016 STIG. The check names the registry value and the required value; set it where the host is managed.' }
+    stig_server2019 = @{ Category = 'DISA STIG'; Severity = 'Medium'; Mitre = 'T1112'; Needs = @('stig'); Roles = @('server', 'dc')
+        Title = 'Windows Server 2019 setting differs from the DISA STIG'
+        Description = 'One finding per registry rule of the DISA Microsoft Windows Server 2019 STIG (V3R8) whose value is not the required one: the domain controller rules on a domain controller, the member server rules on a member server. A value that is not configured counts, because the STIG asks for the policy to be set. Severity follows the STIG category (CAT I High, CAT II Medium, CAT III Low). Rules that need an organization decision are not judged.'
+        Remediation = 'Set the policy in the finding through Group Policy, or accept the risk with an exception. The STIG rule id (V-number) in the finding identifies the rule in the DISA STIG Viewer.' }
+    stig_server2022 = @{ Category = 'DISA STIG'; Severity = 'Medium'; Mitre = 'T1112'; Needs = @('stig'); Roles = @('server', 'dc')
+        Title = 'Windows Server 2022 setting differs from the DISA STIG'
+        Description = 'One finding per registry rule of the DISA Microsoft Windows Server 2022 STIG (V2R8) whose value is not the required one: the domain controller rules on a domain controller, the member server rules on a member server. A value that is not configured counts, because the STIG asks for the policy to be set. Severity follows the STIG category (CAT I High, CAT II Medium, CAT III Low). Rules that need an organization decision are not judged.'
+        Remediation = 'Set the policy in the finding through Group Policy, or accept the risk with an exception. The STIG rule id (V-number) in the finding identifies the rule in the DISA STIG Viewer.' }
+    stig_server2025 = @{ Category = 'DISA STIG'; Severity = 'Medium'; Mitre = 'T1112'; Needs = @('stig'); Roles = @('server', 'dc')
+        Title = 'Windows Server 2025 setting differs from the DISA STIG'
+        Description = 'One finding per registry rule of the DISA Microsoft Windows Server 2025 STIG (V1R1) whose value is not the required one: the domain controller rules on a domain controller, the member server rules on a member server. A value that is not configured counts, because the STIG asks for the policy to be set. Severity follows the STIG category (CAT I High, CAT II Medium, CAT III Low). Rules that need an organization decision are not judged.'
+        Remediation = 'Apply the setting through Group Policy to match the Windows Server 2025 STIG. The check names the registry value and the required value; set it where the host is managed.' }
     stig_defender = @{ Category = 'DISA STIG'; Severity = 'Medium'; Mitre = 'T1562.001'; Needs = @('stig'); Roles = $script:AllRoles
         Title = 'Microsoft Defender Antivirus setting differs from the DISA STIG'
         Description = 'One finding per registry rule of the DISA Microsoft Defender Antivirus STIG (V2R8) whose value is not the required one. A value that is not configured counts. Severity follows the STIG category.'
@@ -502,6 +598,28 @@ $script:RequiredAudit = @(
     @{ Guid = '0cce9228-69ae-11d9-bed3-505054503030'; Name = 'Sensitive Privilege Use'; Need = 3 }
     @{ Guid = '0cce9211-69ae-11d9-bed3-505054503030'; Name = 'Security System Extension'; Need = 1 }
     @{ Guid = '0cce9212-69ae-11d9-bed3-505054503030'; Name = 'System Integrity'; Need = 3 }
+    # The remaining 14 of the 27 CIS 17.x audit-subcategory rules; this check already covered 13 of
+    # them without saying so (see CHANGELOG). GUIDs verified live against `auditpol /list /subcategory:* /v`.
+    @{ Guid = '0cce9239-69ae-11d9-bed3-505054503030'; Name = 'Application Group Management'; Need = 3 }
+    @{ Guid = '0cce9248-69ae-11d9-bed3-505054503030'; Name = 'Plug and Play Events'; Need = 1 }
+    @{ Guid = '0cce9249-69ae-11d9-bed3-505054503030'; Name = 'Group Membership'; Need = 1 }
+    @{ Guid = '0cce9216-69ae-11d9-bed3-505054503030'; Name = 'Logoff'; Need = 1 }
+    @{ Guid = '0cce921c-69ae-11d9-bed3-505054503030'; Name = 'Other Logon/Logoff Events'; Need = 3 }
+    @{ Guid = '0cce9244-69ae-11d9-bed3-505054503030'; Name = 'Detailed File Share'; Need = 2 }
+    @{ Guid = '0cce9224-69ae-11d9-bed3-505054503030'; Name = 'File Share'; Need = 3 }
+    @{ Guid = '0cce9245-69ae-11d9-bed3-505054503030'; Name = 'Removable Storage'; Need = 3 }
+    @{ Guid = '0cce9231-69ae-11d9-bed3-505054503030'; Name = 'Authorization Policy Change'; Need = 1 }
+    @{ Guid = '0cce9232-69ae-11d9-bed3-505054503030'; Name = 'MPSSVC Rule-Level Policy Change'; Need = 3 }
+    @{ Guid = '0cce9234-69ae-11d9-bed3-505054503030'; Name = 'Other Policy Change Events'; Need = 2 }
+    @{ Guid = '0cce9213-69ae-11d9-bed3-505054503030'; Name = 'IPsec Driver'; Need = 3 }
+    @{ Guid = '0cce9214-69ae-11d9-bed3-505054503030'; Name = 'Other System Events'; Need = 3 }
+    @{ Guid = '0cce9210-69ae-11d9-bed3-505054503030'; Name = 'Security State Change'; Need = 1 }
+    # Domain-controller-only subcategories of the CIS Windows Server benchmarks (section 17.2/17.4).
+    # GUIDs verified live against `auditpol /list /subcategory:* /r`.
+    @{ Guid = '0cce9236-69ae-11d9-bed3-505054503030'; Name = 'Computer Account Management'; Need = 1; Dc = $true }
+    @{ Guid = '0cce9238-69ae-11d9-bed3-505054503030'; Name = 'Distribution Group Management'; Need = 1; Dc = $true }
+    @{ Guid = '0cce923a-69ae-11d9-bed3-505054503030'; Name = 'Other Account Management Events'; Need = 1; Dc = $true }
+    @{ Guid = '0cce923b-69ae-11d9-bed3-505054503030'; Name = 'Directory Service Access'; Need = 2; Dc = $true }
 )
 
 # Ports worth flagging when they listen beyond localhost. Workstation-only
@@ -512,6 +630,38 @@ $script:RiskyListenPorts = @{
     'tcp/9200' = 'Elasticsearch'; 'tcp/11211' = 'Memcached'; 'udp/11211' = 'Memcached'; 'tcp/27017' = 'MongoDB'
 }
 $script:WorkstationOnlyListenPorts = @{ 'tcp/5985' = 'WinRM over HTTP' }
+
+# BitLocker policy (CIS 18.10.9.x, optional BitLocker profile), from ansible-lockdown/Windows-11-CIS.
+# Value name, CIS rule, expected value ('' = an empty string: access from earlier Windows disabled).
+# Weak: the value lowers the protection itself. Severity per row; Unset = the Windows default is the
+# problem, judged when not set too (workstations, not Home). Gaps: organizational choices, judged
+# only when set.
+$script:BitLockerPolicyWeak = @(
+    @{ Name = 'OSHardwareEncryption'; Rule = '18.10.9.2.11'; Expected = 0; Severity = 'Medium' }
+    @{ Name = 'FDVHardwareEncryption'; Rule = '18.10.9.1.10'; Expected = 0; Severity = 'Medium' }
+    @{ Name = 'RDVHardwareEncryption'; Rule = '18.10.9.3.10'; Expected = 0; Severity = 'Medium' }
+    @{ Name = 'EnableBDEWithNoTPM'; Rule = '18.10.9.2.14'; Expected = 0; Severity = 'Medium' }
+    @{ Name = 'OSAllowSecureBootForIntegrity'; Rule = '18.10.9.2.2'; Expected = 1; Severity = 'Medium' }
+    @{ Name = 'OSPassphrase'; Rule = '18.10.9.2.12'; Expected = 0; Severity = 'Medium' }
+    @{ Name = 'UseAdvancedStartup'; Rule = '18.10.9.2.13'; Expected = 1; Severity = 'Low' }
+    @{ Name = 'DisableExternalDMAUnderLock'; Rule = '18.10.9.4'; Expected = 1; Severity = 'Low'; Unset = $true }
+    @{ Name = 'RDVDenyWriteAccess'; Rule = '18.10.9.3.14'; Expected = 1; Severity = 'Low'; Unset = $true }
+)
+$script:BitLockerPolicyGaps = @(
+    @('FDVDiscoveryVolumeType', '18.10.9.1.1', ''), @('FDVRecovery', '18.10.9.1.2', 1), @('FDVManageDRA', '18.10.9.1.3', 1),
+    @('FDVRecoveryPassword', '18.10.9.1.4', '1 or 2'), @('FDVRecoveryKey', '18.10.9.1.5', '1 or 2'), @('FDVHideRecoveryPage', '18.10.9.1.6', 1),
+    @('FDVActiveDirectoryBackup', '18.10.9.1.7', 0), @('FDVActiveDirectoryInfoToStore', '18.10.9.1.8', 1), @('FDVRequireActiveDirectoryBackup', '18.10.9.1.9', 0),
+    @('FDVPassphrase', '18.10.9.1.11', 0), @('FDVAllowUserCert', '18.10.9.1.12', 1), @('FDVEnforceUserCert', '18.10.9.1.13', 1),
+    @('UseEnhancedPin', '18.10.9.2.1', 1), @('OSRecovery', '18.10.9.2.3', 1), @('OSManageDRA', '18.10.9.2.4', 0),
+    @('OSRecoveryPassword', '18.10.9.2.5', 1), @('OSRecoveryKey', '18.10.9.2.6', 0), @('OSHideRecoveryPage', '18.10.9.2.7', 1),
+    @('OSActiveDirectoryBackup', '18.10.9.2.8', 1), @('OSActiveDirectoryInfoToStore', '18.10.9.2.9', 1), @('OSRequireActiveDirectoryBackup', '18.10.9.2.10', 1),
+    @('UseTPM', '18.10.9.2.15', 0), @('UseTPMPIN', '18.10.9.2.16', 1), @('UseTPMKey', '18.10.9.2.17', 0), @('UseTPMKeyPIN', '18.10.9.2.18', 0),
+    @('RDVDiscoveryVolumeType', '18.10.9.3.1', ''), @('RDVRecovery', '18.10.9.3.2', 1), @('RDVManageDRA', '18.10.9.3.3', 1),
+    @('RDVRecoveryPassword', '18.10.9.3.4', 0), @('RDVRecoveryKey', '18.10.9.3.5', 0), @('RDVHideRecoveryPage', '18.10.9.3.6', 1),
+    @('RDVActiveDirectoryBackup', '18.10.9.3.7', 0), @('RDVActiveDirectoryInfoToStore', '18.10.9.3.8', 1), @('RDVRequireActiveDirectoryBackup', '18.10.9.3.9', 0),
+    @('RDVPassphrase', '18.10.9.3.11', 0), @('RDVAllowUserCert', '18.10.9.3.12', 1), @('RDVEnforceUserCert', '18.10.9.3.13', 1),
+    @('RDVDenyCrossOrg', '18.10.9.3.15', 0)
+)
 
 # Exclusions that open a hole rather than skip one product.
 $script:RiskyExclusionPathPatterns = @(
@@ -540,18 +690,61 @@ function Get-SidLabel {
 function Add-Finding {
     # Type + Host + Object must be unique in a run, because comparisons and the SIEM finding_id are
     # built from them.
-    param([string]$Type, [string]$Object, [string]$Detail, [string]$Severity = '')
+    # ServerCis: a rule that Windows 11 does not have, by its Server 2022 number ('2.3.5.2') or
+    # '<benchmark>:<number>' when Server 2022 lacks it ('win10:5.8'); the Detail says where to quote
+    # it with {cis}. Resolve-ExtraCis picks the host's own number and level (the extra part of
+    # data\cis-map.json), or the Server 2022 (Windows 10) one when the host's benchmark lacks it.
+    # Found / Expected: the value on the host and the value the framework requires, for the report
+    # columns and the found/expected JSON Lines fields. A CIS-based check that does not pass them gets
+    # them from its Detail ("Name = value (CIS x expects y)", see Get-FoundExpectedFromDetail).
+    param([string]$Type, [string]$Object, [string]$Detail, [string]$Severity = '', [string]$ServerCis = '', [string]$Found = '', [string]$Expected = '')
     $meta = $script:CheckCatalog[$Type]
     if (-not $meta) { throw "Unknown check type: $Type" }
     # A check that follows several rules names the one that applies in the detail ("CIS 5.30 ...").
     # The profile level is the one in the catalog.
     $cis = "$($meta.Cis)"
-    if ($cis) {
+    $bench = ''
+    if ($ServerCis) {
+        $x = Resolve-ExtraCis $ServerCis
+        $bench = (Get-CisMap).benchmarks.($x.Bench)
+        $Detail = $Detail.Replace('{cis}', "CIS $(Get-CisShortName $x.Bench) $($x.Rule)")
+        $cis = "$($x.Rule) ($($x.Level))"
+    }
+    elseif ($cis) {
         $rule = [regex]::Match("$Detail", 'CIS (\d+(?:\.\d+)+)')
         $level = [regex]::Match($cis, '\((L\d)\)\s*$')
-        if ($rule.Success -and $level.Success) { $cis = "$($rule.Groups[1].Value) ($($level.Groups[1].Value))" }
+        if ($script:CisBench -ne 'win11') {
+            # Another benchmark (Windows 10, a server): its rule, or "Windows 11 x.y" when it has none.
+            $mapped = $false
+            # Every number of a list ("CIS 2.3.7.5, 2.3.7.6") is translated; the benchmark is named once.
+            $Detail = [regex]::Replace("$Detail", 'CIS (\d+(?:\.\d+)+(?:(?:, and |, | - | and )\d+(?:\.\d+)+)*)', [System.Text.RegularExpressions.MatchEvaluator] {
+                    param($m)
+                    $script:CisListMapped = $false
+                    $list = [regex]::Replace($m.Groups[1].Value, '\d+(?:\.\d+)+', [System.Text.RegularExpressions.MatchEvaluator] { param($n) $x = ConvertTo-HostCisRule $n.Value; if ($x.Mapped) { $script:CisListMapped = $true }; $x.Rule })
+                    "CIS $(if ($script:CisListMapped) { "$(Get-CisShortName $script:CisBench) " })$list"
+                })
+            if ($rule.Success) {
+                $x = ConvertTo-HostCisRule $rule.Groups[1].Value
+                $mapped = $x.Mapped
+                $lv = if ($x.Level) { $x.Level } elseif ($level.Success) { $level.Groups[1].Value } else { '' }
+                $cis = "$($x.Rule)$(if ($lv) { " ($lv)" })"
+            }
+            else {
+                $cis = [regex]::Replace($cis, '(?<![\d.])\d+(?:\.\d+)+(?![\d.])', [System.Text.RegularExpressions.MatchEvaluator] { param($m) $x = ConvertTo-HostCisRule $m.Value; if ($x.Mapped) { $script:CisAnyMapped = $true }; $x.Rule })
+                $mapped = [bool]$script:CisAnyMapped; $script:CisAnyMapped = $false
+            }
+            $bench = if ($mapped) { (Get-CisMap).benchmarks.($script:CisBench) } else { (Get-CisMap).benchmarks.win11 }
+        }
+        else {
+            if ($rule.Success -and $level.Success) { $cis = "$($rule.Groups[1].Value) ($($level.Groups[1].Value))" }
+            $bench = (Get-CisMap).benchmarks.win11
+        }
     }
     if (-not $Severity) { $Severity = $meta.Severity }
+    if (-not $Found -and -not $Expected -and ($meta.Cis -or $meta.CisServer)) {
+        $fe = Get-FoundExpectedFromDetail $Detail
+        if ($fe) { $Found = $fe.Found; $Expected = $fe.Expected }
+    }
     $script:Findings.Add([PSCustomObject]@{
             Severity = $Severity
             Type     = $Type
@@ -562,7 +755,31 @@ function Add-Finding {
             Detail   = $Detail
             Mitre    = $meta.Mitre
             Cis      = $cis
+            CisBenchmark = $bench
+            Found    = $Found
+            Expected = $Expected
         })
+}
+
+function Get-FoundExpectedFromDetail {
+    # "Name = value (CIS x expects y)", "Name not set (CIS x expects y)", "X is disabled (CIS x expects
+    # enabled)", "Maximum size 20480 KB (CIS x expects at least 32768 KB)": the value and the
+    # requirement. $null when the Detail does not say what is expected.
+    param([string]$Detail)
+    $m = [regex]::Match("$Detail", '^(?<pre>.*?)\s*\(CIS [^)]*?\bexpects (?<e>[^);]+)')
+    if (-not $m.Success) { return $null }
+    $pre = $m.Groups['pre'].Value.Trim().TrimEnd(':', ',', '.')
+    $exp = $m.Groups['e'].Value.Trim().TrimEnd('.', ',')
+    $found = if ($pre -match '^[\w.\-]+(?: \([^)]*\))? = (?<f>.+)$') { $Matches['f'] }
+    elseif ($pre -match '^(?:[\w.\-]+ )?[Nn]ot set\b') { 'not set' }
+    elseif ($pre -match '^[\w.\-]+ not set$') { 'not set' }
+    elseif ($pre -match '^.{1,60} is (?<f>[\w ]{1,30})$') { $Matches['f'] }
+    elseif ($pre -match '^Maximum size (?<f>\d+ KB)') { $Matches['f'] }
+    elseif ($pre.Length -le 80) { $pre }
+    else { return $null }
+    # "0x20000000 (CIS ...": a value followed by its own explanation keeps only the value.
+    $found = ($found -replace ':\s.*$', '' -replace ';\s.*$', '').Trim()
+    return @{ Found = $found; Expected = $exp }
 }
 
 function Get-NotEvaluatedChecks {
@@ -625,6 +842,52 @@ function ConvertFrom-KevCatalog {
         $out.Add([PSCustomObject]@{ Cve = "$($v.cveID)"; Vendor = "$($v.vendorProject)"; Product = "$($v.product)"; Name = "$($v.vulnerabilityName)"; DateAdded = "$($v.dateAdded)"; Ransomware = ("$($v.knownRansomwareCampaignUse)" -eq 'Known') })
     }
     return $out.ToArray()
+}
+
+# LOLDrivers (www.loldrivers.io, Apache-2.0): known vulnerable and malicious Windows drivers. The full
+# catalog (drivers.json, ~30 MB) is reduced to one entry per file hash: h SHA-256, i LOLDrivers id,
+# c V vulnerable / M malicious, n file name, v verified by LOLDrivers, x CVE ids, g loads despite HVCI.
+# Used by tools\Convert-LolDrivers.ps1 (data\vulnerable-drivers.json) and by -DriversOnline.
+function ConvertFrom-LolDrivers {
+    param([string]$Json)
+    # The catalog has keys that differ only by case ("init" / "INIT"), which ConvertFrom-Json refuses:
+    # PowerShell 7 reads it as hashtables, Windows PowerShell 5.1 through JavaScriptSerializer.
+    if ($PSVersionTable.PSVersion.Major -ge 7) { $doc = ConvertFrom-Json -InputObject $Json -AsHashtable -Depth 64 }
+    else {
+        Add-Type -AssemblyName System.Web.Extensions
+        $ser = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+        $ser.MaxJsonLength = [int]::MaxValue; $ser.RecursionLimit = 256
+        $doc = $ser.DeserializeObject($Json)
+    }
+    $seen = @{}
+    $out = New-Object System.Collections.Generic.List[object]
+    foreach ($d in @($doc)) {
+        $cat = if ("$($d['Category'])" -match '(?i)malicious') { 'M' } else { 'V' }
+        # CVE ids: the CVE field when there is one, and those the description and the links name.
+        $cveText = "$(@($d['CVE']) -join ' ') $(@(@($d['Commands']) | ForEach-Object { if ($_) { $_['Description'] } }) -join ' ') $(@($d['Resources']) -join ' ')"
+        $cves = @([regex]::Matches($cveText, 'CVE-\d{4}-\d{4,}') | ForEach-Object { $_.Value.ToUpper() } | Sort-Object -Unique)
+        foreach ($s in @($d['KnownVulnerableSamples'])) {
+            if (-not $s) { continue }
+            $h = "$($s['SHA256'])".Trim().ToLower()
+            if ($h -notmatch '^[0-9a-f]{64}$' -or $seen.ContainsKey($h)) { continue }
+            $seen[$h] = $true
+            $name = "$($s['OriginalFilename'])"; if (-not $name -or $name -eq '-') { $name = "$($s['Filename'])" }
+            $out.Add([ordered]@{ h = $h; i = "$($d['Id'])"; c = $cat; n = $name; v = ("$($d['Verified'])" -ieq 'true'); x = ($cves -join ' '); g = ("$($s['LoadsDespiteHVCI'])" -ieq 'true') })
+        }
+    }
+    return $out.ToArray()
+}
+
+$script:DriverCatalog = $null
+function Get-DriverCatalog {
+    # The downloaded catalog when -DriversOnline was used, else the one shipped in data\.
+    param($Config)
+    if ($Config -and $Config.Drivers) { return @($Config.Drivers) }
+    if ($null -eq $script:DriverCatalog) {
+        $path = Join-Path $PSScriptRoot '..\data\vulnerable-drivers.json'
+        $script:DriverCatalog = if (Test-Path -LiteralPath $path) { @((ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText($path))).entries | ForEach-Object { $_ }) } else { @() }
+    }
+    return $script:DriverCatalog
 }
 
 function ConvertTo-WordText {
@@ -708,8 +971,10 @@ function Invoke-SoftwareChecks {
 # by DISA). Entry: id, p (product), s (H/M/L), h (M machine, U per user), k (key under the hive), n
 # (value name), t (D/S/M/N), e (P present, A absent), x (expected: eq, in, range, absent), d (why).
 $script:StigCatalog = $null
-$script:StigProductType = @{ win10 = 'stig_windows10'; win11 = 'stig_windows11'; defender = 'stig_defender'; firewall = 'stig_firewall'; edge = 'stig_edge'; chrome = 'stig_chrome'; firefox = 'stig_firefox'; office = 'stig_office' }
-$script:StigIdPrefix = @{ win10 = 'WN10'; win11 = 'WN11'; defender = 'MSDA'; firewall = 'WFW'; edge = 'EDGE'; chrome = 'CHRM'; firefox = 'FFOX'; office = 'O365' }
+$script:StigProductType = @{ win10 = 'stig_windows10'; win11 = 'stig_windows11'; defender = 'stig_defender'; firewall = 'stig_firewall'; edge = 'stig_edge'; chrome = 'stig_chrome'; firefox = 'stig_firefox'; office = 'stig_office'
+    srv2016dc = 'stig_server2016'; srv2016ms = 'stig_server2016'; srv2019dc = 'stig_server2019'; srv2019ms = 'stig_server2019'; srv2022dc = 'stig_server2022'; srv2022ms = 'stig_server2022'; srv2025dc = 'stig_server2025'; srv2025ms = 'stig_server2025' }
+$script:StigIdPrefix = @{ win10 = 'WN10'; win11 = 'WN11'; defender = 'MSDA'; firewall = 'WFW'; edge = 'EDGE'; chrome = 'CHRM'; firefox = 'FFOX'; office = 'O365'
+    srv2016dc = 'WN16-DC'; srv2016ms = 'WN16-MS'; srv2019dc = 'WN19-DC'; srv2019ms = 'WN19-MS'; srv2022dc = 'WN22-DC'; srv2022ms = 'WN22-MS'; srv2025dc = 'WN25-DC'; srv2025ms = 'WN25-MS' }
 
 function Get-StigCatalog {
     if ($null -eq $script:StigCatalog) {
@@ -718,6 +983,84 @@ function Get-StigCatalog {
         $script:StigCatalog = if (Test-Path -LiteralPath $path) { @(ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText($path)) | ForEach-Object { $_ }) } else { @() }
     }
     return $script:StigCatalog
+}
+
+# data\cis-map.json comes from tools\Convert-CisMapping.ps1 (ansible-lockdown roles, MIT): for each
+# rule of the CIS Windows 11 benchmark, the same setting in the Windows Server 2022 and 2019
+# benchmarks. The checks and their expected values stay the Windows 11 ones (the thresholds are the
+# same); on a server, a finding quotes the server rule instead.
+$script:CisMap = $null
+$script:CisBench = 'win11'
+$script:CurrentRole = 'unknown'
+
+function Get-CisMap {
+    if ($null -eq $script:CisMap) {
+        $path = Join-Path $PSScriptRoot '..\data\cis-map.json'
+        $script:CisMap = if (Test-Path -LiteralPath $path) { ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText($path)) } else { [pscustomobject]@{ benchmarks = [pscustomobject]@{ win11 = 'CIS Microsoft Windows 11 Enterprise Benchmark v3.0.0' }; rules = [pscustomobject]@{} } }
+    }
+    return $script:CisMap
+}
+
+function Get-CisBenchmark {
+    # srv2022, srv2019, srv2016, win10, or win11 (every other Windows: the rule numbers the checks
+    # are written with).
+    param($Snapshot)
+    $os = if ($Snapshot.host) { $Snapshot.host.os }
+    if (-not $os) { return 'win11' }
+    $caption = "$($os.caption)"
+    $build = "$($os.build)"
+    $server = "$($os.productType)" -in @('2', '3') -or $caption -match 'Server'
+    if ($caption -match 'Server 2022' -or ($server -and $build -eq '20348')) { return 'srv2022' }
+    if ($caption -match 'Server 2019' -or ($server -and $build -eq '17763')) { return 'srv2019' }
+    if ($caption -match 'Server 2016' -or ($server -and $build -eq '14393')) { return 'srv2016' }
+    if (-not $server -and ($caption -match 'Windows 10' -or ($build -match '^\d+$' -and [int]$build -lt 22000 -and [int]$build -ge 10240))) { return 'win10' }
+    return 'win11'
+}
+
+function Get-CisShortName {
+    # "Server 2022", "Windows 10": the name a finding quotes before the rule number.
+    param([string]$Bench)
+    $m = Get-CisMap
+    if ($m.short -and $m.short.$Bench) { return "$($m.short.$Bench)" }
+    return ("$($m.benchmarks.$Bench)" -replace '^CIS Microsoft Windows | Benchmark.*$', '')
+}
+
+# Rules that only the server benchmarks have, quoted with -ServerCis, and the benchmarks that lack
+# one (Server 2016 v3.0.0 still covers legacy LAPS, not Windows LAPS): there the Server 2022 rule is
+# quoted.
+$script:ServerCisMissing = @{ srv2016 = @('18.9.25.2') }
+
+function Resolve-ExtraCis {
+    # The benchmark, rule and level to quote for an Add-Finding -ServerCis key on this host:
+    # @{ Bench; Rule; Level }. Keys found in the extra part of data\cis-map.json follow it; the others
+    # (a Windows 11 rule that also has a server-only meaning, like 18.9.25.2) keep their number.
+    param([string]$Key)
+    $entry = $null
+    $m = Get-CisMap
+    if ($m.extra -and ($m.extra.PSObject.Properties.Name -contains $Key)) { $entry = $m.extra.$Key }
+    if ($entry) {
+        $anchor = if ($Key -match '^(\w+):') { $Matches[1] } else { 'srv2022' }
+        $b = if ($entry.PSObject.Properties.Name -contains $script:CisBench) { $script:CisBench } else { $anchor }
+        $hits = @($entry.$b | Where-Object { $_ })
+        $want = if ($script:CurrentRole -eq 'dc') { 'DC' } else { 'MS' }
+        $hit = @(@($hits | Where-Object { $_.a -eq $want }) + @($hits | Where-Object { $_.a -eq 'both' }) + $hits)[0]
+        return @{ Bench = $b; Rule = "$($hit.r)"; Level = "$($hit.l)" }
+    }
+    $b = $script:CisBench
+    if ($b -notlike 'srv*' -or @($script:ServerCisMissing[$b]) -contains $Key) { $b = 'srv2022' }
+    return @{ Bench = $b; Rule = ($Key -replace '^\w+:', ''); Level = 'L1' }
+}
+
+function ConvertTo-HostCisRule {
+    # The rule number to quote on this host for a Windows 11 rule: @{ Rule; Level; Mapped }.
+    param([string]$Rule)
+    if ($script:CisBench -eq 'win11') { return @{ Rule = $Rule; Level = ''; Mapped = $true } }
+    $entry = (Get-CisMap).rules.$Rule
+    $hits = if ($entry) { @($entry.($script:CisBench) | Where-Object { $_ }) } else { @() }
+    $want = if ($script:CurrentRole -eq 'dc') { 'DC' } else { 'MS' }
+    $hit = @($hits | Where-Object { $_.a -eq $want }) + @($hits | Where-Object { $_.a -eq 'both' }) | Select-Object -First 1
+    if ($hit) { return @{ Rule = "$($hit.r)"; Level = "$($hit.l)"; Mapped = $true } }
+    return @{ Rule = "Windows 11 $Rule"; Level = ''; Mapped = $false }
 }
 
 function Test-StigValue {
@@ -754,6 +1097,24 @@ function Test-StigValue {
     return $null
 }
 
+function Get-StigExpectedText {
+    # What a STIG rule asks for, in words: "1", "1 or 2", "32768 or more", "not set".
+    param($Entry)
+    $x = $Entry.x
+    $t = switch ($x.op) {
+        'absent' { 'not set' }
+        'eq' { "$($x.v)" }
+        'in' { @($x.v) -join ' or ' }
+        'range' {
+            $min = ConvertTo-Int64OrNull $x.min; $max = ConvertTo-Int64OrNull $x.max
+            if ($null -ne $min -and $null -ne $max) { "$min to $max" } elseif ($null -ne $min) { "$min or more" } else { "$max or less" }
+        }
+        default { '' }
+    }
+    if ($t -and $x.absentOk) { $t += ' (or not set)' }
+    return $t
+}
+
 function Invoke-StigChecks {
     param($S, $Config, $can)
     $st = $S.stig
@@ -768,9 +1129,21 @@ function Invoke-StigChecks {
         $userMaps += , $map
     }
     $caption = if ($S.host -and $S.host.os) { "$($S.host.os.caption)" } else { '' }
+    # Windows Server: the domain controller or the member server STIG of that version, by role.
+    $srvBench = Get-CisBenchmark $S
+    $dc = (Get-SnapshotRole $S) -eq 'dc'
+    $ms = (Get-SnapshotRole $S) -eq 'server'
+    # Server 2025 (build 26100) has no CIS benchmark of its own, so Get-CisBenchmark does not name it;
+    # the STIG layer detects it directly for the Server 2025 STIG.
+    $isServerOs = ("$($S.host.os.productType)" -in @('2', '3')) -or ($caption -match 'Server')
+    $srv2025 = ($caption -match 'Server 2025') -or ($isServerOs -and "$($S.host.os.build)" -eq '26100')
     $installed = @{
         win10 = ($caption -match 'Windows 10'); win11 = ($caption -match 'Windows 11'); defender = $true; firewall = $true
         edge = ($st.products.edge -eq $true); chrome = ($st.products.chrome -eq $true); firefox = ($st.products.firefox -eq $true); office = ($st.products.office -eq $true)
+        srv2016dc = ($srvBench -eq 'srv2016' -and $dc); srv2016ms = ($srvBench -eq 'srv2016' -and $ms)
+        srv2019dc = ($srvBench -eq 'srv2019' -and $dc); srv2019ms = ($srvBench -eq 'srv2019' -and $ms)
+        srv2022dc = ($srvBench -eq 'srv2022' -and $dc); srv2022ms = ($srvBench -eq 'srv2022' -and $ms)
+        srv2025dc = ($srv2025 -and $dc); srv2025ms = ($srv2025 -and $ms)
     }
     $sev = @{ H = 'High'; M = 'Medium'; L = 'Low' }
     foreach ($e in (Get-StigCatalog)) {
@@ -784,18 +1157,46 @@ function Invoke-StigChecks {
             $script:StigEvaluated++
             $has = $machine.ContainsKey($id)
             $why = Test-StigValue -Entry $e -Present $has -Value $machine[$id]
-            if ($why) { Add-Finding -Type $type -Object $obj -Severity $sev["$($e.s)"] -Detail "$loc $why. $($e.d)" }
+            if ($why) { Add-Finding -Type $type -Object $obj -Severity $sev["$($e.s)"] -Found $(if ($has) { "$($machine[$id])" } else { 'not configured' }) -Expected (Get-StigExpectedText $e) -Detail "$loc $why. $($e.d)" }
         }
         elseif ($userMaps.Count -gt 0) {
             $script:StigEvaluated++
-            $bad = 0; $first = ''
+            $bad = 0; $first = ''; $firstFound = ''
             foreach ($map in $userMaps) {
                 $has = $map.ContainsKey($id)
                 $why = Test-StigValue -Entry $e -Present $has -Value $map[$id]
-                if ($why) { $bad++; if (-not $first) { $first = $why } }
+                if ($why) { $bad++; if (-not $first) { $first = $why; $firstFound = $(if ($has) { "$($map[$id])" } else { 'not configured' }) } }
             }
-            if ($bad -gt 0) { Add-Finding -Type $type -Object $obj -Severity $sev["$($e.s)"] -Detail "$loc $first (user policy; $bad of $($userMaps.Count) loaded user profile(s)). $($e.d)" }
+            if ($bad -gt 0) { Add-Finding -Type $type -Object $obj -Severity $sev["$($e.s)"] -Found $firstFound -Expected (Get-StigExpectedText $e) -Detail "$loc $first (user policy; $bad of $($userMaps.Count) loaded user profile(s)). $($e.d)" }
         }
+    }
+}
+
+function Invoke-DriverChecks {
+    param($S, $Config, $can)
+    $dr = $S.drivers
+    if (-not $dr) { return }
+    if (& $can 'vulnerable_driver_present') {
+        $index = @{}
+        foreach ($e in @(Get-DriverCatalog $Config)) { if ($e -and $e.h) { $index["$($e.h)".ToLower()] = $e } }
+        $lower = @{ Critical = 'High'; High = 'Medium'; Medium = 'Low' }
+        foreach ($d in @($dr.list | Where-Object { $_ -and $_.sha256 })) {
+            $e = $index["$($d.sha256)".ToLower()]
+            if (-not $e) { continue }
+            $running = "$($d.state)" -eq 'Running'
+            $sev = if ($e.c -eq 'M') { 'Critical' } elseif ($running) { 'High' } else { 'Medium' }
+            if (-not $e.v) { $sev = $lower[$sev] }
+            $what = if ($e.c -eq 'M') { 'a known malicious driver' } else { 'a known vulnerable driver' }
+            $extra = @()
+            if ($e.x) { $extra += "$($e.x)" }
+            if ($e.g) { $extra += 'loads even with HVCI on' }
+            if (-not $e.v) { $extra += 'sample not verified by LOLDrivers' }
+            $detail = "$($d.path) is $what ($($e.n), LOLDrivers $($e.i)$(if ($extra.Count) { '; ' + ($extra -join '; ') })); state $($d.state), start $($d.startMode)."
+            Add-Finding -Type 'vulnerable_driver_present' -Object "driver: $($d.name)" -Severity $sev -Detail $detail
+        }
+    }
+    if ((& $can 'driver_blocklist_off') -and "$($dr.blocklistEnable)" -eq '0') {
+        Add-Finding -Type 'driver_blocklist_off' -Object 'Vulnerable driver blocklist' -Found '0' -Expected '1' -Detail 'VulnerableDriverBlocklistEnable = 0: Windows loads drivers that Microsoft blocks as vulnerable.'
     }
 }
 
@@ -808,13 +1209,15 @@ function Invoke-HostChecks {
     $script:RefDate = ConvertTo-UtcDate $Snapshot.meta.collectedAtUtc
     if (-not $script:RefDate) { throw "$($Snapshot._path): meta.collectedAtUtc missing" }
     $role = Get-SnapshotRole $Snapshot
+    $script:CurrentRole = $role
+    $script:CisBench = Get-CisBenchmark $Snapshot
     $extra = @{}
 
     # Defender in passive mode (another antivirus is primary): its switches are off by design, so
     # its checks say nothing about this host.
     $d = $Snapshot.defender
     if ($d -and $d.amRunningMode -and "$($d.amRunningMode)" -notmatch '(?i)^normal$') {
-        foreach ($t in @('defender_realtime_off', 'defender_tamper_off', 'defender_signatures_stale', 'defender_exclusion', 'asr_standard_rules_missing', 'defender_network_protection_off', 'defender_pua_off', 'stig_defender', 'asr_other_rules_not_blocking', 'defender_protection_features_off')) {
+        foreach ($t in @('defender_realtime_off', 'defender_tamper_off', 'defender_signatures_stale', 'defender_exclusion', 'asr_standard_rules_missing', 'defender_network_protection_off', 'defender_pua_off', 'stig_defender', 'asr_other_rules_not_blocking', 'defender_protection_features_off', 'defender_server_baseline_gaps')) {
             $extra[$t] = "Microsoft Defender Antivirus runs in '$($d.amRunningMode)': another antivirus is primary, check that product"
         }
     }
@@ -841,6 +1244,7 @@ function Invoke-HostChecks {
         'network'    = { Invoke-NetworkChecks $Snapshot $Config $can $role }
         'accounts'   = { Invoke-AccountChecks $Snapshot $Config $can }
         'privesc'    = { Invoke-PrivescChecks $Snapshot $Config $can }
+        'drivers'    = { Invoke-DriverChecks $Snapshot $Config $can }
         'logging'    = { Invoke-LoggingChecks $Snapshot $Config $can $role }
         'baseline'   = { Invoke-BaselineChecks $Snapshot $Config $can $role }
         'stig'       = { Invoke-StigChecks $Snapshot $Config $can }
@@ -863,7 +1267,7 @@ function Invoke-CredentialChecks {
     $c = $S.credentialProtection
     if (& $can 'lsa_not_protected') {
         if (@(1, 2) -notcontains [int]$c.runAsPPL -or $null -eq $c.runAsPPL) {
-            Add-Finding -Type 'lsa_not_protected' -Object 'LSA' -Detail "RunAsPPL = $(if ($null -eq $c.runAsPPL) { 'not set' } else { $c.runAsPPL })."
+            Add-Finding -Type 'lsa_not_protected' -Object 'LSA' -Detail "RunAsPPL = $(if ($null -eq $c.runAsPPL) { 'not set' } else { $c.runAsPPL }) (CIS 18.9.26.2 expects 1, with UEFI lock; 2 without the lock is accepted here)."
         }
     }
     if ((& $can 'credential_guard_off') -and $c.credentialGuardRunning -eq $false) {
@@ -873,24 +1277,24 @@ function Invoke-CredentialChecks {
         Add-Finding -Type 'hvci_off' -Object 'Memory integrity' -Detail "HVCI is not running (VBS status $($c.vbsStatus))."
     }
     if ((& $can 'wdigest_cleartext') -and "$($c.wdigestUseLogonCredential)" -eq '1') {
-        Add-Finding -Type 'wdigest_cleartext' -Object 'WDigest' -Detail 'UseLogonCredential = 1.'
+        Add-Finding -Type 'wdigest_cleartext' -Object 'WDigest' -Found '1' -Expected '0' -Detail 'UseLogonCredential = 1.'
     }
     if (& $can 'cached_logons_high') {
         $limit = if ((Get-SnapshotRole $S) -eq 'server') { $Config.MaxCachedLogonsServer } else { $Config.MaxCachedLogonsWorkstation }
         # Unset means the Windows default of 10.
         $n = if ("$($c.cachedLogonsCount)" -match '^\d+$') { [int]"$($c.cachedLogonsCount)" } else { 10 }
-        if ($n -gt $limit) { Add-Finding -Type 'cached_logons_high' -Object 'CachedLogonsCount' -Detail "$n cached logons (limit $limit)." }
+        if ($n -gt $limit) { Add-Finding -Type 'cached_logons_high' -Object 'CachedLogonsCount' -Found "$n" -Expected "$limit or fewer" -Detail "$n cached logons (limit $limit)." }
     }
     if ((& $can 'lm_hash_stored') -and "$($c.noLmHash)" -eq '0') {
-        Add-Finding -Type 'lm_hash_stored' -Object 'NoLMHash' -Detail 'NoLMHash = 0.'
+        Add-Finding -Type 'lm_hash_stored' -Object 'NoLMHash' -Found '0' -Expected '1' -Detail 'NoLMHash = 0.'
     }
     if (& $can 'ntlm_weak_lmcompat') {
         $lvl = if ("$($c.lmCompatibilityLevel)" -match '^\d+$') { [int]"$($c.lmCompatibilityLevel)" } else { $null }
         $eff = if ($null -eq $lvl) { 3 } else { $lvl }
-        if ($eff -lt 5) { Add-Finding -Type 'ntlm_weak_lmcompat' -Object 'LmCompatibilityLevel' -Detail "Level $eff$(if ($null -eq $lvl) { ' (not set, Windows default)' })." }
+        if ($eff -lt 5) { Add-Finding -Type 'ntlm_weak_lmcompat' -Object 'LmCompatibilityLevel' -Found "$eff$(if ($null -eq $lvl) { ' (not set)' })" -Expected '5' -Detail "Level $eff$(if ($null -eq $lvl) { ' (not set, Windows default)' })." }
     }
     if ((& $can 'anonymous_sam_enum') -and "$($c.restrictAnonymousSam)" -eq '0') {
-        Add-Finding -Type 'anonymous_sam_enum' -Object 'RestrictAnonymousSAM' -Detail 'RestrictAnonymousSAM = 0.'
+        Add-Finding -Type 'anonymous_sam_enum' -Object 'RestrictAnonymousSAM' -Found '0' -Expected '1' -Detail 'RestrictAnonymousSAM = 0.'
     }
 }
 
@@ -899,7 +1303,7 @@ function Invoke-AntivirusChecks {
     $d = $S.defender
     if (-not $d) { return }
     if ((& $can 'defender_realtime_off') -and (-not $d.realTimeProtectionEnabled -or -not $d.antivirusEnabled)) {
-        Add-Finding -Type 'defender_realtime_off' -Object 'Microsoft Defender' -Detail "Antivirus enabled: $($d.antivirusEnabled); real-time protection: $($d.realTimeProtectionEnabled)."
+        Add-Finding -Type 'defender_realtime_off' -Object 'Microsoft Defender' -Found 'off' -Expected 'on' -Detail "Antivirus enabled: $($d.antivirusEnabled); real-time protection: $($d.realTimeProtectionEnabled)."
     }
     if ((& $can 'defender_tamper_off') -and $d.isTamperProtected -eq $false) {
         Add-Finding -Type 'defender_tamper_off' -Object 'Microsoft Defender' -Detail 'Tamper protection is off.'
@@ -946,11 +1350,11 @@ function Invoke-AntivirusChecks {
         }
     }
     if (& $can 'defender_protection_features_off') {
-        if ($d.behaviorMonitorEnabled -eq $false) { Add-Finding -Type 'defender_protection_features_off' -Object 'Behavior monitoring' -Detail 'Behavior monitoring is off.' }
-        if ($d.ioavProtectionEnabled -eq $false) { Add-Finding -Type 'defender_protection_features_off' -Object 'Downloaded files and attachments' -Detail 'Scanning of downloaded files and attachments (IOAV) is off.' }
-        if ($d.disableScriptScanning -eq $true) { Add-Finding -Type 'defender_protection_features_off' -Object 'Script scanning' -Detail 'DisableScriptScanning is on.' }
-        if ($null -ne $d.mapsReporting -and "$($d.mapsReporting)" -eq '0') { Add-Finding -Type 'defender_protection_features_off' -Object 'Cloud-delivered protection' -Severity 'Low' -Detail 'MAPS reporting is disabled (0); STIG and CIS ask for Advanced (2).' }
-        if ($d.disableBlockAtFirstSeen -eq $true) { Add-Finding -Type 'defender_protection_features_off' -Object 'Block at first sight' -Severity 'Low' -Detail 'DisableBlockAtFirstSeen is on.' }
+        if ($d.behaviorMonitorEnabled -eq $false) { Add-Finding -Type 'defender_protection_features_off' -Object 'Behavior monitoring' -Found 'off' -Expected 'on' -Detail 'Behavior monitoring is off.' }
+        if ($d.ioavProtectionEnabled -eq $false) { Add-Finding -Type 'defender_protection_features_off' -Object 'Downloaded files and attachments' -Found 'off' -Expected 'on' -Detail 'Scanning of downloaded files and attachments (IOAV) is off.' }
+        if ($d.disableScriptScanning -eq $true) { Add-Finding -Type 'defender_protection_features_off' -Object 'Script scanning' -Found 'off' -Expected 'on' -Detail 'DisableScriptScanning is on.' }
+        if ($null -ne $d.mapsReporting -and "$($d.mapsReporting)" -eq '0') { Add-Finding -Type 'defender_protection_features_off' -Object 'Cloud-delivered protection' -Severity 'Low' -Found '0' -Expected '1 or 2' -Detail 'MAPS reporting is disabled (0); STIG and CIS ask for Advanced (2).' }
+        if ($d.disableBlockAtFirstSeen -eq $true) { Add-Finding -Type 'defender_protection_features_off' -Object 'Block at first sight' -Severity 'Low' -Found 'off' -Expected 'on' -Detail 'DisableBlockAtFirstSeen is on.' }
     }
 }
 
@@ -988,6 +1392,15 @@ function Invoke-DiskChecks {
                 Add-Finding -Type 'bitlocker_data_volume_off' -Object "volume $($v.mountPoint)" -Detail "Protection $($v.protectionStatus).$(if ($isHome) { ' Windows Home cannot encrypt data volumes with BitLocker; use Pro or Enterprise, or a third-party tool.' })"
             }
         }
+        if (& $can 'bitlocker_weak_encryption') {
+            # EncryptionMethod of Get-BitLockerVolume: Hardware is the drive's own encryption, the 128-bit
+            # and the CBC (Aes*) methods are weaker than XTS-AES 256. None / empty: not encrypted, judged above.
+            foreach ($v in @($vols | Where-Object { "$($_.encryptionMethod)" -match '(?i)^(Hardware|Aes128|Aes128Diffuser|Aes256|Aes256Diffuser|XtsAes128)$' })) {
+                $m = "$($v.encryptionMethod)"
+                $why = if ($m -eq 'Hardware') { "the drive's own hardware encryption" } elseif ($m -match '128') { 'a 128-bit key' } else { 'CBC mode, not XTS' }
+                Add-Finding -Type 'bitlocker_weak_encryption' -Object "volume $($v.mountPoint) encryption" -Severity $(if ($m -eq 'Hardware') { 'Medium' } else { 'Low' }) -Found $m -Expected 'XtsAes256' -Detail "$m on the $("$($v.volumeType)".ToLower()) volume $($v.mountPoint): $why."
+            }
+        }
     }
     $bt = $S.boot
     if ((& $can 'secure_boot_off') -and $bt) {
@@ -1001,16 +1414,25 @@ function Invoke-NetworkChecks {
     $n = $S.network
     if (-not $n) { return }
     if ((& $can 'smb1_server_enabled') -and $n.smb1ServerEnabled -eq $true) {
-        Add-Finding -Type 'smb1_server_enabled' -Object 'SMB server' -Detail 'EnableSMB1Protocol = True.'
+        Add-Finding -Type 'smb1_server_enabled' -Object 'SMB server' -Found 'enabled' -Expected 'disabled' -Detail 'EnableSMB1Protocol = True.'
     }
     if ((& $can 'smb_server_signing_not_required') -and $n.smbServerSigningRequired -eq $false) {
-        Add-Finding -Type 'smb_server_signing_not_required' -Object 'SMB server' -Severity $(if ($role -eq 'dc') { 'High' } else { 'Medium' }) -Detail 'RequireSecuritySignature = False.'
+        Add-Finding -Type 'smb_server_signing_not_required' -Object 'SMB server' -Severity $(if ($role -eq 'dc') { 'High' } else { 'Medium' }) -Found 'not required' -Expected 'required' -Detail 'RequireSecuritySignature = False.'
     }
     if ((& $can 'smb_client_signing_not_required') -and $n.smbClientSigningRequired -eq $false) {
-        Add-Finding -Type 'smb_client_signing_not_required' -Object 'SMB client' -Detail 'RequireSecuritySignature = False.'
+        Add-Finding -Type 'smb_client_signing_not_required' -Object 'SMB client' -Found 'not required' -Expected 'required' -Detail 'RequireSecuritySignature = False.'
     }
     if ((& $can 'llmnr_enabled') -and "$($n.llmnrPolicyEnableMulticast)" -ne '0') {
-        Add-Finding -Type 'llmnr_enabled' -Object 'DNS client' -Detail $(if ($null -eq $n.llmnrPolicyEnableMulticast) { 'EnableMulticast policy not set (LLMNR on by default).' } else { "EnableMulticast = $($n.llmnrPolicyEnableMulticast)." })
+        Add-Finding -Type 'llmnr_enabled' -Object 'DNS client' -Found $(if ($null -eq $n.llmnrPolicyEnableMulticast) { 'not set (LLMNR on)' } else { "$($n.llmnrPolicyEnableMulticast)" }) -Expected '0' -Detail $(if ($null -eq $n.llmnrPolicyEnableMulticast) { 'EnableMulticast policy not set (LLMNR on by default).' } else { "EnableMulticast = $($n.llmnrPolicyEnableMulticast)." })
+    }
+    # mDNS is on unless the policy or the DNS client's own setting turns it off. Snapshots from before
+    # these fields existed are not judged.
+    if ((& $can 'mdns_enabled') -and ($n.PSObject.Properties.Name -contains 'mdnsPolicyEnable')) {
+        $pol = "$($n.mdnsPolicyEnable)"; $svc = "$($n.mdnsServiceEnable)"
+        if ($pol -ne '0' -and -not ($pol -eq '' -and $svc -eq '0')) {
+            $found = if ($pol -ne '') { $pol } elseif ($svc -ne '') { "$svc (DNS client setting)" } else { 'not set (mDNS on by default)' }
+            Add-Finding -Type 'mdns_enabled' -Object 'DNS client: mDNS' -ServerCis '18.6.4.1' -Found $found -Expected '0' -Detail "EnableMDNS $(if ($pol -ne '') { "policy = $pol" } else { 'policy not set' }) ({cis} expects 0, mDNS off)."
+        }
     }
     if (& $can 'netbios_enabled') {
         foreach ($a in @($n.netbios | Where-Object { $_ -and "$($_.tcpipNetbiosOptions)" -ne '2' })) {
@@ -1044,10 +1466,10 @@ function Invoke-NetworkChecks {
     $r = $S.remoteAccess
     if ($r) {
         if ((& $can 'rdp_nla_disabled') -and $r.rdpEnabled -eq $true -and $r.rdpNlaRequired -eq $false) {
-            Add-Finding -Type 'rdp_nla_disabled' -Object 'RDP' -Detail 'RDP enabled, UserAuthentication = 0.'
+            Add-Finding -Type 'rdp_nla_disabled' -Object 'RDP' -Found '0' -Expected '1' -Detail 'RDP enabled, UserAuthentication = 0.'
         }
         if ((& $can 'rdp_enabled_workstation') -and $r.rdpEnabled -eq $true) {
-            Add-Finding -Type 'rdp_enabled_workstation' -Object 'RDP' -Detail 'fDenyTSConnections = 0.'
+            Add-Finding -Type 'rdp_enabled_workstation' -Object 'RDP' -Found '0' -Expected '1' -Detail 'fDenyTSConnections = 0.'
         }
     }
 }
@@ -1074,7 +1496,7 @@ function Invoke-AccountChecks {
                 Add-Finding -Type 'builtin_admin_enabled' -Object "account: $($u.name)" -Severity $(if ($lapsOn) { 'Low' } else { 'Medium' }) -Detail $(if ($lapsOn) { 'Enabled; LAPS manages its password.' } else { 'Enabled, no LAPS.' })
             }
             if ($isGuest -and $u.enabled -and (& $can 'guest_enabled')) {
-                Add-Finding -Type 'guest_enabled' -Object "account: $($u.name)" -Detail 'Guest account enabled.'
+                Add-Finding -Type 'guest_enabled' -Object "account: $($u.name)" -Found 'enabled' -Expected 'disabled' -Detail 'Guest account enabled.'
             }
             if ($u.enabled -and -not $u.passwordRequired -and (& $can 'local_account_password_not_required')) {
                 Add-Finding -Type 'local_account_password_not_required' -Object "account: $($u.name)" -Detail 'PASSWD_NOTREQD set on an enabled account.'
@@ -1111,9 +1533,9 @@ function Invoke-AccountChecks {
     }
     $u = $S.uac
     if ($u) {
-        if ((& $can 'uac_disabled') -and "$($u.enableLua)" -eq '0') { Add-Finding -Type 'uac_disabled' -Object 'UAC' -Detail 'EnableLUA = 0.' }
-        if ((& $can 'uac_admin_no_prompt') -and "$($u.consentPromptBehaviorAdmin)" -eq '0') { Add-Finding -Type 'uac_admin_no_prompt' -Object 'UAC' -Detail 'ConsentPromptBehaviorAdmin = 0.' }
-        if ((& $can 'remote_uac_token_filter_off') -and "$($u.localAccountTokenFilterPolicy)" -eq '1') { Add-Finding -Type 'remote_uac_token_filter_off' -Object 'UAC' -Detail 'LocalAccountTokenFilterPolicy = 1.' }
+        if ((& $can 'uac_disabled') -and "$($u.enableLua)" -eq '0') { Add-Finding -Type 'uac_disabled' -Object 'UAC' -Found '0' -Expected '1' -Detail 'EnableLUA = 0.' }
+        if ((& $can 'uac_admin_no_prompt') -and "$($u.consentPromptBehaviorAdmin)" -eq '0') { Add-Finding -Type 'uac_admin_no_prompt' -Object 'UAC' -Found '0' -Expected '1 or 2' -Detail 'ConsentPromptBehaviorAdmin = 0.' }
+        if ((& $can 'remote_uac_token_filter_off') -and "$($u.localAccountTokenFilterPolicy)" -eq '1') { Add-Finding -Type 'remote_uac_token_filter_off' -Object 'UAC' -Found '1' -Expected '0' -Detail 'LocalAccountTokenFilterPolicy = 1.' }
         if ((& $can 'always_install_elevated') -and "$($u.alwaysInstallElevated)" -eq '1') { Add-Finding -Type 'always_install_elevated' -Object 'Windows Installer' -Detail 'AlwaysInstallElevated = 1 in the machine policy.' }
     }
 }
@@ -1230,16 +1652,16 @@ function Invoke-LoggingChecks {
         if ($gaps.Count -gt 0) { Add-Finding -Type 'audit_policy_gaps' -Object 'Advanced audit policy' -Detail "$($gaps.Count) subcategories short: $($gaps -join '; ')." }
     }
     if ($a -and (& $can 'cmdline_audit_off') -and "$($a.processCreationIncludeCmdLine)" -ne '1') {
-        Add-Finding -Type 'cmdline_audit_off' -Object 'Process creation events' -Detail 'ProcessCreationIncludeCmdLine_Enabled not set to 1.'
+        Add-Finding -Type 'cmdline_audit_off' -Object 'Process creation events' -Found $(if ($null -eq $a.processCreationIncludeCmdLine) { 'not set' } else { "$($a.processCreationIncludeCmdLine)" }) -Expected '1' -Detail 'ProcessCreationIncludeCmdLine_Enabled not set to 1.'
     }
     if ($a -and (& $can 'security_log_small') -and $null -ne $a.securityLogMaxSizeBytes) {
         $kb = [int64]$a.securityLogMaxSizeBytes / 1KB
-        if ($kb -lt $Config.MinSecurityLogKB) { Add-Finding -Type 'security_log_small' -Object 'Security log' -Detail "Maximum size $([int64]$kb) KB (minimum $($Config.MinSecurityLogKB) KB)." }
+        if ($kb -lt $Config.MinSecurityLogKB) { Add-Finding -Type 'security_log_small' -Object 'Security log' -Found "$([int64]$kb) KB" -Expected "at least $($Config.MinSecurityLogKB) KB" -Detail "Maximum size $([int64]$kb) KB (minimum $($Config.MinSecurityLogKB) KB)." }
     }
     $p = $S.powershell
     if ($p) {
         if ((& $can 'powershell_scriptblock_logging_off') -and "$($p.scriptBlockLogging)" -ne '1') {
-            Add-Finding -Type 'powershell_scriptblock_logging_off' -Object 'PowerShell' -Detail 'EnableScriptBlockLogging not set to 1.'
+            Add-Finding -Type 'powershell_scriptblock_logging_off' -Object 'PowerShell' -Found $(if ($null -eq $p.scriptBlockLogging) { 'not set' } else { "$($p.scriptBlockLogging)" }) -Expected '1' -Detail 'EnableScriptBlockLogging not set to 1.'
         }
         if ((& $can 'powershell_module_logging_off') -and "$($p.moduleLogging)" -ne '1') {
             Add-Finding -Type 'powershell_module_logging_off' -Object 'PowerShell module logging' -Detail 'EnableModuleLogging not set to 1.'
@@ -1253,7 +1675,7 @@ function Invoke-LoggingChecks {
 # Settings from the CIS Windows 11 Enterprise benchmark (v3.0.0). Each finding quotes its rule
 # number. A value that isn't set is judged only where the Windows default is itself the problem.
 $script:CisDisableServices = @{
-    Browser = '5.3'; iisadmin = '5.6'; irmon = '5.7'; LxssManager = '5.9'; FTPSVC = '5.10'; sshd = '5.12'; RpcLocator = '5.23'
+    BTAGService = '5.1'; bthserv = '5.2'; Browser = '5.3'; iisadmin = '5.6'; irmon = '5.7'; LxssManager = '5.9'; FTPSVC = '5.10'; sshd = '5.12'; RpcLocator = '5.23'
     RemoteAccess = '5.25'; simptcp = '5.27'; sacsvr = '5.29'; SSDPSRV = '5.30'; upnphost = '5.31'; WMSvc = '5.32'; WMPNetworkSvc = '5.35'
     icssvc = '5.36'; W3SVC = '5.40'; XboxGipSvc = '5.41'; XblAuthManager = '5.42'; XblGameSave = '5.43'; XboxNetApiSvc = '5.44'
 }
@@ -1295,8 +1717,16 @@ function Invoke-BaselineChecks {
             # How many, never which: share and pipe names are not copied into findings.
             $c = & $n $h.nullSessionSharesCount
             if ($c -gt 0) { Add-Finding -Type 'null_session_access' -Object 'NullSessionShares' -Detail "$c share(s) listed as accessible anonymously (CIS 2.3.10.11 expects none)." }
-            $c = & $n $h.nullSessionPipesCount
-            if ($c -gt 0) { Add-Finding -Type 'null_session_access' -Object 'NullSessionPipes' -Detail "$c named pipe(s) listed as accessible anonymously (CIS 2.3.10.6 expects none)." }
+            # A domain controller needs LSARPC, NETLOGON and SAMR there (CIS for servers expects them):
+            # only the other pipes count. Older snapshots have no such count: the total is used.
+            $nonDc = & $n $h.nullSessionPipesNonDcCount
+            if ($role -eq 'dc' -and $null -ne $nonDc) {
+                if ($nonDc -gt 0) { Add-Finding -Type 'null_session_access' -Object 'NullSessionPipes' -Detail "$nonDc named pipe(s) besides LSARPC, NETLOGON and SAMR listed as accessible anonymously (CIS 2.3.10.6 expects only those on a domain controller)." }
+            }
+            else {
+                $c = & $n $h.nullSessionPipesCount
+                if ($c -gt 0) { Add-Finding -Type 'null_session_access' -Object 'NullSessionPipes' -Detail "$c named pipe(s) listed as accessible anonymously (CIS 2.3.10.6 expects none)." }
+            }
             $v = & $n $h.restrictNullSessAccess
             if ($v -eq 0) { Add-Finding -Type 'null_session_access' -Object 'RestrictNullSessAccess' -Detail 'RestrictNullSessAccess = 0 (CIS 2.3.10.9 expects 1).' }
         }
@@ -1311,14 +1741,59 @@ function Invoke-BaselineChecks {
             $v = & $n $nl.maximumPasswordAge
             if ($null -ne $v -and ($v -eq 0 -or $v -gt 30)) { Add-Finding -Type 'secure_channel_unprotected' -Object 'Netlogon: MaximumPasswordAge' -Detail "MaximumPasswordAge = $v days (CIS 2.3.6.5 expects 1 to 30)." }
         }
+        if ((& $can 'authenticode_padding_check_off') -and ($h.PSObject.Properties.Name -contains 'certPaddingCheck')) {
+            # Both registry views on 64-bit Windows: 32-bit programs verify signatures through the second.
+            $missing = @()
+            if ("$($h.certPaddingCheck)" -ne '1') { $missing += 'Wintrust\Config' }
+            if ($h.is64BitOs -eq $true -and "$($h.certPaddingCheckWow)" -ne '1') { $missing += 'Wow6432Node\...\Wintrust\Config' }
+            if ($missing.Count -gt 0) {
+                Add-Finding -Type 'authenticode_padding_check_off' -Object 'Authenticode padding check' -Found $(if ("$($h.certPaddingCheck)" -eq '') { 'not set' } else { "$($h.certPaddingCheck)" }) -Expected '1' -Detail "EnableCertPaddingCheck is not 1 under $($missing -join ' and ') (opt-in fix for CVE-2013-3900)."
+            }
+        }
+        $bp = $h.bitlockerPolicy
+        if ((& $can 'bitlocker_policy_weak') -and $bp) {
+            # Home has no BitLocker Group Policy: only an explicit value is judged there.
+            $judgeUnset = $role -eq 'workstation' -and -not (Test-HomeEdition $S)
+            foreach ($r in $script:BitLockerPolicyWeak) {
+                $v = & $n $bp.($r.Name)
+                if ($null -eq $v -and $r.Unset -and $judgeUnset) {
+                    Add-Finding -Type 'bitlocker_policy_weak' -Object "BitLocker policy: $($r.Name)" -Severity $r.Severity -Detail "$($r.Name) not set (CIS $($r.Rule) expects $($r.Expected); the Windows default does not apply this protection)."
+                }
+                elseif ($null -ne $v -and $v -ne $r.Expected) {
+                    Add-Finding -Type 'bitlocker_policy_weak' -Object "BitLocker policy: $($r.Name)" -Severity $r.Severity -Detail "$($r.Name) = $v (CIS $($r.Rule) expects $($r.Expected))."
+                }
+            }
+        }
+        if ((& $can 'bitlocker_policy_gaps') -and $bp) {
+            foreach ($r in $script:BitLockerPolicyGaps) {
+                $raw = $bp.($r[0])
+                if ($null -eq $raw) { continue }
+                $exp = $r[2]
+                if ($exp -is [string] -and $exp -eq '') {
+                    if ("$raw" -ne '') { Add-Finding -Type 'bitlocker_policy_gaps' -Object "BitLocker policy: $($r[0])" -Detail "$($r[0]) = '$raw' (CIS $($r[1]) expects an empty value: no access from earlier versions of Windows)." }
+                    continue
+                }
+                $v = & $n $raw
+                $ok = if ($exp -eq '1 or 2') { $v -eq 1 -or $v -eq 2 } else { $v -eq $exp }
+                if (-not $ok) { Add-Finding -Type 'bitlocker_policy_gaps' -Object "BitLocker policy: $($r[0])" -Detail "$($r[0]) = $raw (CIS $($r[1]) expects $exp)." }
+            }
+        }
+        if ((& $can 'firewall_notifications_on') -and $h.firewallPolicy) {
+            foreach ($row in @(@('domainDisableNotifications', 'Domain', '9.1.3'), @('privateDisableNotifications', 'Private', '9.2.3'), @('publicDisableNotifications', 'Public', '9.3.3'))) {
+                $v = & $n $h.firewallPolicy.($row[0])
+                if ($null -ne $v -and $v -ne 1) { Add-Finding -Type 'firewall_notifications_on' -Object "profile: $($row[1])" -Detail "DisableNotifications = $v (CIS $($row[2]) expects 1)." }
+            }
+        }
         if ((& $can 'winrm_insecure_auth') -and $h.winrm) {
             $w = $h.winrm
             foreach ($row in @(@('clientAllowBasic', 'WinRM client: Basic authentication', 'AllowBasic', '18.10.88.1.1'), @('clientAllowUnencryptedTraffic', 'WinRM client: unencrypted traffic', 'AllowUnencryptedTraffic', '18.10.88.1.2'),
                     @('clientAllowDigest', 'WinRM client: Digest authentication', 'AllowDigest', '18.10.88.1.3'), @('serviceAllowBasic', 'WinRM service: Basic authentication', 'AllowBasic', '18.10.88.2.1'),
-                    @('serviceAllowUnencryptedTraffic', 'WinRM service: unencrypted traffic', 'AllowUnencryptedTraffic', '18.10.88.2.3'))) {
+                    @('serviceAllowUnencryptedTraffic', 'WinRM service: unencrypted traffic', 'AllowUnencryptedTraffic', '18.10.88.2.3'), @('serviceAllowAutoConfig', 'WinRM service: remote configuration via WinRM', 'AllowAutoConfig', '18.10.88.2.2'))) {
                 $v = & $n $w.($row[0])
                 if ($v -eq 1) { Add-Finding -Type 'winrm_insecure_auth' -Object $row[1] -Detail "$($row[2]) = 1 (CIS $($row[3]) expects 0)." }
             }
+            $v = & $n $w.serviceDisableRunAs
+            if ($v -ne 1) { Add-Finding -Type 'winrm_insecure_auth' -Object 'WinRM service: RunAs credential storage' -Detail "DisableRunAs = $(if ($null -eq $v) { 'not set' } else { $v }) (CIS 18.10.88.2.4 expects 1; unset also allows storing credentials)." }
         }
         if ((& $can 'schannel_legacy_crypto_enabled') -and $h.schannel) {
             # Enabled is a DWORD: any non-zero value (0xFFFFFFFF reads as -1) switches it on.
@@ -1338,18 +1813,85 @@ function Invoke-BaselineChecks {
         }
         if ((& $can 'ldap_server_signing_off') -and $h.ldapServer) {
             $v = & $n $h.ldapServer.integrity
-            if ($v -ne 2) { Add-Finding -Type 'ldap_server_signing_off' -Object 'LDAP server signing' -Detail "LDAPServerIntegrity = $(if ($null -eq $v) { 'not set (negotiate)' } else { $v }), expected 2 (require signing)." }
+            if ($v -ne 2) { Add-Finding -Type 'ldap_server_signing_off' -Object 'LDAP server signing' -ServerCis '2.3.5.4' -Detail "LDAPServerIntegrity = $(if ($null -eq $v) { 'not set (negotiate)' } else { $v }) ({cis} expects 2, require signing)." }
             $v = & $n $h.ldapServer.channelBinding
-            if ($v -ne 2) { Add-Finding -Type 'ldap_server_signing_off' -Object 'LDAP channel binding' -Detail "LdapEnforceChannelBinding = $(if ($null -eq $v) { 'not set' } else { $v }), expected 2 (always)." }
+            if ($v -ne 2) { Add-Finding -Type 'ldap_server_signing_off' -Object 'LDAP channel binding' -ServerCis '2.3.5.3' -Detail "LdapEnforceChannelBinding = $(if ($null -eq $v) { 'not set' } else { $v }) ({cis} expects 2, always)." }
+        }
+        if ((& $can 'dc_netlogon_policy_weak') -and $h.netlogon) {
+            $nl = $h.netlogon
+            if ($nl.vulnerableChannelAllowListPresent -eq $true) { Add-Finding -Type 'dc_netlogon_policy_weak' -Object 'Netlogon: VulnerableChannelAllowList' -Severity 'High' -ServerCis '2.3.5.2' -Found 'set' -Expected 'not configured' -Detail 'An exception list for vulnerable Netlogon secure channel connections (Zerologon) is set ({cis} expects it not configured).' }
+            $v = & $n $nl.refusePasswordChange
+            if ($v -eq 1) { Add-Finding -Type 'dc_netlogon_policy_weak' -Object 'Netlogon: RefusePasswordChange' -Severity 'Medium' -ServerCis '2.3.5.5' -Detail 'RefusePasswordChange = 1: machine account passwords are never changed ({cis} expects 0).' }
+        }
+        if ((& $can 'dc_netlogon_policy_weak') -and $h.serverLogon) {
+            $v = & $n $h.serverLogon.submitControl
+            if ($v -eq 1) { Add-Finding -Type 'dc_netlogon_policy_weak' -Object 'Server Operators: schedule tasks' -Severity 'Medium' -ServerCis '2.3.5.1' -Detail 'SubmitControl = 1: Server Operators can schedule tasks that run as SYSTEM ({cis} expects 0).' }
+        }
+        if ((& $can 'server_baseline_gaps') -and $h.serverLogon) {
+            $v = & $n $h.serverLogon.shutdownWithoutLogon
+            if ($v -eq 1) { Add-Finding -Type 'server_baseline_gaps' -Object 'Shutdown without logon' -ServerCis '2.3.13.1' -Detail 'ShutdownWithoutLogon = 1 ({cis} expects 0).' }
+            $v = & $n $h.serverLogon.forceUnlockLogon
+            if ($role -eq 'server' -and $v -eq 0) { Add-Finding -Type 'server_baseline_gaps' -Object 'Unlock without domain controller' -ServerCis '2.3.7.8' -Detail 'ForceUnlockLogon = 0: the server unlocks with cached credentials ({cis} expects 1).' }
+        }
+        $lp = $S.laps
+        if ((& $can 'server_baseline_gaps') -and $role -eq 'server' -and $lp -and "$($lp.windowsLapsBackupDirectory)" -eq '2' -and "$($lp.windowsLapsPasswordExpirationProtection)" -eq '0') {
+            Add-Finding -Type 'server_baseline_gaps' -Object 'Windows LAPS: password expiration protection' -ServerCis '18.9.25.2' -Detail "PasswordExpirationProtectionEnabled = 0 in the $($lp.windowsLapsPolicyRoot) policy: the password expiry can be pushed beyond the policy ({cis} expects 1)."
+        }
+        if ((& $can 'smb_server_hardening_gaps') -and $h.serverSmb) {
+            $v = & $n $h.serverSmb.minSmb2Dialect
+            if ($v -ne 785) { Add-Finding -Type 'smb_server_hardening_gaps' -Object 'SMB server: minimum dialect' -ServerCis '18.6.7.1' -Found $(if ($null -eq $v) { 'not set' } else { "$v" }) -Expected '785 (3.1.1)' -Detail "MinSmb2Dialect = $(if ($null -eq $v) { 'not set' } else { $v }) ({cis} expects 785, SMB 3.1.1)." }
+            $v = & $n $h.serverSmb.clientRequireEncryption
+            if ($v -ne 1) { Add-Finding -Type 'smb_server_hardening_gaps' -Object 'SMB client: require encryption' -ServerCis '18.6.8.2' -Found $(if ($null -eq $v) { 'not set' } else { "$v" }) -Expected '1' -Detail "RequireEncryption = $(if ($null -eq $v) { 'not set' } else { $v }) ({cis} expects 1)." }
+        }
+        if ((& $can 'defender_server_baseline_gaps') -and $h.defenderPolicy) {
+            $v = & $n $h.defenderPolicy.hideExclusionsFromLocalUsers
+            if ($v -ne 1) { Add-Finding -Type 'defender_server_baseline_gaps' -Object 'Defender: exclusions hidden from local users' -ServerCis '18.10.43.17' -Found $(if ($null -eq $v) { 'not set' } else { "$v" }) -Expected '1' -Detail "HideExclusionsFromLocalUsers = $(if ($null -eq $v) { 'not set' } else { $v }) ({cis} expects 1)." }
+            $v = & $n $h.defenderPolicy.quickScanIncludeExclusions
+            if ($v -ne 1) { Add-Finding -Type 'defender_server_baseline_gaps' -Object 'Defender: quick scan includes exclusions' -ServerCis '18.10.43.13.1' -Found $(if ($null -eq $v) { 'not set' } else { "$v" }) -Expected '1' -Detail "QuickScanIncludeExclusions = $(if ($null -eq $v) { 'not set' } else { $v }) ({cis} expects 1)." }
+        }
+        if ((& $can 'terminal_services_server_gaps') -and $h.terminalServicesPolicy) {
+            $v = & $n $h.terminalServicesPolicy.perSessionTempDir
+            if ($v -ne 1) { Add-Finding -Type 'terminal_services_server_gaps' -Object 'Remote Desktop: per-session temporary folders' -ServerCis '18.10.57.3.11.2' -Found $(if ($null -eq $v) { 'not set' } else { "$v" }) -Expected '1' -Detail "PerSessionTempDir = $(if ($null -eq $v) { 'not set' } else { $v }) ({cis} expects 1, a temporary folder per session)." }
+            $v = & $n $h.terminalServicesPolicy.singleSessionPerUser
+            if ($v -ne 1) { Add-Finding -Type 'terminal_services_server_gaps' -Object 'Remote Desktop: single session per user' -ServerCis '18.10.57.3.2.1' -Found $(if ($null -eq $v) { 'not set' } else { "$v" }) -Expected '1' -Detail "fSingleSessionPerUser = $(if ($null -eq $v) { 'not set' } else { $v }) ({cis} expects 1)." }
+        }
+        if ((& $can 'explorer_motw_bypass') -and $h.serverPolicy) {
+            $v = & $n $h.serverPolicy.disableMotwInsecureCopy
+            if ($v -eq 1) { Add-Finding -Type 'explorer_motw_bypass' -Object 'Explorer: Mark of the Web on insecure copy' -ServerCis '18.10.29.2' -Found '1' -Expected '0' -Detail 'DisableMotWOnInsecurePathCopy = 1: files copied from insecure sources keep no zone marker ({cis} expects 0, the policy Disabled).' }
+        }
+        if ((& $can 'app_installer_policy_gaps') -and $h.serverPolicy -and $h.serverPolicy.appInstaller) {
+            $ai = $h.serverPolicy.appInstaller
+            $v = & $n $ai.localArchiveMalwareScanOverride
+            if ($v -ne 0) { Add-Finding -Type 'app_installer_policy_gaps' -Object 'App Installer: local archive malware scan override' -ServerCis '18.10.18.4' -Found $(if ($null -eq $v) { 'not set' } else { "$v" }) -Expected '0' -Detail "EnableLocalArchiveMalwareScanOverride = $(if ($null -eq $v) { 'not set' } else { $v }) ({cis} expects 0, no override)." }
+            $v = & $n $ai.bypassCertPinningForStore
+            if ($v -ne 0) { Add-Finding -Type 'app_installer_policy_gaps' -Object 'App Installer: Store certificate pinning bypass' -ServerCis '18.10.18.6' -Found $(if ($null -eq $v) { 'not set' } else { "$v" }) -Expected '0' -Detail "EnableBypassCertificatePinningForMicrosoftStore = $(if ($null -eq $v) { 'not set' } else { $v }) ({cis} expects 0)." }
+            $v = & $n $ai.commandLineInterfaces
+            if ($v -ne 0) { Add-Finding -Type 'app_installer_policy_gaps' -Object 'App Installer: winget command-line interfaces' -ServerCis '18.10.18.7' -Found $(if ($null -eq $v) { 'not set' } else { "$v" }) -Expected '0' -Detail "EnableWindowsPackageManagerCommandLineInterfaces = $(if ($null -eq $v) { 'not set' } else { $v }) ({cis} expects 0)." }
+        }
+        if ((& $can 'server_network_policy_gaps') -and $h.serverPolicy) {
+            $v = & $n $h.serverPolicy.ipv6DefaultDnsDisabled
+            if ($v -ne 1) { Add-Finding -Type 'server_network_policy_gaps' -Object 'DNS client: default IPv6 DNS servers' -ServerCis '18.6.4.3' -Found $(if ($null -eq $v) { 'not set' } else { "$v" }) -Expected '1' -Detail "DisableIPv6DefaultDnsServers = $(if ($null -eq $v) { 'not set' } else { $v }) ({cis} expects 1, default IPv6 DNS off)." }
+            $v = & $n $h.serverPolicy.ieFeedBasicAuthInClear
+            if ($v -ne 0) { Add-Finding -Type 'server_network_policy_gaps' -Object 'Internet Explorer feeds: Basic auth in clear' -ServerCis '18.10.58.2' -Found $(if ($null -eq $v) { 'not set' } else { "$v" }) -Expected '0' -Detail "AllowBasicAuthInClear = $(if ($null -eq $v) { 'not set' } else { $v }) ({cis} expects 0, no Basic auth over HTTP)." }
+        }
+        if ((& $can 'ldap_client_encryption_weak') -and $h.serverPolicy) {
+            $v = & $n $h.serverPolicy.ldapClientConfidentiality
+            if (($null -eq $v) -or ($v -lt 1)) { Add-Finding -Type 'ldap_client_encryption_weak' -Object 'LDAP client encryption' -ServerCis '2.3.11.8' -Found $(if ($null -eq $v) { 'not set (None)' } else { "$v" }) -Expected '1 or 2 (Negotiate/Require sealing)' -Detail "LDAPClientConfidentiality = $(if ($null -eq $v) { 'not set (None)' } else { $v }) ({cis} expects at least 1, Negotiate sealing)." }
+        }
+        if ((& $can 'dc_security_policy_gaps') -and $h.serverPolicy) {
+            $v = & $n $h.serverPolicy.samNgcRocaValidation
+            if ($v -ne 1 -and $v -ne 2) { Add-Finding -Type 'dc_security_policy_gaps' -Object 'ROCA-vulnerable WHfB key validation' -Severity 'Medium' -ServerCis '18.9.39.1' -Found $(if ($null -eq $v) { 'not set' } else { "$v" }) -Expected '1 or 2 (Audit/Block)' -Detail "SamNGCKeyROCAValidation = $(if ($null -eq $v) { 'not set' } else { $v }) ({cis} expects 1, Audit, or 2, Block)." }
+            $v = & $n $h.serverPolicy.auditNtlmInDomain
+            if ($v -ne 7) { Add-Finding -Type 'dc_security_policy_gaps' -Object 'Audit NTLM authentication in this domain' -Severity 'Low' -ServerCis '2.3.11.13' -Found $(if ($null -eq $v) { 'not set' } else { "$v" }) -Expected '7 (Enable all)' -Detail "AuditNTLMInDomain = $(if ($null -eq $v) { 'not set' } else { $v }) ({cis} expects 7, Enable all)." }
         }
         if ((& $can 'print_point_and_print_weak') -and $h.pointAndPrint) {
             $pp = $h.pointAndPrint
             $v = & $n $pp.restrictDriverInstallToAdmins
-            if ($v -eq 0) { Add-Finding -Type 'print_point_and_print_weak' -Object 'RestrictDriverInstallationToAdministrators' -Detail 'RestrictDriverInstallationToAdministrators = 0: standard users can install printer drivers.' }
+            if ($v -eq 0) { Add-Finding -Type 'print_point_and_print_weak' -Object 'RestrictDriverInstallationToAdministrators' -Found '0' -Expected '1' -Detail 'RestrictDriverInstallationToAdministrators = 0: standard users can install printer drivers.' }
             $v = & $n $pp.noWarningNoElevationOnInstall
-            if ($v -eq 1) { Add-Finding -Type 'print_point_and_print_weak' -Object 'NoWarningNoElevationOnInstall' -Severity 'High' -Detail 'NoWarningNoElevationOnInstall = 1: installing a driver from a print server needs no elevation (PrintNightmare condition).' }
+            if ($v -eq 1) { Add-Finding -Type 'print_point_and_print_weak' -Object 'NoWarningNoElevationOnInstall' -Severity 'High' -Found '1' -Expected '0 or not set' -Detail 'NoWarningNoElevationOnInstall = 1: installing a driver from a print server needs no elevation (PrintNightmare condition).' }
             $v = & $n $pp.noWarningNoElevationOnUpdate
-            if ($v -eq 1) { Add-Finding -Type 'print_point_and_print_weak' -Object 'NoWarningNoElevationOnUpdate' -Severity 'High' -Detail 'NoWarningNoElevationOnUpdate = 1: updating a driver from a print server needs no elevation.' }
+            if ($v -eq 1) { Add-Finding -Type 'print_point_and_print_weak' -Object 'NoWarningNoElevationOnUpdate' -Severity 'High' -Found '1' -Expected '0 or not set' -Detail 'NoWarningNoElevationOnUpdate = 1: updating a driver from a print server needs no elevation.' }
         }
         $v = & $n $h.mrxsmb10Start
         if ((& $can 'smb1_client_driver_enabled') -and $null -ne $v -and $v -ne 4) { Add-Finding -Type 'smb1_client_driver_enabled' -Object 'mrxsmb10 driver' -Detail "Start = $v (CIS 18.4.3 expects 4, disabled)." }
@@ -1396,7 +1938,7 @@ function Invoke-BaselineChecks {
                 Add-Finding -Type 'inactivity_lock_missing' -Object 'InactivityTimeoutSecs' -Detail "$(if ($null -eq $v) { 'Not set' } else { "InactivityTimeoutSecs = $v" }) (CIS 2.3.7.4 expects 1 to 900 seconds)."
             }
             if ((& $can 'logon_banner_missing') -and -not $il.legalNoticeTextSet -and -not $il.legalNoticeCaptionSet) {
-                Add-Finding -Type 'logon_banner_missing' -Object 'Logon message' -Detail 'No LegalNoticeCaption or LegalNoticeText (CIS 2.3.7.5, 2.3.7.6).'
+                Add-Finding -Type 'logon_banner_missing' -Object 'Logon message' -Found 'not set' -Expected 'a title and a text' -Detail 'No LegalNoticeCaption or LegalNoticeText (CIS 2.3.7.5, 2.3.7.6).'
             }
             if (& $can 'interactive_logon_gaps') {
                 $v = & $n $il.dontDisplayLastUserName
@@ -1446,7 +1988,7 @@ function Invoke-BaselineChecks {
     }
     $ps = $S.powershell
     if ($ps -and (& $can 'powershell_transcription_off') -and "$($ps.transcription)" -ne '1') {
-        Add-Finding -Type 'powershell_transcription_off' -Object 'PowerShell transcription' -Detail 'EnableTranscripting not set to 1 (CIS 18.10.86.2, Level 2).'
+        Add-Finding -Type 'powershell_transcription_off' -Object 'PowerShell transcription' -Found $(if ($null -eq $ps.transcription) { 'not set' } else { "$($ps.transcription)" }) -Expected '1' -Detail 'EnableTranscripting not set to 1 (CIS 18.10.86.2, Level 2).'
     }
     $d = $S.defender
     if ($d -and (& $can 'defender_network_protection_off') -and $null -ne $d.networkProtection -and "$($d.networkProtection)" -ne '1') {
@@ -1466,21 +2008,42 @@ function Invoke-BaselineChecks {
             Add-Finding -Type 'service_should_be_disabled' -Object "service: $name" -Severity $sev -Detail "$($svc.state), start mode $($svc.startMode) (CIS $($script:CisDisableServices[$name]) expects disabled)."
         }
     }
+    if (& $can 'webclient_webdav_enabled') {
+        $wc = @($S.services | Where-Object { "$($_.name)" -eq 'WebClient' }) | Select-Object -First 1
+        if ($wc -and "$($wc.startMode)" -ne 'Disabled') {
+            $sev = if ($role -eq 'dc') { 'High' } elseif ($role -eq 'server') { 'Medium' } else { 'Low' }
+            Add-Finding -Type 'webclient_webdav_enabled' -Object 'service: WebClient' -Severity $sev -Detail "WebClient (WebDAV) is $($wc.state), start mode $($wc.startMode): coercion (PetitPotam) can force the host to authenticate over HTTP for NTLM relay."
+        }
+    }
+    if ((& $can 'wpad_not_disabled') -and $h) {
+        $wpad = & $n $h.wpadDisabled
+        $svc = @($S.services | Where-Object { "$($_.name)" -eq 'WinHttpAutoProxySvc' }) | Select-Object -First 1
+        $svcDisabled = $svc -and "$($svc.startMode)" -eq 'Disabled'
+        if ($wpad -ne 1 -and -not $svcDisabled) {
+            Add-Finding -Type 'wpad_not_disabled' -Object 'WPAD auto-discovery' -Detail "DisableWpad = $(if ($null -eq $wpad) { 'not set' } else { $wpad }) and the WinHttpAutoProxySvc service is $(if ($svc) { "$($svc.startMode.ToLower())" } else { 'present' }): clients still resolve 'wpad', which an attacker can answer to capture NTLM."
+        }
+    }
 }
-# User rights (CIS 2.2.x, Level 1, Windows 11 workstation): who may hold each one. The expected
-# principals are SIDs. Sev is High for the rights that lead straight to SYSTEM.
+# User rights (CIS 2.2.x, Level 1): who may hold each one. The expected principals are SIDs. Expect
+# is the Windows 11 workstation; Dc and Ms, when given, the domain controller and member server
+# variants of the CIS Windows Server 2022/2019 benchmarks (the rule number follows data\cis-map.json).
+# ServerRule: a right only the server benchmark has (quoted with its server number). Sev is High for
+# the rights that lead straight to SYSTEM.
 $script:CisUserRights = @(
     @{ Right = 'SeTrustedCredManAccessPrivilege'; Rule = '2.2.1'; Expect = @(); Sev = 'High' }
-    @{ Right = 'SeNetworkLogonRight'; Rule = '2.2.2'; Expect = @('S-1-5-32-544', 'S-1-5-32-555'); Sev = 'Medium' }
+    @{ Right = 'SeNetworkLogonRight'; Rule = '2.2.2'; Expect = @('S-1-5-32-544', 'S-1-5-32-555'); Dc = @('S-1-5-32-544', 'S-1-5-11', 'S-1-5-9'); Ms = @('S-1-5-32-544', 'S-1-5-11'); Sev = 'Medium' }
     @{ Right = 'SeTcbPrivilege'; Rule = '2.2.3'; Expect = @(); Sev = 'High' }
-    @{ Right = 'SeInteractiveLogonRight'; Rule = '2.2.5'; Expect = @('S-1-5-32-544', 'S-1-5-32-545'); Sev = 'Medium' }
-    @{ Right = 'SeRemoteInteractiveLogonRight'; Rule = '2.2.6'; Expect = @('S-1-5-32-544', 'S-1-5-32-555'); Sev = 'Medium' }
+    @{ Right = 'SeMachineAccountPrivilege'; ServerRule = '2.2.5'; Dc = @('S-1-5-32-544'); Sev = 'Medium' }
+    @{ Right = 'SeInteractiveLogonRight'; Rule = '2.2.5'; Expect = @('S-1-5-32-544', 'S-1-5-32-545'); Dc = @('S-1-5-32-544', 'S-1-5-9'); Ms = @('S-1-5-32-544'); Sev = 'Medium' }
+    @{ Right = 'SeRemoteInteractiveLogonRight'; Rule = '2.2.6'; Expect = @('S-1-5-32-544', 'S-1-5-32-555'); Dc = @('S-1-5-32-544'); Ms = @('S-1-5-32-544', 'S-1-5-32-555'); Sev = 'Medium' }
     @{ Right = 'SeBackupPrivilege'; Rule = '2.2.7'; Expect = @('S-1-5-32-544'); Sev = 'Medium' }
     @{ Right = 'SeCreatePagefilePrivilege'; Rule = '2.2.10'; Expect = @('S-1-5-32-544'); Sev = 'Medium' }
     @{ Right = 'SeCreateTokenPrivilege'; Rule = '2.2.11'; Expect = @(); Sev = 'High' }
     @{ Right = 'SeCreatePermanentPrivilege'; Rule = '2.2.13'; Expect = @(); Sev = 'Medium' }
+    # Virtual Machines holds it once Hyper-V is installed: CIS accepts it there (not on a DC).
+    @{ Right = 'SeCreateSymbolicLinkPrivilege'; Rule = '2.2.14'; Expect = @('S-1-5-32-544', 'S-1-5-83-0'); Dc = @('S-1-5-32-544'); Ms = @('S-1-5-32-544', 'S-1-5-83-0'); Sev = 'Medium' }
     @{ Right = 'SeDebugPrivilege'; Rule = '2.2.15'; Expect = @('S-1-5-32-544'); Sev = 'High' }
-    @{ Right = 'SeEnableDelegationPrivilege'; Rule = '2.2.21'; Expect = @(); Sev = 'High' }
+    @{ Right = 'SeEnableDelegationPrivilege'; Rule = '2.2.21'; Expect = @(); Dc = @('S-1-5-32-544'); Sev = 'High' }
     @{ Right = 'SeRemoteShutdownPrivilege'; Rule = '2.2.22'; Expect = @('S-1-5-32-544'); Sev = 'Medium' }
     @{ Right = 'SeLoadDriverPrivilege'; Rule = '2.2.26'; Expect = @('S-1-5-32-544'); Sev = 'High' }
     @{ Right = 'SeLockMemoryPrivilege'; Rule = '2.2.27'; Expect = @(); Sev = 'Medium' }
@@ -1491,19 +2054,28 @@ $script:CisUserRights = @(
     @{ Right = 'SeProfileSingleProcessPrivilege'; Rule = '2.2.34'; Expect = @('S-1-5-32-544'); Sev = 'Medium' }
     @{ Right = 'SeRestorePrivilege'; Rule = '2.2.37'; Expect = @('S-1-5-32-544'); Sev = 'Medium' }
     @{ Right = 'SeTakeOwnershipPrivilege'; Rule = '2.2.39'; Expect = @('S-1-5-32-544'); Sev = 'High' }
+    @{ Right = 'SeSyncAgentPrivilege'; ServerRule = '2.2.48'; Dc = @(); Sev = 'Medium' }
 )
 # Deny rights: principals that must be listed.
 $script:CisDenyRights = @(
-    @{ Right = 'SeDenyNetworkLogonRight'; Rule = '2.2.16'; Need = @('S-1-5-32-546', 'S-1-5-113') }
+    @{ Right = 'SeDenyNetworkLogonRight'; Rule = '2.2.16'; Need = @('S-1-5-32-546', 'S-1-5-113'); Dc = @('S-1-5-32-546'); Ms = @('S-1-5-32-546', 'S-1-5-114') }
     @{ Right = 'SeDenyBatchLogonRight'; Rule = '2.2.17'; Need = @('S-1-5-32-546') }
     @{ Right = 'SeDenyServiceLogonRight'; Rule = '2.2.18'; Need = @('S-1-5-32-546') }
     @{ Right = 'SeDenyInteractiveLogonRight'; Rule = '2.2.19'; Need = @('S-1-5-32-546') }
-    @{ Right = 'SeDenyRemoteInteractiveLogonRight'; Rule = '2.2.20'; Need = @('S-1-5-32-546', 'S-1-5-113') }
+    @{ Right = 'SeDenyRemoteInteractiveLogonRight'; Rule = '2.2.20'; Need = @('S-1-5-32-546', 'S-1-5-113'); Dc = @('S-1-5-32-546') }
 )
+# The expected principals of a user-right spec for this host's role ($null: not judged on this role).
+function Get-UserRightExpect {
+    param($Spec, [string]$Role, [string]$Field = 'Expect')
+    if ($Role -eq 'dc' -and $Spec.ContainsKey('Dc')) { return , @($Spec.Dc) }
+    if ($Role -eq 'server' -and $Spec.ContainsKey('Ms')) { return , @($Spec.Ms) }
+    if ($Spec.ContainsKey($Field)) { return , @($Spec[$Field]) }
+    return $null
+}
 $script:PrincipalLabels = @{
     'S-1-1-0' = 'Everyone'; 'S-1-5-11' = 'Authenticated Users'; 'S-1-5-19' = 'LOCAL SERVICE'; 'S-1-5-20' = 'NETWORK SERVICE'; 'S-1-5-6' = 'SERVICE'
     'S-1-5-113' = 'Local account'; 'S-1-5-114' = 'Local account and member of Administrators'; 'S-1-5-32-544' = 'Administrators'; 'S-1-5-32-545' = 'Users'
-    'S-1-5-32-546' = 'Guests'; 'S-1-5-32-547' = 'Power Users'; 'S-1-5-32-551' = 'Backup Operators'; 'S-1-5-32-555' = 'Remote Desktop Users'
+    'S-1-5-32-546' = 'Guests'; 'S-1-5-9' = 'ENTERPRISE DOMAIN CONTROLLERS'; 'S-1-5-32-547' = 'Power Users'; 'S-1-5-32-551' = 'Backup Operators'; 'S-1-5-32-555' = 'Remote Desktop Users'
     'S-1-5-32-568' = 'IIS_IUSRS'; 'S-1-5-90-0' = 'Window Manager Group'; 'S-1-5-83-0' = 'Virtual Machines'
 }
 function Get-PrincipalLabel {
@@ -1543,21 +2115,28 @@ function Invoke-PolicyChecks {
     $pr = $sp.privilegeRights
     if ($pr -and (& $can 'user_rights_excessive')) {
         foreach ($spec in $script:CisUserRights) {
+            $expect = Get-UserRightExpect -Spec $spec -Role $role
+            if ($null -eq $expect) { continue }
             $holders = $pr.($spec.Right)
             if ($null -eq $holders -and -not ($pr.PSObject.Properties.Name -contains $spec.Right)) { continue }
-            $extra = @(@($holders) | Where-Object { $_ -and ($spec.Expect -notcontains "$_") })
+            $extra = @(@($holders) | Where-Object { $_ -and ($expect -notcontains "$_") })
             if ($extra.Count -gt 0) {
                 $who = ($extra | ForEach-Object { Get-PrincipalLabel "$_" }) -join ', '
-                Add-Finding -Type 'user_rights_excessive' -Object "right: $($spec.Right)" -Severity $spec.Sev -Detail "Also held by $who (CIS $($spec.Rule) expects $(if ($spec.Expect.Count -eq 0) { 'no one' } else { ($spec.Expect | ForEach-Object { Get-PrincipalLabel $_ }) -join ', ' }))."
+                $want = if ($expect.Count -eq 0) { 'no one' } else { ($expect | ForEach-Object { Get-PrincipalLabel $_ }) -join ', ' }
+                $held = (@($holders) | Where-Object { $_ } | ForEach-Object { Get-PrincipalLabel "$_" }) -join ', '
+                if ($spec.ServerRule) { Add-Finding -Type 'user_rights_excessive' -Object "right: $($spec.Right)" -Severity $spec.Sev -ServerCis $spec.ServerRule -Found $held -Expected $want -Detail "Also held by $who ({cis} expects $want)." }
+                else { Add-Finding -Type 'user_rights_excessive' -Object "right: $($spec.Right)" -Severity $spec.Sev -Found $held -Expected $want -Detail "Also held by $who (CIS $($spec.Rule) expects $want)." }
             }
         }
     }
     if ($pr -and (& $can 'deny_logon_rights_missing')) {
         foreach ($spec in $script:CisDenyRights) {
+            $need = Get-UserRightExpect -Spec $spec -Role $role -Field 'Need'
             if (-not ($pr.PSObject.Properties.Name -contains $spec.Right)) { $holders = @() } else { $holders = @($pr.($spec.Right)) }
-            $missing = @($spec.Need | Where-Object { $holders -notcontains $_ })
+            $missing = @($need | Where-Object { $holders -notcontains $_ })
             if ($missing.Count -gt 0) {
-                Add-Finding -Type 'deny_logon_rights_missing' -Object "right: $($spec.Right)" -Detail "Missing: $(($missing | ForEach-Object { Get-PrincipalLabel $_ }) -join ', ') (CIS $($spec.Rule))."
+                $listed = (@($holders) | Where-Object { $_ } | ForEach-Object { Get-PrincipalLabel "$_" }) -join ', '
+                Add-Finding -Type 'deny_logon_rights_missing' -Object "right: $($spec.Right)" -Found $(if ($listed) { $listed } else { 'no one' }) -Expected "at least $(($need | ForEach-Object { Get-PrincipalLabel $_ }) -join ', ')" -Detail "Missing: $(($missing | ForEach-Object { Get-PrincipalLabel $_ }) -join ', ') (CIS $($spec.Rule))."
             }
         }
     }

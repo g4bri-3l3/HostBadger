@@ -26,7 +26,7 @@ foreach ($k in @(
         'remote_uac_token_filter_off', 'always_install_elevated', 'wu_auto_updates_disabled', 'smartscreen_off', 'event_logs_small', 'security_log_small',
         'powershell_scriptblock_logging_off', 'powershell_transcription_off', 'cmdline_audit_off', 'sehop_disabled', 'safe_dll_search_off',
         'ip_stack_hardening_gaps', 'rdp_policy_gaps', 'rdp_nla_disabled', 'cached_logons_high', 'guest_enabled', 'defender_realtime_off',
-        'defender_pua_off', 'defender_network_protection_off', 'firewall_profile_disabled', 'firewall_default_inbound_allow', 'firewall_drop_logging_off',
+        'defender_pua_off', 'defender_network_protection_off', 'firewall_profile_disabled', 'firewall_default_inbound_allow', 'firewall_drop_logging_off', 'firewall_notifications_on', 'dc_netlogon_policy_weak', 'server_baseline_gaps', 'driver_blocklist_off', 'mdns_enabled',
         'powershell_v2_enabled', 'spooler_on_dc')) { $script:FixTypes[$k] = $true }
 
 # The fixes for one finding, as data. Kind is reg, smb, mp, fw, feature, user or service. Two
@@ -97,6 +97,24 @@ function Get-RemediationActions {
                 'WinRM client: Digest authentication' = @($wrmC, 'AllowDigest'); 'WinRM service: Basic authentication' = @($wrmS, 'AllowBasic')
                 'WinRM service: unencrypted traffic' = @($wrmS, 'AllowUnencryptedTraffic') }
             if ($map.ContainsKey($o)) { & $reg $map[$o][0] $map[$o][1] 0 }
+            elseif ($o -eq 'WinRM service: RunAs credential storage') { & $reg $wrmS 'DisableRunAs' 1 }
+            # AllowAutoConfig (Level 2) is left without a fix script on purpose: disabling remote
+            # WinRM configuration can break EDR/RMM tooling that configures WinRM remotely.
+        }
+        'mdns_enabled' { & $reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient' 'EnableMDNS' 0 }
+        'driver_blocklist_off' { & $reg 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Config' 'VulnerableDriverBlocklistEnable' 1 -Restart }
+        'dc_netlogon_policy_weak' {
+            if ($o -eq 'Netlogon: RefusePasswordChange') { & $reg $nl 'RefusePasswordChange' 0 }
+            elseif ($o -eq 'Server Operators: schedule tasks') { & $reg $lsa 'SubmitControl' 0 }
+            # The Zerologon exception list is left alone: removing it cuts off the devices it lists.
+        }
+        'server_baseline_gaps' {
+            if ($o -eq 'Shutdown without logon') { & $reg $sys 'ShutdownWithoutLogon' 0 }
+            # ForceUnlockLogon makes unlocking depend on a domain controller, and the LAPS setting lives
+            # in whichever policy root is active: both are decisions.
+        }
+        'firewall_notifications_on' {
+            if ($o -match '^profile: (Domain|Private|Public)$') { & $reg "HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\$($Matches[1])Profile" 'DisableNotifications' 1 }
         }
         'smb1_client_driver_enabled' { & $reg 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10' 'Start' 4 -Restart }
         'smb1_server_enabled' { & $smb 'Server' 'EnableSMB1Protocol' $false }

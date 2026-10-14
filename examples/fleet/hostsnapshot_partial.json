@@ -131,6 +131,8 @@
     "smbServerSigningRequired": true,
     "smbClientSigningRequired": true,
     "llmnrPolicyEnableMulticast": 0,
+    "mdnsPolicyEnable": 0,
+    "mdnsServiceEnable": null,
     "netbios": [
       {
         "adapter": "vmxnet3 Ethernet Adapter",
@@ -207,7 +209,9 @@
     "administratorsReadable": false
   },
   "laps": {
+    "windowsLapsPolicyRoot": "gpo",
     "windowsLapsBackupDirectory": 2,
+    "windowsLapsPasswordExpirationProtection": 1,
     "legacyLapsEnabled": null,
     "legacyLapsCseInstalled": false
   },
@@ -333,6 +337,7 @@
     "forceGuest": 0,
     "enablePlainTextPassword": 0,
     "nullSessionPipesCount": 0,
+    "nullSessionPipesNonDcCount": 0,
     "nullSessionSharesCount": 0,
     "restrictNullSessAccess": 1,
     "netlogon": {
@@ -341,14 +346,38 @@
       "signSecureChannel": 1,
       "requireStrongKey": 1,
       "disablePasswordChange": 0,
-      "maximumPasswordAge": 30
+      "maximumPasswordAge": 30,
+      "refusePasswordChange": 0,
+      "vulnerableChannelAllowListPresent": false
+    },
+    "serverLogon": {
+      "submitControl": 0,
+      "shutdownWithoutLogon": 0,
+      "forceUnlockLogon": 1
     },
     "winrm": {
       "clientAllowBasic": 0,
       "clientAllowUnencryptedTraffic": 0,
       "clientAllowDigest": 0,
       "serviceAllowBasic": 0,
-      "serviceAllowUnencryptedTraffic": 0
+      "serviceAllowUnencryptedTraffic": 0,
+      "serviceDisableRunAs": 1,
+      "serviceAllowAutoConfig": 0
+    },
+    "firewallPolicy": {
+      "domainDisableNotifications": 1,
+      "privateDisableNotifications": 1,
+      "publicDisableNotifications": 1
+    },
+    "certPaddingCheck": "1",
+    "certPaddingCheckWow": "1",
+    "is64BitOs": true,
+    "bitlockerPolicy": {
+      "DisableExternalDMAUnderLock": 1,
+      "RDVDenyWriteAccess": 1,
+      "OSHardwareEncryption": 0,
+      "UseTPMPIN": 1,
+      "FDVDiscoveryVolumeType": ""
     },
     "rdpPolicy": {
       "securityLayer": 2,
@@ -356,6 +385,31 @@
       "promptForPassword": 1,
       "encryptRpcTraffic": 1,
       "disableDriveRedirection": 1
+    },
+    "serverSmb": {
+      "minSmb2Dialect": 785,
+      "clientRequireEncryption": 1
+    },
+    "defenderPolicy": {
+      "hideExclusionsFromLocalUsers": 1,
+      "quickScanIncludeExclusions": 1
+    },
+    "terminalServicesPolicy": {
+      "perSessionTempDir": 1,
+      "singleSessionPerUser": 1
+    },
+    "serverPolicy": {
+      "disableMotwInsecureCopy": 0,
+      "ipv6DefaultDnsDisabled": 1,
+      "ieFeedBasicAuthInClear": 0,
+      "ldapClientConfidentiality": 1,
+      "samNgcRocaValidation": 1,
+      "auditNtlmInDomain": 7,
+      "appInstaller": {
+        "localArchiveMalwareScanOverride": 0,
+        "bypassCertPinningForStore": 0,
+        "commandLineInterfaces": 0
+      }
     },
     "explorer": {
       "noDriveTypeAutoRun": 255,
@@ -379,6 +433,7 @@
       "promptOnSecureDesktop": 1,
       "enableVirtualization": 1
     },
+    "wpadDisabled": 1,
     "noAutoUpdate": 0,
     "enableSmartScreen": 1,
     "eventLogs": [
@@ -2945,6 +3000,32 @@
       "ancestorControl": []
     }
   ],
+  "drivers": {
+    "list": [
+      {
+        "name": "ACPI",
+        "state": "Running",
+        "startMode": "Boot",
+        "path": "C:\\Windows\\system32\\drivers\\ACPI.sys",
+        "sha256": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+      },
+      {
+        "name": "disk",
+        "state": "Running",
+        "startMode": "Boot",
+        "path": "C:\\Windows\\system32\\drivers\\disk.sys",
+        "sha256": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+      },
+      {
+        "name": "WdFilter",
+        "state": "Running",
+        "startMode": "Boot",
+        "path": "C:\\Windows\\system32\\drivers\\wd\\WdFilter.sys",
+        "sha256": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+      }
+    ],
+    "blocklistEnable": 1
+  },
   "scheduledTasks": [
     {
       "path": "\\",

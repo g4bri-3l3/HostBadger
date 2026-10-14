@@ -18,8 +18,13 @@
 .PARAMETER Snapshot
     Snapshot files (hostsnapshot_*.json or .zip) or folders holding them
     (searched recursively). Several can be given.
+.PARAMETER OutDir
+    Folder for the output files. Default .\output. A -OutHtml / -OutCsv /
+    -OutJsonl / -OutRemediation given as a bare file name lands here; a name
+    with a folder, or an absolute path, is used exactly as given. The folder
+    is created if it does not exist.
 .PARAMETER OutHtml
-    HTML report. Default hostbadger_<time>.html in the current folder.
+    HTML report. Default hostbadger_<time>.html, written in -OutDir (.\output).
 .PARAMETER SkipStig
     Leave out the DISA STIG checks (about 500 registry rules, one finding
     each). The other checks are not affected.
@@ -40,6 +45,24 @@
     Download that catalog now. One HTTPS GET to
     www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json;
     nothing is sent. The copy is kept next to the report (<report>_kev.json).
+.PARAMETER DriversOnline
+    Download the LOLDrivers catalog of known vulnerable and malicious drivers now,
+    instead of using the copy shipped in data\vulnerable-drivers.json. One HTTPS
+    GET of about 30 MB to www.loldrivers.io/api/drivers.json; nothing is sent.
+    The converted copy is kept next to the report (<report>_drivers.json).
+.PARAMETER DriversFile
+    A LOLDrivers catalog you already have, instead of the copy in data\: the
+    drivers.json from www.loldrivers.io, or the <report>_drivers.json that
+    -DriversOnline keeps next to a report. No network.
+.PARAMETER SnapshotPassword
+    Password of snapshots encrypted with the collector's -EncryptPassword
+    (.hbx). Without it, HostBadger asks for it when it finds such a snapshot.
+.PARAMETER SnapshotPfx
+    A .pfx with the private key for snapshots encrypted with the collector's
+    -EncryptCertificate. Without it, the private key is looked for in the
+    certificate stores of the current user and of the computer.
+.PARAMETER SnapshotPfxPassword
+    Password of the .pfx (asked for when needed).
 .PARAMETER PerHost
     Also write one HTML report per host next to the fleet report
     (<OutHtml name>_<HOST>.html).
@@ -94,7 +117,7 @@
 .PARAMETER ApiKey
     Gemini API key. Defaults to $env:GEMINI_API_KEY.
 .PARAMETER Model
-    Gemini model name. Defaults to gemini-3.7-flash.
+    Gemini model name. Defaults to gemini-3.8-flash.
 .PARAMETER AiMaxAttempts
     How many times to try Gemini on a timeout or a busy server (429/5xx).
     Default 3; 0 keeps trying until it works (Ctrl+C to stop).
@@ -107,6 +130,7 @@
 [CmdletBinding()]
 param(
     [string[]]$Snapshot,
+    [string]$OutDir = '',
     [string]$OutHtml = '',
     [string]$OutCsv = '',
     [string]$OutJsonl = '',
@@ -126,6 +150,11 @@ param(
     [switch]$SkipStig,
     [string]$KevFile = '',
     [switch]$KevOnline,
+    [switch]$DriversOnline,
+    [string]$DriversFile = '',
+    [System.Security.SecureString]$SnapshotPassword,
+    [string]$SnapshotPfx = '',
+    [System.Security.SecureString]$SnapshotPfxPassword,
     [switch]$HideCis,
     [switch]$HideStig,
     [switch]$AiIncludeStig,
@@ -133,7 +162,7 @@ param(
     [switch]$AiConfirm,
     [string]$AiDryRun = '',
     [string]$ApiKey = $env:GEMINI_API_KEY,
-    [string]$Model = 'gemini-3.7-flash',
+    [string]$Model = 'gemini-3.8-flash',
     [int]$AiMaxAttempts = 3
 )
 
@@ -157,7 +186,7 @@ Write-Host @'
 '@ -ForegroundColor DarkYellow
 
 if (-not $Snapshot -or $Snapshot.Count -eq 0) {
-    Write-Host 'Usage: .\HostBadger.ps1 -Snapshot <file|zip|folder> [-OutHtml report.html] [-OutCsv findings.csv] [-OutJsonl siem.jsonl] [-CompareTo old.csv]'
+    Write-Host 'Usage: .\HostBadger.ps1 -Snapshot <file|zip|folder> [-OutDir .\output] [-OutHtml report.html] [-OutCsv findings.csv] [-OutJsonl siem.jsonl] [-CompareTo old.csv]'
     Write-Host 'Collect first on each host with Collect-HostSnapshot.ps1 (as SYSTEM or administrator). Get-Help .\HostBadger.ps1 -Full for every option.'
     return
 }
@@ -171,8 +200,28 @@ $config = @{
 }
 
 $stamp = (Get-Date).ToString('yyyyMMdd_HHmmss')
+# Where output goes by default. A bare file name (-OutHtml report.html) lands in -OutDir (default
+# .\output); a name with a folder (.\reports\r.html) or an absolute path is left exactly as given.
+# Resolved against the current location so every writer gets the same absolute path (.NET's own
+# current directory can differ from PowerShell's).
+if (-not $OutDir) { $OutDir = 'output' }
+$script:OutBase = $PWD.ProviderPath
+function Resolve-OutPath([string]$Path) {
+    if (-not $Path) { return $Path }
+    if (-not [System.IO.Path]::IsPathRooted($Path) -and -not [System.IO.Path]::GetDirectoryName($Path)) { $Path = Join-Path $OutDir $Path }
+    if (-not [System.IO.Path]::IsPathRooted($Path)) { $Path = Join-Path $script:OutBase $Path }
+    return $Path
+}
 if (-not $OutHtml) { $OutHtml = "hostbadger_$stamp.html" }
-if (-not $OutCsv) { $OutCsv = ($OutHtml -replace '\.html?$', '') + '.csv' }
+$OutHtml = Resolve-OutPath $OutHtml
+if (-not $OutCsv) { $OutCsv = ($OutHtml -replace '\.html?$', '') + '.csv' } else { $OutCsv = Resolve-OutPath $OutCsv }
+$OutJsonl = Resolve-OutPath $OutJsonl
+$OutRemediation = Resolve-OutPath $OutRemediation
+# Create the directories the resolved (absolute) paths need, so a bare name in .\output just works.
+foreach ($p in @($OutHtml, $OutCsv, $OutJsonl, $OutRemediation) | Where-Object { $_ }) {
+    $dir = Split-Path -Path $p -Parent
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+}
 
 # CISA KEV catalog: a file you give, or a download (the only network call outside the AI step).
 if ($KevFile -or $KevOnline) {
@@ -195,8 +244,56 @@ if ($KevFile -or $KevOnline) {
     }
 }
 
+# LOLDrivers catalog: the copy in data\ unless a file (-DriversFile) or a fresh one (-DriversOnline)
+# was asked for.
+if ($DriversFile) {
+    if (Test-Path -LiteralPath $DriversFile) {
+        try {
+            $drvText = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $DriversFile).Path)
+            # The converted copy (<report>_drivers.json) has "entries"; the original drivers.json is a list.
+            $config['Drivers'] = if ($drvText.TrimStart().StartsWith('{')) { @((ConvertFrom-Json -InputObject $drvText).entries | ForEach-Object { $_ }) } else { @(ConvertFrom-LolDrivers $drvText) }
+            Write-Host "LOLDrivers catalog: $(@($config['Drivers']).Count) driver files from $DriversFile" -ForegroundColor DarkGray
+        }
+        catch { Write-Host "LOLDrivers file not readable, using the copy in data\: $($_.Exception.Message)" -ForegroundColor Yellow; $config.Remove('Drivers') }
+    }
+    else { Write-Host "LOLDrivers file not found, using the copy in data\: $DriversFile" -ForegroundColor Yellow }
+}
+elseif ($DriversOnline) {
+    $drvJson = Get-LolDriversOnline
+    if ($drvJson) {
+        try {
+            $config['Drivers'] = @(ConvertFrom-LolDrivers $drvJson)
+            $drvCopy = ([System.IO.Path]::GetFullPath($OutHtml) -replace '\.html?$', '') + '_drivers.json'
+            $drvDoc = [ordered]@{ source = "LOLDrivers ($($script:LolDriversUrl)), Apache License 2.0; downloaded $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC"; count = @($config['Drivers']).Count; entries = @($config['Drivers']) }
+            [System.IO.File]::WriteAllText($drvCopy, ($drvDoc | ConvertTo-Json -Depth 5 -Compress), (New-Object System.Text.UTF8Encoding($false)))
+            Write-Host "LOLDrivers catalog: $(@($config['Drivers']).Count) driver files, kept at $drvCopy" -ForegroundColor DarkGray
+        }
+        catch { Write-Host "LOLDrivers catalog not readable, using the copy in data\: $($_.Exception.Message)" -ForegroundColor Yellow; $config.Remove('Drivers') }
+    }
+    else { Write-Host 'Using the LOLDrivers copy in data\.' -ForegroundColor Yellow }
+}
+
 $files = @(Get-SnapshotFiles $Snapshot)
-if ($files.Count -eq 0) { Write-Host 'No hostsnapshot_*.json or .zip found.' -ForegroundColor Red; return }
+if ($files.Count -eq 0) { Write-Host 'No hostsnapshot_*.json, .zip or .hbx found.' -ForegroundColor Red; return }
+
+# Encrypted snapshots (.hbx): the password is asked for once, a .pfx is loaded once.
+$encModes = @($files | ForEach-Object { Get-SnapshotEncryption $_ } | Where-Object { $_ } | Sort-Object -Unique)
+if ($encModes -contains 'password') {
+    if (-not $SnapshotPassword) { $SnapshotPassword = Read-Host 'Password of the encrypted snapshots' -AsSecureString }
+    $script:HbxPassword = $SnapshotPassword
+}
+if ($encModes -contains 'certificate' -and $SnapshotPfx) {
+    if (-not $SnapshotPfxPassword) { $SnapshotPfxPassword = Read-Host "Password of $SnapshotPfx" -AsSecureString }
+    $script:HbxPfxCerts = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SnapshotPfxPassword)
+    try {
+        $pfxPath = (Resolve-Path -LiteralPath $SnapshotPfx).Path
+        # EphemeralKeySet keeps the private key in memory only; without it .NET writes it to the user profile.
+        try { $script:HbxPfxCerts.Import($pfxPath, [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr), [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet) }
+        catch { $script:HbxPfxCerts.Import($pfxPath, [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr), [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::DefaultKeySet) }
+    }
+    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+}
 
 # Several snapshots of one host: the newest one counts.
 $latest = @{}
@@ -250,6 +347,7 @@ foreach ($name in ($latest.Keys | Sort-Object)) {
             Findings     = @($r.Findings)
             StigEvaluated = $(if ($SkipStig) { 0 } else { [int]$r.StigEvaluated })
             Software     = @($s.software | Where-Object { $_ })
+            AccountMix   = Get-LocalAccountMix $s
             UpdatesSource = $(if ($s.updatesPending) { "$($s.updatesPending.source)" } else { '' })
             UpdatesSearched = [bool]($s.meta.options.checkUpdates -and $s.updatesPending)
             Score        = $null

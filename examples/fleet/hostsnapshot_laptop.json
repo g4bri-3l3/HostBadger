@@ -34,6 +34,7 @@
       "stig",
       "software",
       "services",
+      "drivers",
       "scheduledTasks",
       "autoruns",
       "updatesPending"
@@ -169,10 +170,20 @@
         "volumeType": "OperatingSystem",
         "protectionStatus": "On",
         "volumeStatus": "FullyEncrypted",
-        "encryptionMethod": "XtsAes256",
+        "encryptionMethod": "XtsAes128",
         "keyProtectors": [
           "Tpm",
           "RecoveryPassword"
+        ]
+      },
+      {
+        "mountPoint": "D:",
+        "volumeType": "Data",
+        "protectionStatus": "On",
+        "volumeStatus": "FullyEncrypted",
+        "encryptionMethod": "Hardware",
+        "keyProtectors": [
+          "ExternalKey"
         ]
       }
     ]
@@ -199,6 +210,8 @@
     "smbServerSigningRequired": true,
     "smbClientSigningRequired": true,
     "llmnrPolicyEnableMulticast": 0,
+    "mdnsPolicyEnable": 0,
+    "mdnsServiceEnable": null,
     "netbios": [
       {
         "adapter": "vmxnet3 Ethernet Adapter",
@@ -279,7 +292,9 @@
     "administratorsReadable": true
   },
   "laps": {
+    "windowsLapsPolicyRoot": "gpo",
     "windowsLapsBackupDirectory": 2,
+    "windowsLapsPasswordExpirationProtection": 1,
     "legacyLapsEnabled": null,
     "legacyLapsCseInstalled": false
   },
@@ -393,6 +408,114 @@
       {
         "name": "System Integrity",
         "guid": "0cce9212-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Application Group Management",
+        "guid": "0cce9239-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Plug and Play Events",
+        "guid": "0cce9248-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Group Membership",
+        "guid": "0cce9249-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Logoff",
+        "guid": "0cce9216-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Other Logon/Logoff Events",
+        "guid": "0cce921c-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Detailed File Share",
+        "guid": "0cce9244-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "File Share",
+        "guid": "0cce9224-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Removable Storage",
+        "guid": "0cce9245-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Authorization Policy Change",
+        "guid": "0cce9231-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "MPSSVC Rule-Level Policy Change",
+        "guid": "0cce9232-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Other Policy Change Events",
+        "guid": "0cce9234-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "IPsec Driver",
+        "guid": "0cce9213-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Other System Events",
+        "guid": "0cce9214-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Security State Change",
+        "guid": "0cce9210-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Computer Account Management",
+        "guid": "0cce9236-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Distribution Group Management",
+        "guid": "0cce9238-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Other Account Management Events",
+        "guid": "0cce923a-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Directory Service Access",
+        "guid": "0cce923b-69ae-11d9-bed3-505054503030",
         "inclusion": "",
         "value": 3
       }
@@ -590,6 +713,7 @@
     "forceGuest": 0,
     "enablePlainTextPassword": 0,
     "nullSessionPipesCount": 0,
+    "nullSessionPipesNonDcCount": 0,
     "nullSessionSharesCount": 0,
     "restrictNullSessAccess": 1,
     "netlogon": {
@@ -598,14 +722,38 @@
       "signSecureChannel": 1,
       "requireStrongKey": 1,
       "disablePasswordChange": 0,
-      "maximumPasswordAge": 30
+      "maximumPasswordAge": 30,
+      "refusePasswordChange": 0,
+      "vulnerableChannelAllowListPresent": false
+    },
+    "serverLogon": {
+      "submitControl": 0,
+      "shutdownWithoutLogon": 0,
+      "forceUnlockLogon": 1
     },
     "winrm": {
       "clientAllowBasic": 0,
       "clientAllowUnencryptedTraffic": 0,
       "clientAllowDigest": 0,
       "serviceAllowBasic": 0,
-      "serviceAllowUnencryptedTraffic": 0
+      "serviceAllowUnencryptedTraffic": 0,
+      "serviceDisableRunAs": 1,
+      "serviceAllowAutoConfig": 0
+    },
+    "firewallPolicy": {
+      "domainDisableNotifications": 1,
+      "privateDisableNotifications": 1,
+      "publicDisableNotifications": 1
+    },
+    "certPaddingCheck": "1",
+    "certPaddingCheckWow": "1",
+    "is64BitOs": true,
+    "bitlockerPolicy": {
+      "DisableExternalDMAUnderLock": 1,
+      "RDVDenyWriteAccess": 1,
+      "OSHardwareEncryption": 0,
+      "UseTPMPIN": 1,
+      "FDVDiscoveryVolumeType": ""
     },
     "rdpPolicy": {
       "securityLayer": 2,
@@ -613,6 +761,31 @@
       "promptForPassword": 1,
       "encryptRpcTraffic": 1,
       "disableDriveRedirection": 1
+    },
+    "serverSmb": {
+      "minSmb2Dialect": 785,
+      "clientRequireEncryption": 1
+    },
+    "defenderPolicy": {
+      "hideExclusionsFromLocalUsers": 1,
+      "quickScanIncludeExclusions": 1
+    },
+    "terminalServicesPolicy": {
+      "perSessionTempDir": 1,
+      "singleSessionPerUser": 1
+    },
+    "serverPolicy": {
+      "disableMotwInsecureCopy": 0,
+      "ipv6DefaultDnsDisabled": 1,
+      "ieFeedBasicAuthInClear": 0,
+      "ldapClientConfidentiality": 1,
+      "samNgcRocaValidation": 1,
+      "auditNtlmInDomain": 7,
+      "appInstaller": {
+        "localArchiveMalwareScanOverride": 0,
+        "bypassCertPinningForStore": 0,
+        "commandLineInterfaces": 0
+      }
     },
     "explorer": {
       "noDriveTypeAutoRun": 255,
@@ -636,6 +809,7 @@
       "promptOnSecureDesktop": 1,
       "enableVirtualization": 1
     },
+    "wpadDisabled": 1,
     "noAutoUpdate": 0,
     "enableSmartScreen": 1,
     "eventLogs": [
@@ -3196,6 +3370,32 @@
       "ancestorControl": []
     }
   ],
+  "drivers": {
+    "list": [
+      {
+        "name": "ACPI",
+        "state": "Running",
+        "startMode": "Boot",
+        "path": "C:\\Windows\\system32\\drivers\\ACPI.sys",
+        "sha256": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+      },
+      {
+        "name": "disk",
+        "state": "Running",
+        "startMode": "Boot",
+        "path": "C:\\Windows\\system32\\drivers\\disk.sys",
+        "sha256": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+      },
+      {
+        "name": "WdFilter",
+        "state": "Running",
+        "startMode": "Boot",
+        "path": "C:\\Windows\\system32\\drivers\\wd\\WdFilter.sys",
+        "sha256": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+      }
+    ],
+    "blocklistEnable": 1
+  },
   "scheduledTasks": [
     {
       "path": "\\",

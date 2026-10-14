@@ -47,13 +47,27 @@
     set by policy (WUServer) or, without one, Microsoft Update (HTTPS to
     *.update.microsoft.com). Off by default; without it the pending updates are
     simply not part of the snapshot.
+.PARAMETER EncryptPassword
+    Encrypt the snapshot with this password: AES-256 with an HMAC-SHA256, keys
+    from PBKDF2. The output is hostsnapshot_<host>_<time>.hbx and nothing is
+    written in clear (the zip is built in memory). HostBadger.ps1 asks for the
+    password, or takes -SnapshotPassword. Mind that a password given on a
+    command line ends up in the EDR's command log; -EncryptCertificate avoids
+    that.
+.PARAMETER EncryptCertificate
+    Encrypt the snapshot to a certificate instead (CMS, AES-256): the path of a
+    .cer file (DER or PEM), or the thumbprint of a certificate in the
+    LocalMachine or CurrentUser store. Only the public key is needed here; the
+    analyzer opens the file with the private key (certificate store or -SnapshotPfx).
 #>
 [CmdletBinding()]
 param(
     [string]$OutDir = '',
     [switch]$NoZip,
     [switch]$SkipAcl,
-    [switch]$CheckUpdates
+    [switch]$CheckUpdates,
+    [string]$EncryptPassword = '',
+    [string]$EncryptCertificate = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -388,6 +402,66 @@ Write-Host "HostBadger collector $script:CollectorVersion on $env:COMPUTERNAME (
 
 # ------------------------------------------------------------------ host
 $cs = $null; $os = $null
+# Encrypted snapshot (.hbx): "HBX1", a mode byte, then
+#   mode 1 (password):    kdf byte (1 PBKDF2-SHA256, 2 PBKDF2-SHA1), iterations (Int32 LE), salt (16),
+#                         IV (16), AES-256-CBC ciphertext, HMAC-SHA256 of everything before it (32);
+#                         the 64 PBKDF2 bytes are the AES key and the HMAC key;
+#   mode 2 (certificate): a CMS EnvelopedData (AES-256) for the certificate's public key.
+# The plaintext is the zip of the snapshot. Read back by Unprotect-SnapshotBytes in lib\Common.ps1.
+function Protect-SnapshotBytes {
+    param([byte[]]$Data, [string]$Password, $Certificate)
+    $ms = New-Object System.IO.MemoryStream
+    $ms.Write([Text.Encoding]::ASCII.GetBytes('HBX1'), 0, 4)
+    if ($Certificate) {
+        Add-Type -AssemblyName System.Security
+        $ms.WriteByte(2)
+        $content = New-Object System.Security.Cryptography.Pkcs.ContentInfo -ArgumentList (, $Data)
+        $aes256 = New-Object System.Security.Cryptography.Pkcs.AlgorithmIdentifier -ArgumentList (New-Object System.Security.Cryptography.Oid '2.16.840.1.101.3.4.1.42')
+        $cms = New-Object System.Security.Cryptography.Pkcs.EnvelopedCms -ArgumentList $content, $aes256
+        $cms.Encrypt((New-Object System.Security.Cryptography.Pkcs.CmsRecipient -ArgumentList $Certificate))
+        $der = $cms.Encode()
+        $ms.Write($der, 0, $der.Length)
+        return , $ms.ToArray()
+    }
+    $ms.WriteByte(1)
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    $salt = New-Object byte[] 16; $iv = New-Object byte[] 16
+    $rng.GetBytes($salt); $rng.GetBytes($iv)
+    $pw = [Text.Encoding]::UTF8.GetBytes($Password)
+    # PBKDF2-SHA256 needs .NET Framework 4.7.2; older ones fall back to SHA-1 with more rounds.
+    try { $iter = 600000; $kdf = [System.Security.Cryptography.Rfc2898DeriveBytes]::new($pw, $salt, $iter, [System.Security.Cryptography.HashAlgorithmName]::SHA256); $kdfId = 1 }
+    catch { $iter = 1300000; $kdf = New-Object System.Security.Cryptography.Rfc2898DeriveBytes -ArgumentList $pw, $salt, $iter; $kdfId = 2 }
+    $keys = $kdf.GetBytes(64)
+    $ms.WriteByte($kdfId)
+    $ms.Write([BitConverter]::GetBytes([int]$iter), 0, 4)
+    $ms.Write($salt, 0, 16); $ms.Write($iv, 0, 16)
+    $aes = [System.Security.Cryptography.Aes]::Create()
+    $aes.Mode = 'CBC'; $aes.Padding = 'PKCS7'; $aes.Key = $keys[0..31]; $aes.IV = $iv
+    $ct = $aes.CreateEncryptor().TransformFinalBlock($Data, 0, $Data.Length)
+    $ms.Write($ct, 0, $ct.Length)
+    $hmac = New-Object System.Security.Cryptography.HMACSHA256 -ArgumentList (, [byte[]]$keys[32..63])
+    $tag = $hmac.ComputeHash($ms.ToArray())
+    $ms.Write($tag, 0, 32)
+    return , $ms.ToArray()
+}
+
+function Get-EncryptionCertificate {
+    # A .cer file (DER or PEM), or a thumbprint in the LocalMachine / CurrentUser stores.
+    param([string]$Value)
+    if (Test-Path -LiteralPath $Value -PathType Leaf) { return New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 -ArgumentList (Resolve-Path -LiteralPath $Value).Path }
+    $thumb = ($Value -replace '\s', '').ToUpper()
+    if ($thumb -match '^[0-9A-F]{40}$') {
+        $c = @(Get-ChildItem -Path 'Cert:\LocalMachine', 'Cert:\CurrentUser' -Recurse | Where-Object { $_.Thumbprint -eq $thumb }) | Select-Object -First 1
+        if ($c) { return $c }
+    }
+    throw "Encryption certificate not found: $Value (a .cer file or a thumbprint in the certificate store)"
+}
+
+# Encryption is checked before anything is collected: a missing certificate stops the run now, not
+# after minutes of work.
+if ($EncryptPassword -and $EncryptCertificate) { throw 'Use -EncryptPassword or -EncryptCertificate, not both.' }
+$script:EncCert = if ($EncryptCertificate) { Get-EncryptionCertificate $EncryptCertificate } else { $null }
+
 $hostInfo = Invoke-Section 'host' {
     $script:cs = Get-CimInstance -ClassName Win32_ComputerSystem
     $script:os = Get-CimInstance -ClassName Win32_OperatingSystem
@@ -579,6 +653,9 @@ $network = Invoke-Section 'network' {
         smbServerSigningRequired  = $null
         smbClientSigningRequired  = $null
         llmnrPolicyEnableMulticast = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient' 'EnableMulticast'
+        # mDNS: the policy (CIS Server 18.6.4.1), else the DNS client's own setting.
+        mdnsPolicyEnable          = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient' 'EnableMDNS'
+        mdnsServiceEnable         = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters' 'EnableMDNS'
         netbios                   = @()
         firewallProfiles          = @()
         listening                 = @()
@@ -685,13 +762,23 @@ $accounts = Invoke-Section 'localAccounts' {
 
 # ------------------------------------------------------------------ LAPS / UAC
 $laps = Invoke-Section 'laps' {
-    $wl = 'HKLM:\SOFTWARE\Microsoft\Policies\LAPS'
-    $wlGpo = 'HKLM:\SOFTWARE\Policies\Microsoft Windows\LAPS'
-    $backup = Get-RegValue $wlGpo 'BackupDirectory'
-    if ($null -eq $backup) { $backup = Get-RegValue $wl 'BackupDirectory' }
+    # Windows LAPS reads its policy roots in this order and uses the first one that holds at least one
+    # value; a setting missing there takes its default (Microsoft Learn, "Configure policy settings
+    # for Windows LAPS").
+    $root = $null; $rootName = $null
+    foreach ($r in @(@('csp', 'HKLM:\SOFTWARE\Microsoft\Policies\LAPS'), @('gpo', 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\LAPS'), @('local', 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\LAPS\Config'))) {
+        $props = $null
+        try { $props = Get-ItemProperty -LiteralPath $r[1] -ErrorAction Stop } catch { }
+        if ($props -and @($props.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' }).Count -gt 0) { $rootName = $r[0]; $root = $r[1]; break }
+    }
+    # Plain variables: $(if ...) with no output would be an empty array on 5.1, not $null.
+    $backup = $null; $expProt = $null
+    if ($root) { $backup = Get-RegValue $root 'BackupDirectory'; $expProt = Get-RegValue $root 'PasswordExpirationProtectionEnabled' }
     $legacyEnabled = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft Services\AdmPwd' 'AdmPwdEnabled'
     [ordered]@{
+        windowsLapsPolicyRoot      = $rootName
         windowsLapsBackupDirectory = $backup
+        windowsLapsPasswordExpirationProtection = $expProt
         legacyLapsEnabled          = $(if ($null -eq $legacyEnabled) { $null } else { [int]$legacyEnabled -eq 1 })
         legacyLapsCseInstalled     = (Test-Path -LiteralPath 'C:\Program Files\LAPS\CSE\AdmPwd.dll')
     }
@@ -797,6 +884,35 @@ $services = Invoke-Section 'services' {
         }
     }
     $out
+}
+
+# Kernel drivers: the file of each driver service and its SHA-256, matched by the analyzer against the
+# LOLDrivers catalog of known vulnerable and malicious drivers. Hashing only reads the file.
+function Get-DriverFilePath {
+    param([string]$PathName)
+    $p = "$PathName".Trim().Trim('"')
+    if (-not $p) { return $null }
+    $p = $p -replace '^\\\?\?\\', ''
+    if ($p -match '(?i)^\\SystemRoot\\(.*)$') { $p = Join-Path $env:windir $Matches[1] }
+    elseif ($p -match '(?i)^(System32|SysWOW64)\\') { $p = Join-Path $env:windir $p }
+    return [Environment]::ExpandEnvironmentVariables($p)
+}
+$drivers = Invoke-Section 'drivers' {
+    $list = @()
+    foreach ($d in @(Get-CimInstance -ClassName Win32_SystemDriver)) {
+        Step-Spinner 'Collecting: drivers'
+        $file = Get-DriverFilePath "$($d.PathName)"
+        $hash = $null
+        if ($file -and (Test-Path -LiteralPath $file -PathType Leaf)) {
+            try { $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256 -ErrorAction Stop).Hash.ToLower() } catch { }
+        }
+        $list += [ordered]@{ name = "$($d.Name)"; state = "$($d.State)"; startMode = "$($d.StartMode)"; path = $file; sha256 = $hash }
+    }
+    [ordered]@{
+        list = $list
+        # Microsoft vulnerable driver blocklist (Windows Security > Device security > Core isolation).
+        blocklistEnable = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Config' 'VulnerableDriverBlocklistEnable'
+    }
 }
 
 $tasks = Invoke-Section 'scheduledTasks' {
@@ -918,6 +1034,19 @@ $hardening = Invoke-Section 'hardening' {
     foreach ($cn in @('NULL', 'DES 56/56', 'RC2 40/128', 'RC2 56/128', 'RC2 128/128', 'RC4 40/128', 'RC4 56/128', 'RC4 64/128', 'RC4 128/128', 'Triple DES 168')) {
         $schCiphers += [ordered]@{ name = $cn; enabled = Get-RegValue "$sch\Ciphers\$cn" 'Enabled' }
     }
+    # BitLocker policy (CIS 18.10.9.x): every value the benchmark names, $null when not set.
+    # RDVDenyWriteAccess is the one Group Policy writes under SYSTEM, not under SOFTWARE.
+    $fve = 'HKLM:\SOFTWARE\Policies\Microsoft\FVE'
+    $blPolicy = [ordered]@{}
+    foreach ($vn in @('FDVDiscoveryVolumeType', 'FDVRecovery', 'FDVManageDRA', 'FDVRecoveryPassword', 'FDVRecoveryKey', 'FDVHideRecoveryPage',
+            'FDVActiveDirectoryBackup', 'FDVActiveDirectoryInfoToStore', 'FDVRequireActiveDirectoryBackup', 'FDVHardwareEncryption', 'FDVPassphrase',
+            'FDVAllowUserCert', 'FDVEnforceUserCert', 'UseEnhancedPin', 'OSAllowSecureBootForIntegrity', 'OSRecovery', 'OSManageDRA', 'OSRecoveryPassword',
+            'OSRecoveryKey', 'OSHideRecoveryPage', 'OSActiveDirectoryBackup', 'OSActiveDirectoryInfoToStore', 'OSRequireActiveDirectoryBackup',
+            'OSHardwareEncryption', 'OSPassphrase', 'UseAdvancedStartup', 'EnableBDEWithNoTPM', 'UseTPM', 'UseTPMPIN', 'UseTPMKey', 'UseTPMKeyPIN',
+            'RDVDiscoveryVolumeType', 'RDVRecovery', 'RDVManageDRA', 'RDVRecoveryPassword', 'RDVRecoveryKey', 'RDVHideRecoveryPage', 'RDVActiveDirectoryBackup',
+            'RDVActiveDirectoryInfoToStore', 'RDVRequireActiveDirectoryBackup', 'RDVHardwareEncryption', 'RDVPassphrase', 'RDVAllowUserCert',
+            'RDVEnforceUserCert', 'RDVDenyCrossOrg', 'DisableExternalDMAUnderLock')) { $blPolicy[$vn] = Get-RegValue $fve $vn }
+    $blPolicy['RDVDenyWriteAccess'] = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Policies\Microsoft\FVE' 'RDVDenyWriteAccess'
     $ntdsP = 'HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters'
     $pnpP = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint'
     [ordered]@{
@@ -940,6 +1069,8 @@ $hardening = Invoke-Section 'hardening' {
         enablePlainTextPassword  = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters' 'EnablePlainTextPassword'
         # Names of pipes and shares are not stored, only how many.
         nullSessionPipesCount    = @((Get-RegValue $lanSrv 'NullSessionPipes') | Where-Object { $_ }).Count
+        # On a domain controller CIS expects LSARPC, NETLOGON and SAMR there: count the others.
+        nullSessionPipesNonDcCount = @((Get-RegValue $lanSrv 'NullSessionPipes') | Where-Object { $_ -and @('LSARPC', 'NETLOGON', 'SAMR') -notcontains "$_".Trim().ToUpper() }).Count
         nullSessionSharesCount   = @((Get-RegValue $lanSrv 'NullSessionShares') | Where-Object { $_ }).Count
         restrictNullSessAccess   = Get-RegValue $lanSrv 'RestrictNullSessAccess'
         netlogon                 = [ordered]@{
@@ -949,6 +1080,15 @@ $hardening = Invoke-Section 'hardening' {
             requireStrongKey     = Get-RegValue $nl 'RequireStrongKey'
             disablePasswordChange = Get-RegValue $nl 'DisablePasswordChange'
             maximumPasswordAge   = Get-RegValue $nl 'MaximumPasswordAge'
+            # Domain controllers. The Zerologon exception list is an SDDL with account SIDs: only
+            # whether it is there is kept.
+            refusePasswordChange = Get-RegValue $nl 'RefusePasswordChange'
+            vulnerableChannelAllowListPresent = ($null -ne (Get-RegValue $nl 'VulnerableChannelAllowList'))
+        }
+        serverLogon              = [ordered]@{
+            submitControl         = Get-RegValue $lsa 'SubmitControl'
+            shutdownWithoutLogon  = Get-RegValue $sysPol 'ShutdownWithoutLogon'
+            forceUnlockLogon      = Get-RegValue $wl 'ForceUnlockLogon'
         }
         winrm                    = [ordered]@{
             clientAllowBasic              = Get-RegValue $wrmC 'AllowBasic'
@@ -956,13 +1096,51 @@ $hardening = Invoke-Section 'hardening' {
             clientAllowDigest             = Get-RegValue $wrmC 'AllowDigest'
             serviceAllowBasic             = Get-RegValue $wrmS 'AllowBasic'
             serviceAllowUnencryptedTraffic = Get-RegValue $wrmS 'AllowUnencryptedTraffic'
+            serviceDisableRunAs          = Get-RegValue $wrmS 'DisableRunAs'
+            serviceAllowAutoConfig       = Get-RegValue $wrmS 'AllowAutoConfig'
+        }
+        bitlockerPolicy          = $blPolicy
+        # Stricter Authenticode check (MS13-098, CVE-2013-3900), opt-in: native and 32-bit views.
+        certPaddingCheck         = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Cryptography\Wintrust\Config' 'EnableCertPaddingCheck'
+        certPaddingCheckWow      = Get-RegValue 'HKLM:\SOFTWARE\Wow6432Node\Microsoft\Cryptography\Wintrust\Config' 'EnableCertPaddingCheck'
+        is64BitOs                = [Environment]::Is64BitOperatingSystem
+        firewallPolicy           = [ordered]@{
+            domainDisableNotifications  = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\DomainProfile' 'DisableNotifications'
+            privateDisableNotifications = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\PrivateProfile' 'DisableNotifications'
+            publicDisableNotifications  = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\PublicProfile' 'DisableNotifications'
         }
         rdpPolicy                = [ordered]@{
-            securityLayer         = Get-RegValue $tsPol 'SecurityLayer'
+            securityLayer        = Get-RegValue $tsPol 'SecurityLayer'
             minEncryptionLevel    = Get-RegValue $tsPol 'MinEncryptionLevel'
             promptForPassword     = Get-RegValue $tsPol 'fPromptForPassword'
             encryptRpcTraffic     = Get-RegValue $tsPol 'fEncryptRPCTraffic'
             disableDriveRedirection = Get-RegValue $tsPol 'fDisableCdm'
+        }
+        # CIS Windows Server settings that Windows 11 does not have.
+        serverSmb                = [ordered]@{
+            minSmb2Dialect        = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LanmanServer' 'MinSmb2Dialect'
+            clientRequireEncryption = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LanmanWorkstation' 'RequireEncryption'
+        }
+        defenderPolicy           = [ordered]@{
+            hideExclusionsFromLocalUsers = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender' 'HideExclusionsFromLocalUsers'
+            quickScanIncludeExclusions   = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Scan' 'QuickScanIncludeExclusions'
+        }
+        terminalServicesPolicy   = [ordered]@{
+            perSessionTempDir     = Get-RegValue $tsPol 'PerSessionTempDir'
+            singleSessionPerUser  = Get-RegValue $tsPol 'fSingleSessionPerUser'
+        }
+        serverPolicy             = [ordered]@{
+            disableMotwInsecureCopy   = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer' 'DisableMotWOnInsecurePathCopy'
+            ipv6DefaultDnsDisabled    = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient' 'DisableIPv6DefaultDnsServers'
+            ieFeedBasicAuthInClear    = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Internet Explorer\Feeds' 'AllowBasicAuthInClear'
+            ldapClientConfidentiality = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\Ldap' 'LDAPClientConfidentiality'
+            samNgcRocaValidation      = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\SAM' 'SamNGCKeyROCAValidation'
+            auditNtlmInDomain         = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters' 'AuditNTLMInDomain'
+            appInstaller              = [ordered]@{
+                localArchiveMalwareScanOverride = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppInstaller' 'EnableLocalArchiveMalwareScanOverride'
+                bypassCertPinningForStore       = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppInstaller' 'EnableBypassCertificatePinningForMicrosoftStore'
+                commandLineInterfaces           = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppInstaller' 'EnableWindowsPackageManagerCommandLineInterfaces'
+            }
         }
         explorer                 = [ordered]@{
             noDriveTypeAutoRun    = Get-RegValue $expPol 'NoDriveTypeAutoRun'
@@ -987,6 +1165,7 @@ $hardening = Invoke-Section 'hardening' {
             promptOnSecureDesktop = Get-RegValue $sysPol 'PromptOnSecureDesktop'
             enableVirtualization  = Get-RegValue $sysPol 'EnableVirtualization'
         }
+        wpadDisabled             = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\WinHttp\Parameters' 'DisableWpad'
         noAutoUpdate             = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'NoAutoUpdate'
         enableSmartScreen        = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' 'EnableSmartScreen'
         eventLogs                = $logs
@@ -1423,75 +1602,40 @@ $stigRegistryList = @(
     'U|software\policies\microsoft\office\16.0\word\security\trusted locations|allownetworklocations'
     'U|Software\Policies\Microsoft\Office\16.0\Word\Security|vbawarnings'
     'U|software\policies\microsoft\office\16.0\word\security\filevalidation|enableonload'
-    'M|SOFTWARE\Policies\Microsoft\FVE|UseAdvancedStartup'
-    'M|SOFTWARE\Policies\Microsoft\FVE|UseTPMPIN'
-    'M|Software\Policies\Microsoft\FVE|MinimumPIN'
-    'M|SYSTEM\CurrentControlSet\Control\Session Manager\kernel|DisableExceptionChainValidation'
     'M|SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters|SMB1'
     'M|SYSTEM\CurrentControlSet\Services\mrxsmb10|Start'
-    'M|SOFTWARE\Microsoft\PolicyManager\current\device\Connectivity|AllowBluetooth'
-    'M|SOFTWARE\Policies\Microsoft\Windows\EventLog\Application|MaxSize'
-    'M|SOFTWARE\Policies\Microsoft\Windows\EventLog\Security|MaxSize'
-    'M|SOFTWARE\Policies\Microsoft\Windows\EventLog\System|MaxSize'
-    'M|SOFTWARE\Policies\Microsoft\Windows\Personalization|NoLockScreenCamera'
-    'M|SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam|Value'
     'M|SOFTWARE\Policies\Microsoft\Windows\Personalization|NoLockScreenSlideshow'
-    'M|SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters|DisableIpSourceRouting'
+    'M|SYSTEM\CurrentControlSet\Control\SecurityProviders\Wdigest|UseLogonCredential'
+    'M|SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters|DisableIPSourceRouting'
     'M|SYSTEM\CurrentControlSet\Services\Tcpip\Parameters|DisableIPSourceRouting'
     'M|SYSTEM\CurrentControlSet\Services\Tcpip\Parameters|EnableICMPRedirect'
     'M|SYSTEM\CurrentControlSet\Services\Netbt\Parameters|NoNameReleaseOnDemand'
-    'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System|LocalAccountTokenFilterPolicy'
-    'M|SYSTEM\CurrentControlSet\Control\SecurityProviders\Wdigest|UseLogonCredential'
-    'M|SOFTWARE\Classes\batfile\shell\runasuser|SuppressionPolicy'
-    'M|SOFTWARE\Classes\cmdfile\shell\runasuser|SuppressionPolicy'
-    'M|SOFTWARE\Classes\exefile\shell\runasuser|SuppressionPolicy'
-    'M|SOFTWARE\Classes\mscfile\shell\runasuser|SuppressionPolicy'
     'M|SOFTWARE\Policies\Microsoft\Windows\LanmanWorkstation|AllowInsecureGuestAuth'
-    'M|SOFTWARE\Policies\Microsoft\Windows\Network Connections|NC_ShowSharedAccessUI'
-    'M|SOFTWARE\Policies\Microsoft\Windows\WcmSvc\GroupPolicy|fMinimizeConnections'
-    'M|SOFTWARE\Policies\Microsoft\Windows\WcmSvc\GroupPolicy|fBlockNonDomain'
-    'M|SOFTWARE\Microsoft\WcmSvc\wifinetworkmanager\config|AutoConnectAllowedOEM'
+    'M|SOFTWARE\Policies\Microsoft\Windows\NetworkProvider\HardenedPaths|\\*\NETLOGON'
+    'M|SOFTWARE\Policies\Microsoft\Windows\NetworkProvider\HardenedPaths|\\*\SYSVOL'
     'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit|ProcessCreationIncludeCmdLine_Enabled'
-    'M|SOFTWARE\Policies\Microsoft\Windows\CredentialsDelegation|AllowProtectedCreds'
     'M|SOFTWARE\Policies\Microsoft\Windows\DeviceGuard|EnableVirtualizationBasedSecurity'
     'M|SOFTWARE\Policies\Microsoft\Windows\DeviceGuard|RequirePlatformSecurityFeatures'
-    'M|SOFTWARE\Policies\Microsoft\Windows\DeviceGuard|LsaCfgFlags'
     'M|SYSTEM\CurrentControlSet\Policies\EarlyLaunch|DriverLoadPolicy'
     'M|SOFTWARE\Policies\Microsoft\Windows\Group Policy\{35378EAC-683F-11D2-A89A-00C04FBBCFA2}|NoGPOListChanges'
     'M|SOFTWARE\Policies\Microsoft\Windows NT\Printers|DisableWebPnPDownload'
-    'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer|NoWebServices'
     'M|SOFTWARE\Policies\Microsoft\Windows NT\Printers|DisableHTTPPrinting'
-    'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters|DevicePKInitEnabled'
     'M|SOFTWARE\Policies\Microsoft\Windows\System|DontDisplayNetworkSelectionUI'
-    'M|SOFTWARE\Policies\Microsoft\Windows\System|EnumerateLocalUsers'
     'M|SOFTWARE\Policies\Microsoft\Power\PowerSettings\0e796bdb-100d-47d6-a2d5-f7d2daa51f51|DCSettingIndex'
     'M|SOFTWARE\Policies\Microsoft\Power\PowerSettings\0e796bdb-100d-47d6-a2d5-f7d2daa51f51|ACSettingIndex'
-    'M|SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services|fAllowToGetHelp'
-    'M|SOFTWARE\Policies\Microsoft\Windows NT\Rpc|RestrictRemoteClients'
-    'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System|MSAOptional'
     'M|SOFTWARE\Policies\Microsoft\Windows\AppCompat|DisableInventory'
     'M|SOFTWARE\Policies\Microsoft\Windows\Explorer|NoAutoplayfornonVolume'
     'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer|NoAutorun'
     'M|SOFTWARE\Microsoft\Windows\CurrentVersion\policies\Explorer|NoDriveTypeAutoRun'
-    'M|SOFTWARE\Policies\Microsoft\Biometrics\FacialFeatures|EnhancedAntiSpoofing'
-    'M|SOFTWARE\Policies\Microsoft\Windows\CloudContent|DisableWindowsConsumerFeatures'
     'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\CredUI|EnumerateAdministrators'
-    'M|SOFTWARE\Policies\Microsoft\Windows\DataCollection|LimitEnhancedDiagnosticDataWindowsAnalytics'
     'M|SOFTWARE\Policies\Microsoft\Windows\DataCollection|AllowTelemetry'
-    'M|SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization|DODownloadMode'
-    'M|SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config|DODownloadMode'
-    'M|SOFTWARE\Policies\Microsoft\Windows\System|ShellSmartScreenLevel'
+    'M|SOFTWARE\Policies\Microsoft\Windows\EventLog\Application|MaxSize'
+    'M|SOFTWARE\Policies\Microsoft\Windows\EventLog\Security|MaxSize'
+    'M|SOFTWARE\Policies\Microsoft\Windows\EventLog\System|MaxSize'
+    'M|SOFTWARE\Policies\Microsoft\Windows\System|EnableSmartScreen'
     'M|SOFTWARE\Policies\Microsoft\Windows\Explorer|NoDataExecutionPrevention'
     'M|SOFTWARE\Policies\Microsoft\Windows\Explorer|NoHeapTerminationOnCorruption'
     'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer|PreXPSP2ShellProtocolBehavior'
-    'M|SOFTWARE\Policies\Microsoft\MicrosoftEdge\PhishingFilter|PreventOverride'
-    'M|SOFTWARE\Policies\Microsoft\MicrosoftEdge\PhishingFilter|PreventOverrideAppRepUnknown'
-    'M|SOFTWARE\Policies\Microsoft\MicrosoftEdge\Internet Settings|PreventCertErrorOverrides'
-    'M|SOFTWARE\Policies\Microsoft\MicrosoftEdge\Main|FormSuggest Passwords'
-    'M|SOFTWARE\Policies\Microsoft\MicrosoftEdge\PhishingFilter|EnabledV9'
-    'M|SOFTWARE\Policies\Microsoft\Windows\GameDVR|AllowGameDVR'
-    'M|SOFTWARE\Policies\Microsoft\PassportForWork|RequireSecurityDevice'
-    'M|SOFTWARE\Policies\Microsoft\PassportForWork\PINComplexity|MinimumPINLength'
     'M|SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services|DisablePasswordSaving'
     'M|SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services|fDisableCdm'
     'M|SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services|fPromptForPassword'
@@ -1507,16 +1651,12 @@ $stigRegistryList = @(
     'M|SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging|EnableScriptBlockLogging'
     'M|SOFTWARE\Policies\Microsoft\Windows\WinRM\Client|AllowBasic'
     'M|SOFTWARE\Policies\Microsoft\Windows\WinRM\Client|AllowUnencryptedTraffic'
+    'M|SOFTWARE\Policies\Microsoft\Windows\WinRM\Client|AllowDigest'
     'M|SOFTWARE\Policies\Microsoft\Windows\WinRM\Service|AllowBasic'
     'M|SOFTWARE\Policies\Microsoft\Windows\WinRM\Service|AllowUnencryptedTraffic'
     'M|SOFTWARE\Policies\Microsoft\Windows\WinRM\Service|DisableRunAs'
-    'M|SOFTWARE\Policies\Microsoft\Windows\WinRM\Client|AllowDigest'
-    'M|SOFTWARE\Policies\Microsoft\Windows\AppPrivacy|LetAppsActivateWithVoiceAboveLock'
-    'M|SOFTWARE\Policies\Microsoft\Windows\AppPrivacy|LetAppsActivateWithVoice'
-    'M|Software\Policies\Microsoft\Windows\System|AllowDomainPINLogon'
-    'M|Software\Policies\Microsoft\WindowsInkWorkspace|AllowWindowsInkWorkspace'
-    'U|SOFTWARE\Policies\Microsoft\Windows\CloudContent|DisableThirdPartySuggestions'
-    'M|Software\Policies\Microsoft\Windows\Kernel DMA Protection|DeviceEnumerationPolicy'
+    'M|SYSTEM\CurrentControlSet\Services\NTDS\Parameters|LDAPServerIntegrity'
+    'M|SYSTEM\CurrentControlSet\Services\Netlogon\Parameters|RefusePasswordChange'
     'M|SYSTEM\CurrentControlSet\Control\Lsa|LimitBlankPasswordUse'
     'M|SYSTEM\CurrentControlSet\Control\Lsa|SCENoApplyLegacyAuditPolicy'
     'M|SYSTEM\CurrentControlSet\Services\Netlogon\Parameters|RequireSignOrSeal'
@@ -1526,16 +1666,17 @@ $stigRegistryList = @(
     'M|SYSTEM\CurrentControlSet\Services\Netlogon\Parameters|MaximumPasswordAge'
     'M|SYSTEM\CurrentControlSet\Services\Netlogon\Parameters|RequireStrongKey'
     'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System|InactivityTimeoutSecs'
-    'M|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon|CachedLogonsCount'
-    'M|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon|SCRemoveOption'
+    'M|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon|scremoveoption'
     'M|SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters|RequireSecuritySignature'
+    'M|SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters|EnableSecuritySignature'
     'M|SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters|EnablePlainTextPassword'
     'M|SYSTEM\CurrentControlSet\Services\LanManServer\Parameters|RequireSecuritySignature'
+    'M|SYSTEM\CurrentControlSet\Services\LanManServer\Parameters|EnableSecuritySignature'
     'M|SYSTEM\CurrentControlSet\Control\Lsa|RestrictAnonymousSAM'
     'M|SYSTEM\CurrentControlSet\Control\Lsa|RestrictAnonymous'
     'M|SYSTEM\CurrentControlSet\Control\Lsa|EveryoneIncludesAnonymous'
     'M|SYSTEM\CurrentControlSet\Services\LanManServer\Parameters|RestrictNullSessAccess'
-    'M|SYSTEM\CurrentControlSet\Control\Lsa|RestrictRemoteSAM'
+    'M|SYSTEM\CurrentControlSet\Control\LSA|UseMachineId'
     'M|SYSTEM\CurrentControlSet\Control\LSA\MSV1_0|allownullsessionfallback'
     'M|SYSTEM\CurrentControlSet\Control\LSA\pku2u|AllowOnlineID'
     'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters|SupportedEncryptionTypes'
@@ -1544,23 +1685,72 @@ $stigRegistryList = @(
     'M|SYSTEM\CurrentControlSet\Services\LDAP|LDAPClientIntegrity'
     'M|SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0|NTLMMinClientSec'
     'M|SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0|NTLMMinServerSec'
+    'M|SOFTWARE\Policies\Microsoft\Cryptography|ForceKeyProtection'
     'M|SYSTEM\CurrentControlSet\Control\Lsa\FIPSAlgorithmPolicy|Enabled'
     'M|SYSTEM\CurrentControlSet\Control\Session Manager|ProtectionMode'
     'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System|FilterAdministratorToken'
+    'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System|EnableUIADesktopToggle'
     'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System|ConsentPromptBehaviorAdmin'
     'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System|ConsentPromptBehaviorUser'
     'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System|EnableInstallerDetection'
     'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System|EnableSecureUIAPaths'
     'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System|EnableLUA'
     'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System|EnableVirtualization'
-    'U|SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\PushNotifications|NoToastApplicationNotificationOnLockScreen'
     'U|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Attachments|SaveZoneInformation'
-    'M|SOFTWARE\Policies\Microsoft\Windows\NetworkProvider\HardenedPaths|\\*\NETLOGON'
-    'M|SOFTWARE\Policies\Microsoft\Windows\NetworkProvider\HardenedPaths|\\*\SYSVOL'
+    'U|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer|NoPreviewPane'
+    'U|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer|NoReadingPane'
     'M|SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription|EnableTranscripting'
+    'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System|LocalAccountTokenFilterPolicy'
+    'M|SOFTWARE\Policies\Microsoft\Windows\System|EnumerateLocalUsers'
+    'M|SOFTWARE\Policies\Microsoft\Windows NT\Rpc|RestrictRemoteClients'
+    'M|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon|CachedLogonsCount'
+    'M|SOFTWARE\Policies\Microsoft\Windows\DeviceGuard|LsaCfgFlags'
+    'M|SYSTEM\CurrentControlSet\Control\Lsa|RestrictRemoteSAM'
+    'M|SOFTWARE\Policies\Microsoft\Windows\CredentialsDelegation|AllowProtectedCreds'
+    'M|SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization|DODownloadMode'
+    'M|SYSTEM\CurrentControlSet\Services\Kdc|StrongCertificateBindingEnforcement'
+    'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System|LegalNoticeCaption'
+    'M|SOFTWARE\Policies\Microsoft\FVE|UseAdvancedStartup'
+    'M|SOFTWARE\Policies\Microsoft\FVE|UseTPMPIN'
+    'M|Software\Policies\Microsoft\FVE|MinimumPIN'
+    'M|SYSTEM\CurrentControlSet\Control\Session Manager\kernel|DisableExceptionChainValidation'
+    'M|SOFTWARE\Microsoft\PolicyManager\current\device\Connectivity|AllowBluetooth'
+    'M|SOFTWARE\Policies\Microsoft\Windows\Personalization|NoLockScreenCamera'
+    'M|SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam|Value'
+    'M|SOFTWARE\Classes\batfile\shell\runasuser|SuppressionPolicy'
+    'M|SOFTWARE\Classes\cmdfile\shell\runasuser|SuppressionPolicy'
+    'M|SOFTWARE\Classes\exefile\shell\runasuser|SuppressionPolicy'
+    'M|SOFTWARE\Classes\mscfile\shell\runasuser|SuppressionPolicy'
+    'M|SOFTWARE\Policies\Microsoft\Windows\Network Connections|NC_ShowSharedAccessUI'
+    'M|SOFTWARE\Policies\Microsoft\Windows\WcmSvc\GroupPolicy|fMinimizeConnections'
+    'M|SOFTWARE\Policies\Microsoft\Windows\WcmSvc\GroupPolicy|fBlockNonDomain'
+    'M|SOFTWARE\Microsoft\WcmSvc\wifinetworkmanager\config|AutoConnectAllowedOEM'
+    'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer|NoWebServices'
+    'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters|DevicePKInitEnabled'
+    'M|SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services|fAllowToGetHelp'
+    'M|SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System|MSAOptional'
+    'M|SOFTWARE\Policies\Microsoft\Biometrics\FacialFeatures|EnhancedAntiSpoofing'
+    'M|SOFTWARE\Policies\Microsoft\Windows\CloudContent|DisableWindowsConsumerFeatures'
+    'M|SOFTWARE\Policies\Microsoft\Windows\DataCollection|LimitEnhancedDiagnosticDataWindowsAnalytics'
+    'M|SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config|DODownloadMode'
+    'M|SOFTWARE\Policies\Microsoft\Windows\System|ShellSmartScreenLevel'
+    'M|SOFTWARE\Policies\Microsoft\MicrosoftEdge\PhishingFilter|PreventOverride'
+    'M|SOFTWARE\Policies\Microsoft\MicrosoftEdge\PhishingFilter|PreventOverrideAppRepUnknown'
+    'M|SOFTWARE\Policies\Microsoft\MicrosoftEdge\Internet Settings|PreventCertErrorOverrides'
+    'M|SOFTWARE\Policies\Microsoft\MicrosoftEdge\Main|FormSuggest Passwords'
+    'M|SOFTWARE\Policies\Microsoft\MicrosoftEdge\PhishingFilter|EnabledV9'
+    'M|SOFTWARE\Policies\Microsoft\Windows\GameDVR|AllowGameDVR'
+    'M|SOFTWARE\Policies\Microsoft\PassportForWork|RequireSecurityDevice'
+    'M|SOFTWARE\Policies\Microsoft\PassportForWork\PINComplexity|MinimumPINLength'
+    'M|SOFTWARE\Policies\Microsoft\Windows\AppPrivacy|LetAppsActivateWithVoiceAboveLock'
+    'M|SOFTWARE\Policies\Microsoft\Windows\AppPrivacy|LetAppsActivateWithVoice'
+    'M|Software\Policies\Microsoft\Windows\System|AllowDomainPINLogon'
+    'M|Software\Policies\Microsoft\WindowsInkWorkspace|AllowWindowsInkWorkspace'
+    'U|SOFTWARE\Policies\Microsoft\Windows\CloudContent|DisableThirdPartySuggestions'
+    'M|Software\Policies\Microsoft\Windows\Kernel DMA Protection|DeviceEnumerationPolicy'
+    'U|SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\PushNotifications|NoToastApplicationNotificationOnLockScreen'
     'M|SOFTWARE\Policies\Microsoft\Windows\DeviceGuard|HypervisorEnforcedCodeIntegrity'
     'M|SOFTWARE\Policies\Microsoft\MicrosoftAccount|DisableUserAuth'
-    'M|SOFTWARE\Policies\Microsoft\Windows\System|EnableSmartScreen'
 )
 # END STIG-REGISTRY
 $stig = Invoke-Section 'stig' {
@@ -1607,7 +1797,7 @@ $snapshot = [ordered]@{
         runningAsSystem  = $isSystem
         runningAsAdmin   = $isAdmin
         psVersion        = "$($PSVersionTable.PSVersion)"
-        options          = [ordered]@{ skipAcl = [bool]$SkipAcl; checkUpdates = [bool]$CheckUpdates }
+        options          = [ordered]@{ skipAcl = [bool]$SkipAcl; checkUpdates = [bool]$CheckUpdates; encryption = $(if ($script:EncCert) { 'certificate' } elseif ($EncryptPassword) { 'password' } else { 'none' }) }
         # ToArray(): @() over a List inside a hashtable throws "Argument types do not match".
         sectionsCollected = $script:Sections.ToArray()
         collectionErrors = $script:Errors.ToArray()
@@ -1633,6 +1823,7 @@ $snapshot = [ordered]@{
     updatesPending       = $updatesPending
     # A section that returns an empty list hands back $null, and @($null) would be one empty entry.
     services             = @($services | Where-Object { $_ })
+    drivers              = $drivers
     scheduledTasks       = @($tasks | Where-Object { $_ })
     autoruns             = @($autoruns | Where-Object { $_ })
 }
@@ -1652,16 +1843,31 @@ $json = [regex]::Replace($json, '(?<=[^\\]"):\s*\{\s*\}', ': []')
 foreach ($arrayField in 'writableBy', 'ancestorControl') {
     $json = [regex]::Replace($json, "`"$arrayField`":\s*null", "`"$arrayField`": []")
 }
-[System.IO.File]::WriteAllText("$base.json", $json, (New-Object System.Text.UTF8Encoding($false)))
-$outPath = "$base.json"
-if (-not $NoZip) {
-    try {
-        Step-Spinner 'Compressing the snapshot'
-        Compress-Archive -LiteralPath "$base.json" -DestinationPath "$base.zip" -Force
-        Remove-Item -LiteralPath "$base.json"
-        $outPath = "$base.zip"
+if ($EncryptPassword -or $script:EncCert) {
+    # Encrypted: the zip is built in memory and only the .hbx reaches the disk.
+    Step-Spinner 'Encrypting the snapshot'
+    Add-Type -AssemblyName System.IO.Compression
+    $zipStream = New-Object System.IO.MemoryStream
+    $archive = New-Object System.IO.Compression.ZipArchive -ArgumentList $zipStream, ([System.IO.Compression.ZipArchiveMode]::Create), $true
+    $entry = $archive.CreateEntry("$(Split-Path -Leaf $base).json", [System.IO.Compression.CompressionLevel]::Optimal)
+    $writer = New-Object System.IO.StreamWriter -ArgumentList $entry.Open(), (New-Object System.Text.UTF8Encoding($false))
+    $writer.Write($json); $writer.Dispose(); $archive.Dispose()
+    $sealed = Protect-SnapshotBytes -Data $zipStream.ToArray() -Password $EncryptPassword -Certificate $script:EncCert
+    [System.IO.File]::WriteAllBytes("$base.hbx", $sealed)
+    $outPath = "$base.hbx"
+}
+else {
+    [System.IO.File]::WriteAllText("$base.json", $json, (New-Object System.Text.UTF8Encoding($false)))
+    $outPath = "$base.json"
+    if (-not $NoZip) {
+        try {
+            Step-Spinner 'Compressing the snapshot'
+            Compress-Archive -LiteralPath "$base.json" -DestinationPath "$base.zip" -Force
+            Remove-Item -LiteralPath "$base.json"
+            $outPath = "$base.zip"
+        }
+        catch { Stop-Spinner; Write-Warning "Compression failed ($($_.Exception.Message)); the JSON is kept." }
     }
-    catch { Stop-Spinner; Write-Warning "Compression failed ($($_.Exception.Message)); the JSON is kept." }
 }
 Stop-Spinner
 $slowest = @($script:SectionSeconds.GetEnumerator() | Where-Object { $_.Value -ge 2 } | Sort-Object Value -Descending | Select-Object -First 3 | ForEach-Object { "$($_.Key) $($_.Value) s" })

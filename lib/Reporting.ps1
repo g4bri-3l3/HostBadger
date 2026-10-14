@@ -3,10 +3,10 @@
 
 function Export-FindingsCsv {
     param($Findings, [string]$Path)
-    $rows = @($Findings | Select-Object Severity, Type, Title, Category, Host, Object, Detail, Mitre, Cis)
+    $rows = @($Findings | Select-Object Severity, Type, Title, Category, Host, Object, Detail, Mitre, Cis, CisBenchmark, Found, Expected)
     if ($rows.Count -eq 0) {
         # Keep the header, so that -CompareTo still works against a clean run.
-        'Severity,Type,Title,Category,Host,Object,Detail,Mitre,Cis' | Set-Content -LiteralPath $Path -Encoding UTF8
+        'Severity,Type,Title,Category,Host,Object,Detail,Mitre,Cis,CisBenchmark,Found,Expected' | Set-Content -LiteralPath $Path -Encoding UTF8
         return
     }
     $rows | Export-Csv -LiteralPath $Path -NoTypeInformation -Encoding UTF8
@@ -79,6 +79,10 @@ function Export-FindingsJsonl {
         $o['detail'] = $f.Detail
         $o['mitre'] = $f.Mitre
         $o['cis'] = $f.Cis
+        $o['cis_benchmark'] = $(if ($f.CisBenchmark) { $f.CisBenchmark } else { $null })
+        # The value on the host and the value the framework requires (CIS or STIG), when the check knows them.
+        $o['found'] = $(if ($f.Found) { $f.Found } else { $null })
+        $o['expected'] = $(if ($f.Expected) { $f.Expected } else { $null })
         $o['fix_available'] = [bool]($script:FixTypes -and $script:FixTypes.ContainsKey($f.Type))
         $o['finding_id'] = Get-FindingId $f
         $o['status'] = $(if (-not $Comparison) { $null } elseif ($newKeys.ContainsKey((Get-FindingKey $f))) { 'new' } else { 'persisting' })
@@ -137,9 +141,10 @@ $script:BadgerAscii = @'
       '--..--'
 '@
 
-# The badger palette is charcoal, bark and cream, and severity keeps muted colours.
-$script:BadgerCategoryRamp = @('#1B1A17', '#33302A', '#4B463D', '#635C50', '#7C7465', '#968D7B', '#B0A893', '#C9C2AD', '#E0DAC6', '#8A6E4B', '#5E7384', '#9AA39C')
-$script:BadgerSeverityColors = @('#A23B3B', '#B0703A', '#A88B2E', '#7F868D')
+# Keycap palette: an ink ramp for categories (three warm/cool accents at the end for 12-way
+# spread), and the keycap red / coral / amber / tint for severity.
+$script:BadgerCategoryRamp = @('#161513', '#2B2925', '#45413A', '#5F5A51', '#78726A', '#8F887C', '#ABA497', '#C6BFB0', '#DDD6C8', '#8A6E4B', '#5E7384', '#9AA39C')
+$script:BadgerSeverityColors = @('#E2372A', '#EF8A6F', '#F2B632', '#B9B1A1')
 
 function Get-SvgPieChart {
     param([string[]]$Labels, [int[]]$Values, [string[]]$Colors, [int]$Size = 130, [string]$CenterLabel = '')
@@ -181,7 +186,7 @@ function Get-ComplianceStats {
         $fired = $typesByHost["$($hostItem.Name)"]
         foreach ($t in $script:CheckCatalog.Keys) {
             $m = $script:CheckCatalog[$t]
-            if (-not $m.Cis) { continue }
+            if (-not ($m.Cis -or $m.CisServer)) { continue }
             if ("$($hostItem.Role)" -ne 'unknown' -and $m.Roles -notcontains "$($hostItem.Role)") { continue }
             if ($ne.ContainsKey($t)) { continue }
             $cisApplicable++
@@ -202,7 +207,7 @@ function ConvertTo-ReportHtml {
     if ($HideCis) {
         $hiddenCis = @($findings | Where-Object { $_.Cis }).Count
         $findings = @($findings | Where-Object { -not $_.Cis })
-        $hideTypes += @($script:CheckCatalog.Keys | Where-Object { $script:CheckCatalog[$_].Cis })
+        $hideTypes += @($script:CheckCatalog.Keys | Where-Object { $script:CheckCatalog[$_].Cis -or $script:CheckCatalog[$_].CisServer })
     }
     if ($HideStig) {
         $hiddenStig = @($findings | Where-Object { $_.Category -eq 'DISA STIG' }).Count
@@ -230,82 +235,141 @@ function ConvertTo-ReportHtml {
     & $w "<title>HostBadger report - $(& $H $titleTarget)</title>"
     & $w @'
 <style>
+  /* "Keycap" theme: paper, ink, hard shadows. Self-contained: system font stacks, no web fonts. */
   :root {
-    --ink: #1B1A17; --paper: #F4F2EC; --accent: #635C50; --accent-deep: #2B2823; --accent-tint: #E6E1D4;
-    --slate: #2B2823; --border: #D6D0C1; --muted: #615B50;
-    --critical: #A23B3B; --critical-bg: #F2E1E1; --high: #B0703A; --high-bg: #F2E6DB;
-    --medium: #A88B2E; --medium-bg: #F1ECDC; --low: #7F868D; --low-bg: #E4E7EA;
+    --paper: #F3EFE6; --surface: #FFFDF8; --tint: #E8E2D4; --ink: #161513; --muted: #5F5A51;
+    --red: #E2372A; --red-soft: #FBD9D2; --coral: #EF8A6F; --amber: #F2B632; --amber-soft: #FBE7B5; --green: #84CC5F;
+    --line: 3px solid var(--ink);
+    --shadow: 7px 7px 0 var(--ink); --shadow-sm: 4px 4px 0 var(--ink); --shadow-xs: 3px 3px 0 var(--ink);
+    --display: "Bahnschrift", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --body: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Helvetica, Arial, sans-serif;
+    --mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+    /* Semantic aliases used by the report code and the charts. */
+    --critical: var(--red); --slate: var(--ink); --accent: var(--muted);
+    --required: #3F6B3A;
   }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; margin: 40px; color: var(--ink); background: var(--paper); line-height: 1.45; }
-  @media (max-width: 700px) { body { margin: 16px; } .badger-logo { font-size: 7px; } }
-  h1 { border-bottom: 3px solid var(--accent); padding-bottom: 10px; }
-  h1.title { display: flex; align-items: flex-end; gap: 18px; }
-  .badger-logo { font-family: Consolas, 'Courier New', monospace; font-size: 10px; line-height: 1.05; font-weight: 700; color: var(--slate); margin: 0; flex-shrink: 0; }
-  h2 { margin: 0; color: var(--slate); }
-  .meta { color: var(--muted); font-size: 13px; }
-  .cards { display: flex; flex-wrap: wrap; gap: 12px; margin: 18px 0; }
-  .card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; min-width: 120px; background: #fff; }
-  .card .num { font-size: 26px; font-weight: 700; }
-  .card .lbl { font-size: 12px; color: var(--muted); }
-  .card.critical .num { color: var(--critical); } .card.high .num { color: var(--high); }
-  .card.medium .num { color: var(--medium); } .card.low .num { color: var(--low); }
-  .grade { font-size: 26px; font-weight: 800; color: var(--accent-deep); }
-  .table-wrap { border: 1px solid var(--border); border-radius: 10px; overflow-x: auto; margin: 12px 0; }
-  table { border-collapse: collapse; width: 100%; font-size: 12px; }
-  th, td { padding: 7px 10px; text-align: left; vertical-align: top; border-top: 1px solid var(--border); }
-  th { background: var(--slate); color: var(--paper); font-weight: 600; border-top: none; }
-  tr.data-row:nth-child(even) td { background: #F8F6F1; }
-  tr.data-row:hover td { background: var(--accent-tint); }
-  .sev-pill { display: inline-block; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 99px; white-space: nowrap; }
-  .sev-pill-critical { background: var(--critical-bg); color: #7A2727; }
-  .sev-pill-high { background: var(--high-bg); color: #7A4A1F; }
-  .sev-pill-medium { background: var(--medium-bg); color: #6E5A1C; }
-  .sev-pill-low { background: var(--low-bg); color: #4A5056; }
-  code { background: #EAE6DB; padding: 1px 5px; border-radius: 3px; font-family: ui-monospace, Consolas, monospace; font-size: 0.92em; }
-  details { margin-top: 28px; }
-  details > summary { cursor: pointer; list-style: none; border-bottom: 2px solid var(--accent-tint); padding-bottom: 6px; }
+  body {
+    max-width: 1240px; margin: 0 auto; padding: 28px 24px 64px; color: var(--ink); line-height: 1.5;
+    font-family: var(--body); font-size: 15px; -webkit-font-smoothing: antialiased;
+    background: var(--paper) radial-gradient(circle, rgba(22, 21, 19, .10) 1.1px, transparent 1.5px) 0 0 / 18px 18px;
+  }
+  @media (max-width: 700px) { body { padding: 16px 16px 40px; } .badger-logo { font-size: 7px; } }
+  :focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+
+  h1 {
+    font-family: var(--display); font-weight: 800; letter-spacing: -0.04em; line-height: .95; font-size: clamp(1.7rem, 3.4vw, 2.6rem);
+    border: var(--line); border-radius: 22px; background: var(--surface); box-shadow: var(--shadow); padding: 20px 24px; margin: 0 0 28px;
+  }
+  h1.title { display: flex; align-items: center; gap: 22px; }
+  .badger-logo {
+    font-family: var(--mono); font-size: 10px; line-height: 1.05; font-weight: 700; margin: 0; flex-shrink: 0;
+    color: var(--surface); background: var(--ink); border-radius: 14px; padding: 10px 12px; box-shadow: 4px 4px 0 var(--red);
+  }
+  h2 { margin: 0; font-family: var(--display); font-weight: 750; letter-spacing: -0.03em; font-size: clamp(1.3rem, 2.2vw, 1.8rem); color: var(--ink); }
+  h3 { font-family: var(--display); letter-spacing: -0.02em; }
+  .meta { font-family: var(--mono); font-size: 12px; line-height: 1.55; letter-spacing: .01em; color: var(--muted); }
+  h1 + .meta { text-transform: uppercase; letter-spacing: .06em; font-size: 11.5px; }
+  code { background: var(--tint); border: 1.5px solid var(--ink); border-radius: 6px; padding: 0 5px; font-family: var(--mono); font-size: 0.92em; }
+
+  /* Score cards: keys with a hard shadow. */
+  .cards { display: flex; flex-wrap: wrap; gap: 18px; margin: 26px 0 30px; clear: both; }
+  .card {
+    border: var(--line); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow-sm);
+    padding: 14px 20px 16px; min-width: 140px; transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .card:hover { transform: translate(-2px, -2px); box-shadow: 6px 6px 0 var(--ink); }
+  .card .num, .grade { font-family: var(--display); font-weight: 800; font-size: 2.4rem; letter-spacing: -0.04em; line-height: 1; color: var(--ink); }
+  .card .lbl { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+  .card.critical { background: var(--red); } .card.critical .num, .card.critical .lbl { color: var(--surface); }
+  .card.high { background: var(--red-soft); } .card.medium { background: var(--amber); } .card.low { background: var(--tint); }
+
+  /* Severity pills as small keycaps. */
+  .sev-pill {
+    display: inline-block; white-space: nowrap; font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    border: 2px solid var(--ink); border-radius: 8px; padding: 3px 9px; box-shadow: 2px 2px 0 var(--ink); color: var(--ink);
+  }
+  .sev-pill-critical { background: var(--red); color: var(--surface); }
+  .sev-pill-high { background: var(--red-soft); }
+  .sev-pill-medium { background: var(--amber); }
+  .sev-pill-low { background: var(--tint); }
+
+  /* Sections and checks: bento panels. */
+  details { margin-top: 34px; }
+  details > summary { cursor: pointer; list-style: none; border-bottom: var(--line); padding-bottom: 10px; }
   details > summary::-webkit-details-marker { display: none; }
   details > summary h2 { display: inline-block; }
-  details > summary::before { content: '\25b6'; display: inline-block; margin-right: 8px; font-size: 13px; color: var(--accent); transition: transform 0.15s ease; }
+  details > summary::before { content: '\25b6'; display: inline-block; margin-right: 8px; font-size: 14px; color: var(--red); transition: transform .15s ease; }
   details[open] > summary::before { transform: rotate(90deg); }
-  details.check { margin: 8px 0; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
-  details.check > summary { border-bottom: none; padding: 10px 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  details.check {
+    margin: 12px 0; border: var(--line); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow-xs);
+    transition: box-shadow .12s ease, transform .12s ease;
+  }
+  details.check:hover { transform: translate(-1px, -1px); box-shadow: var(--shadow-sm); }
+  details.check[open] { box-shadow: var(--shadow); }
+  details.check > summary { border-bottom: none; padding: 12px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  details.check[open] > summary { border-bottom: var(--line); }
   details.check > summary::before { margin-right: 0; }
-  details.check .body { padding: 0 14px 12px 14px; }
-  .check-title { font-weight: 600; }
-  .check-id { color: var(--muted); font-size: 12px; }
-  .count { margin-left: auto; font-size: 12px; color: var(--muted); }
+  details.check .body { padding: 12px 18px 16px; }
+  .check-title { font-family: var(--display); font-weight: 700; font-size: 1.02rem; letter-spacing: -0.01em; }
+  .check-id { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; color: var(--muted); }
+  .count { margin-left: auto; font-family: var(--mono); font-size: 11px; letter-spacing: .06em; background: var(--tint); border: 2px solid var(--ink); border-radius: 99px; padding: 1px 10px; }
   .kv { font-size: 13px; margin: 6px 0; }
-  .kv b { color: var(--slate); }
-  blockquote { background: var(--accent-tint); border-left: 4px solid var(--accent); margin: 12px 0; padding: 10px 14px; }
-  .warn { background: var(--critical-bg); border-left-color: var(--critical); }
-  tr.filter-row td { background: #EFECE4; padding: 4px 6px; }
-  tr.filter-row input { width: 100%; box-sizing: border-box; font-size: 11px; padding: 3px 5px; border: 1px solid #C5BEAE; border-radius: 3px; }
-  .filter-status { font-size: 11px; color: var(--muted); margin: 4px 0 0 2px; }
-  .compare-new { color: var(--accent-deep); font-weight: bold; }
-  .compare-resolved { color: #615B50; font-weight: bold; }
-  .chart-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin: 18px 0; grid-auto-flow: dense; }
+  .kv b { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink); }
+
+  /* Tables: ink header, mono labels, framed panel. */
+  .table-wrap { border: var(--line); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow-sm); overflow-x: auto; margin: 14px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th, td { padding: 8px 12px; text-align: left; vertical-align: top; border-top: 1.5px solid var(--tint); }
+  th { background: var(--ink); color: var(--paper); font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; padding: 10px 12px; border-top: none; }
+  tr.data-row:nth-child(even) td { background: #FAF6EE; }
+  tr.data-row:hover td { background: var(--amber-soft); }
+  td.found, td.required { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; max-width: 220px; }
+  td.found { color: var(--red); }
+  td.required { color: var(--required); font-weight: 600; }
+  tr.filter-row td { background: var(--tint); padding: 5px 6px; }
+  tr.filter-row input { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: 11px; padding: 4px 7px; border: 2px solid var(--ink); border-radius: 8px; background: var(--surface); }
+  tr.filter-row input:focus { outline: 3px solid var(--red); outline-offset: 1px; }
+  .filter-status { font-family: var(--mono); font-size: 11px; color: var(--muted); margin: 6px 0 0 2px; }
+  .compare-new { color: var(--red); font-weight: bold; }
+  .compare-resolved { color: var(--muted); font-weight: bold; }
+
+  /* Callouts. */
+  blockquote { background: var(--surface); border: var(--line); border-left-width: 10px; border-radius: 14px; box-shadow: var(--shadow-xs); margin: 14px 0; padding: 12px 16px; }
+  .warn { background: var(--red-soft); border-left-color: var(--red); }
+
+  /* Charts: each one a bento panel. */
+  .chart-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 22px; margin: 18px 0; grid-auto-flow: dense; }
+  .chart-row > div { border: var(--line); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow-sm); padding: 14px 18px; min-width: 0; }
   .chart-row > div.chart-wide { grid-column: span 2; }
   .chart-wide .pie-legend { columns: 2; column-gap: 28px; }
-  .chart-row > div { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; min-width: 0; }
   .pie-chart-wrap { display: flex; align-items: center; gap: 16px; }
   .pie-chart-wrap svg { flex-shrink: 0; }
-  .pie-chart-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--slate); }
-  .pie-legend { font-size: 12px; }
+  .pie-chart-title { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+  .pie-legend { font-size: 12px; min-width: 0; }
   .pie-legend-item { display: flex; align-items: center; gap: 6px; margin: 3px 0; white-space: nowrap; }
-  .pie-legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
-  .ai-section { background: #EFECE4; border: 1px solid var(--border); border-left: 4px solid var(--accent-deep); border-radius: 4px; padding: 4px 20px 16px 20px; margin-top: 16px; }
-  .ai-badge { display: inline-block; font-size: 11px; font-weight: bold; color: var(--accent-deep); background: var(--accent-tint); border-radius: 10px; padding: 2px 10px; margin: 12px 0 8px 0; }
-  .ai-section h3 { color: var(--slate); margin: 16px 0 6px 0; }
+  .pie-legend-swatch { display: inline-block; width: 10px; height: 10px; border: 1.5px solid var(--ink); border-radius: 3px; flex-shrink: 0; }
+
+  /* AI section. */
+  .ai-section { background: var(--surface); border: var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 6px 24px 20px; margin-top: 18px; }
+  .ai-badge { display: inline-block; font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink); background: var(--green); border: 2px solid var(--ink); border-radius: 8px; box-shadow: 2px 2px 0 var(--ink); padding: 2px 10px; margin: 12px 0 8px; }
+  .ai-section h3 { color: var(--ink); margin: 16px 0 6px; }
   .ai-section ol li { margin: 6px 0; }
-  .ai-script { background: #1B1A17; color: #E7E3D8; border-radius: 6px; padding: 10px 12px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; white-space: pre-wrap; overflow-x: auto; margin: 6px 0; }
+  .ai-script { background: var(--ink); color: #ECE7DC; border: var(--line); border-radius: 12px; padding: 10px 12px; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-x: auto; margin: 6px 0; }
   .ai-triage td { vertical-align: top; }
-  details.fix { margin: 12px 0 4px 0; border: 1px dashed var(--border); border-radius: 8px; padding: 6px 12px 10px 12px; background: #FBFAF6; }
-  details.fix > summary { font-weight: 600; color: var(--slate); border-bottom: none; padding-bottom: 0; }
+
+  /* Remediation fix scripts. */
+  details.fix { margin: 12px 0 4px; border: 3px dashed var(--ink); border-radius: 14px; padding: 8px 14px 12px; background: var(--surface); }
+  details.fix > summary { font-family: var(--display); font-weight: 700; color: var(--ink); border-bottom: none; padding-bottom: 0; }
   details.fix > summary::before { display: none; }
   .fix-box { position: relative; margin: 8px 0; }
-  .fix-code { background: #1B1A17; color: #E7E3D8; border-radius: 6px; padding: 10px 12px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; white-space: pre; overflow-x: auto; margin: 0; }
-  .fix-box .copy { position: absolute; top: 6px; right: 6px; font-size: 11px; padding: 2px 8px; border: 1px solid #635C50; border-radius: 4px; background: #2B2823; color: #E7E3D8; cursor: pointer; }
+  .fix-code { background: var(--ink); color: #ECE7DC; border: var(--line); border-radius: 12px; padding: 10px 12px; font-family: var(--mono); font-size: 12px; white-space: pre; overflow-x: auto; margin: 0; }
+  .fix-box .copy { position: absolute; top: 8px; right: 8px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; padding: 3px 9px; border: 2px solid var(--surface); border-radius: 8px; background: var(--red); color: var(--surface); cursor: pointer; }
+
+  @media print {
+    body { background: #fff; max-width: none; }
+    h1, .card, details.check, .table-wrap, .chart-row > div, blockquote, .ai-section { box-shadow: none; }
+    .card:hover, details.check:hover { transform: none; }
+  }
 </style>
 <script>
 function copyFix(btn) {
@@ -358,7 +422,7 @@ function filterBadgerTable(input) {
 
     # ---------------- Compliance ----------------
     $compCharts = @()
-    $comp = @('Compliant', 'Not compliant'); $compColors = @('#6E7F6A', '#A23B3B')
+    $comp = @('Compliant', 'Not compliant'); $compColors = @('#6E8B5F', '#E2372A')
     if ($compliance.StigEvaluated -gt 0) {
         $okS = $compliance.StigEvaluated - $compliance.StigFailed
         $compCharts += "<div><div class='pie-chart-title'>DISA STIG compliance: $([int][Math]::Round(100 * $okS / $compliance.StigEvaluated))% of $($compliance.StigEvaluated) rules judged</div>$(Get-SvgPieChart -Labels $comp -Values @($okS, $compliance.StigFailed) -Colors $compColors -CenterLabel 'rules')</div>"
@@ -377,7 +441,7 @@ function filterBadgerTable(input) {
     if (-not $single) {
         $grades = @('A', 'B', 'C', 'D', 'E', 'F')
         $gVals = @($grades | ForEach-Object { $g = $_; @($Hosts | Where-Object { $_.Score.Grade -eq $g }).Count })
-        $gradeChart = "<div><div class='pie-chart-title'>Hosts by grade</div>$(Get-SvgPieChart -Labels $grades -Values $gVals -Colors @('#2B2823', '#4B463D', '#7C7465', '#A88B2E', '#B0703A', '#A23B3B') -CenterLabel 'hosts')</div>"
+        $gradeChart = "<div><div class='pie-chart-title'>Hosts by grade</div>$(Get-SvgPieChart -Labels $grades -Values $gVals -Colors @('#2B2823', '#4B463D', '#7C7465', '#F2B632', '#EF8A6F', '#E2372A') -CenterLabel 'hosts')</div>"
     }
 
     # ---------------- Software and updates charts ----------------
@@ -395,17 +459,28 @@ function filterBadgerTable(input) {
         $swCharts += "<div><div class='pie-chart-title'>Installed software by publisher ($($allSoftware.Count) installs)</div>$(Get-SvgPieChart -Labels $pubLabels -Values $pubVals -Colors $script:BadgerCategoryRamp -CenterLabel 'programs')</div>"
         if ($KevLoaded) {
             $kevCount = [Math]::Min($allSoftware.Count, @($Split.Active | Where-Object { $_.Type -eq 'kev_software_match' }).Count)
-            $swCharts += "<div><div class='pie-chart-title'>Software and the CISA KEV catalog (by name)</div>$(Get-SvgPieChart -Labels @('Matches a KEV product', 'No match') -Values @($kevCount, ($allSoftware.Count - $kevCount)) -Colors @('#A23B3B', '#6E7F6A') -CenterLabel 'programs')</div>"
+            $swCharts += "<div><div class='pie-chart-title'>Software and the CISA KEV catalog (by name)</div>$(Get-SvgPieChart -Labels @('Matches a KEV product', 'No match') -Values @($kevCount, ($allSoftware.Count - $kevCount)) -Colors @('#E2372A', '#6E8B5F') -CenterLabel 'programs')</div>"
         }
     }
     if (@($Hosts | Where-Object { $_.UpdatesSearched }).Count -gt 0) {
         $upd = @($Split.Active | Where-Object { $_.Type -eq 'updates_pending' })
         $searched = @($Hosts | Where-Object { $_.UpdatesSearched }).Count
-        if ($upd.Count -eq 0) { $swCharts += "<div><div class='pie-chart-title'>Missing Windows updates: none found ($searched host(s) searched)</div>$(Get-SvgPieChart -Labels @('Up to date') -Values @($searched) -Colors @('#6E7F6A') -CenterLabel 'hosts')</div>" }
-        else { $swCharts += "<div><div class='pie-chart-title'>Missing Windows updates by severity ($searched host(s) searched)</div>$(Get-SvgPieChart -Labels @('High', 'Medium', 'Low') -Values @(@($upd | Where-Object { $_.Severity -eq 'High' }).Count, @($upd | Where-Object { $_.Severity -eq 'Medium' }).Count, @($upd | Where-Object { $_.Severity -eq 'Low' }).Count) -Colors @('#B0703A', '#A88B2E', '#7F868D') -CenterLabel 'updates')</div>" }
+        if ($upd.Count -eq 0) { $swCharts += "<div><div class='pie-chart-title'>Missing Windows updates: none found ($searched host(s) searched)</div>$(Get-SvgPieChart -Labels @('Up to date') -Values @($searched) -Colors @('#6E8B5F') -CenterLabel 'hosts')</div>" }
+        else { $swCharts += "<div><div class='pie-chart-title'>Missing Windows updates by severity ($searched host(s) searched)</div>$(Get-SvgPieChart -Labels @('High', 'Medium', 'Low') -Values @(@($upd | Where-Object { $_.Severity -eq 'High' }).Count, @($upd | Where-Object { $_.Severity -eq 'Medium' }).Count, @($upd | Where-Object { $_.Severity -eq 'Low' }).Count) -Colors @('#EF8A6F', '#F2B632', '#B9B1A1') -CenterLabel 'updates')</div>" }
+    }
+    # ---------------- Local accounts: administrators versus standard users ----------------
+    # Domain controllers have no local accounts, and a host whose Administrators group could not be
+    # read is left out rather than counted as standard users.
+    $acctChart = $null
+    $mixes = @($Hosts | Where-Object { $_.AccountMix } | ForEach-Object { $_.AccountMix })
+    if ($mixes.Count -gt 0) {
+        $aAdm = ($mixes | Measure-Object -Property Admin -Sum).Sum
+        $aStd = ($mixes | Measure-Object -Property Standard -Sum).Sum
+        $aDis = ($mixes | Measure-Object -Property Disabled -Sum).Sum
+        $acctChart = "<div><div class='pie-chart-title'>Local accounts: administrators vs standard users ($($mixes.Count) host(s))</div>$(Get-SvgPieChart -Labels @('Administrators (enabled)', 'Standard users (enabled)', 'Disabled') -Values @($aAdm, $aStd, $aDis) -Colors @('#EF8A6F', '#6E8B5F', '#B9B1A1') -CenterLabel 'accounts')</div>"
     }
     # One grid for all of them, the short legends first and the long category legend near the end.
-    $allCharts = @($compCharts) + @($sevChart) + @($swCharts) + @($catChart) + @($gradeChart) | Where-Object { $_ }
+    $allCharts = @($compCharts) + @($sevChart) + @($acctChart) + @($swCharts) + @($catChart) + @($gradeChart) | Where-Object { $_ }
     & $w "<div class='chart-row'>$($allCharts -join '')</div>"
 
 
@@ -478,10 +553,20 @@ function filterBadgerTable(input) {
         & $w "<div class=`"kv`"><b>Why it matters.</b> $(& $H $meta.Description)</div>"
         & $w "<div class=`"kv`"><b>Remediation.</b> $(& $H $meta.Remediation)</div>"
         if ($meta.Mitre) { & $w "<div class=`"kv`"><b>MITRE ATT&amp;CK.</b> $(Get-MitreLink $meta.Mitre)</div>" }
-        if ($meta.Cis) { & $w "<div class=`"kv`"><b>CIS Windows 11 Enterprise v3.0.0.</b> rule $(& $H $meta.Cis)</div>" }
-        & $w '<div class="table-wrap"><table><tr><th>Severity</th><th>Host</th><th>Object</th><th>Detail</th></tr>'
+        if ($meta.Cis -or $meta.CisServer) {
+            if ($meta.Cis) { & $w "<div class=`"kv`"><b>CIS Windows 11 Enterprise v3.0.0.</b> rule $(& $H $meta.Cis)</div>" }
+            # Servers quote their own benchmark (data\cis-map.json): list the rules their findings name.
+            foreach ($g in @($t.Items | Where-Object { $_.CisBenchmark -and $_.CisBenchmark -notmatch 'Windows 11' } | Group-Object CisBenchmark)) {
+                $rules = @($g.Group | ForEach-Object { "$($_.Cis)" } | Where-Object { $_ } | Sort-Object -Unique)
+                & $w "<div class=`"kv`"><b>$(& $H ($g.Name -replace '^CIS Microsoft ', 'CIS ' -replace ' Benchmark', '')).</b> rule $(& $H ($rules -join '; '))</div>"
+            }
+        }
+        # Found / Required: the value on the host next to the value the framework asks for, when known.
+        $fe = @($t.Items | Where-Object { $_.Found -or $_.Expected }).Count -gt 0
+        & $w "<div class=`"table-wrap`"><table><tr><th>Severity</th><th>Host</th><th>Object</th>$(if ($fe) { '<th>Found</th><th>Required</th>' })<th>Detail</th></tr>"
         foreach ($f in ($t.Items | Sort-Object { - $script:SeverityRank[$_.Severity] }, Host, Object)) {
-            & $w "<tr class=`"data-row`"><td>$(Get-SevPill $f.Severity)</td><td><b>$(& $H $f.Host)</b></td><td>$(& $H $f.Object)</td><td>$(& $H $f.Detail)</td></tr>"
+            $feCells = if ($fe) { "<td class=`"found`">$(& $H $f.Found)</td><td class=`"required`">$(& $H $f.Expected)</td>" } else { '' }
+            & $w "<tr class=`"data-row`"><td>$(Get-SevPill $f.Severity)</td><td><b>$(& $H $f.Host)</b></td><td>$(& $H $f.Object)</td>$feCells<td>$(& $H $f.Detail)</td></tr>"
         }
         & $w '</table></div>'
         # The fix, when there is a safe, standard one: plain PowerShell right under the findings it

@@ -100,6 +100,24 @@ function Invoke-CollectStep {
     catch { }
     Write-Host "`nOptional: ask Windows Update which updates are still missing. The Windows Update service of this machine contacts $wuSource; the collector itself sends nothing. Without it, pending updates are simply not in the snapshot." -ForegroundColor DarkGray
     if (Test-Yes "Search for missing updates online? (y/N)") { $p['CheckUpdates'] = $true }
+    # Encryption of the snapshot (.hbx): nothing is written in clear. The password goes to the collector
+    # in this process, never on a command line.
+    Write-Host "`nThe snapshot describes this machine in detail. Encrypt it: with a password (asked again when you analyze it), or to a certificate (a .cer file or a thumbprint; only the holder of the private key can read it)." -ForegroundColor DarkGray
+    $encAns = "$(Read-Host 'Encrypt the snapshot? [P]assword, [C]ertificate, [N]o (P/c/n)')".Trim().ToUpper()
+    if ($encAns -eq 'C') {
+        $cert = Read-Path 'Certificate (.cer file or thumbprint)'
+        if ($cert) { $p['EncryptCertificate'] = $cert } else { Write-Host 'No certificate given: the snapshot is not encrypted.' -ForegroundColor Yellow }
+    }
+    elseif ($encAns -ne 'N') {
+        $pw1 = Read-Host 'Password' -AsSecureString
+        $pw2 = Read-Host 'Password again' -AsSecureString
+        $b1 = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($pw1); $b2 = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($pw2)
+        try { $t1 = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b1); $t2 = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b2) }
+        finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b1); [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b2) }
+        if (-not $t1 -or $t1 -cne $t2) { Write-Host 'The passwords are empty or do not match: nothing collected.' -ForegroundColor Red; return '' }
+        $p['EncryptPassword'] = $t1
+        $script:CollectPassword = $pw1
+    }
     $before = @(Get-ChildItem -LiteralPath $dir -Filter 'hostsnapshot_*' -ErrorAction SilentlyContinue).Count
     Invoke-Sub 'Collect-HostSnapshot.ps1' $p
     $after = @(Get-ChildItem -LiteralPath $dir -Filter 'hostsnapshot_*' -ErrorAction SilentlyContinue).Count
@@ -111,15 +129,15 @@ function Invoke-CollectStep {
     return ''
 }
 
-# The snapshots in a folder, read from their file names (hostsnapshot_<host>_<yyyyMMddHHmmss>.zip or
+# The snapshots in a folder, read from their file names (hostsnapshot_<host>_<yyyyMMddHHmmss>.zip, .hbx or
 # .json; the time in the name is UTC). Without -Recurse only the folder itself is looked at.
 function Get-SnapshotList {
     param([string]$Dir, [switch]$Recurse)
     $args2 = @{ LiteralPath = $Dir; File = $true; ErrorAction = 'SilentlyContinue' }
     if ($Recurse) { $args2['Recurse'] = $true }
     $items = New-Object System.Collections.Generic.List[object]
-    foreach ($f in @(Get-ChildItem @args2 | Where-Object { $_.Name -match '^hostsnapshot_.+\.(json|zip)$' })) {
-        $m = [regex]::Match($f.Name, '^hostsnapshot_(?<host>.+)_(?<ts>\d{14})\.(json|zip)$')
+    foreach ($f in @(Get-ChildItem @args2 | Where-Object { $_.Name -match '^hostsnapshot_.+\.(json|zip|hbx)$' })) {
+        $m = [regex]::Match($f.Name, '^hostsnapshot_(?<host>.+)_(?<ts>\d{14})\.(json|zip|hbx)$')
         $name = $f.BaseName -replace '^hostsnapshot_', ''
         $when = $f.LastWriteTimeUtc
         if ($m.Success) {
@@ -178,7 +196,16 @@ function Get-AnalysisParams {
     if (-not $Snapshot) { $Snapshot = Select-Snapshot }
     if (-not $Snapshot -or -not (Test-Path -LiteralPath $Snapshot)) { Write-Host "Snapshot not found." -ForegroundColor Red; return $null }
     $ap['Snapshot'] = $Snapshot
-    $ap['OutHtml'] = Read-Path "Report HTML path" ("hostbadger_{0}.html" -f (Ts))
+    # Encrypted snapshots: the password is asked once here, so the AI re-run does not ask again.
+    # A folder is searched; a single file is just looked at (Get-ChildItem -Recurse on a file walks far more).
+    $hbx = if ((Get-Item -LiteralPath $Snapshot).PSIsContainer) { @(Get-ChildItem -LiteralPath $Snapshot -Recurse -File -Filter 'hostsnapshot_*.hbx' -ErrorAction SilentlyContinue) }
+    else { @(Get-Item -LiteralPath $Snapshot | Where-Object { $_.Extension -eq '.hbx' }) }
+    if ($hbx.Count -gt 0 -and -not $script:CollectPassword) {
+        $pw = Read-Host "Password of the $($hbx.Count) encrypted snapshot(s) (Enter if they are encrypted to a certificate)" -AsSecureString
+        if ($pw.Length -gt 0) { $ap['SnapshotPassword'] = $pw }
+    }
+    elseif ($hbx.Count -gt 0) { $ap['SnapshotPassword'] = $script:CollectPassword }
+    $ap['OutHtml'] = Read-Path "Report HTML path" ("output\hostbadger_{0}.html" -f (Ts))
     # Only when the folder holds snapshots of more than one host: one report each, on by default.
     if ((Get-Item -LiteralPath $Snapshot).PSIsContainer) {
         $hostCount = @(Get-SnapshotList -Dir $Snapshot -Recurse | ForEach-Object { $_.Host.ToLower() } | Sort-Object -Unique).Count
@@ -204,6 +231,8 @@ function Get-AnalysisParams {
         $kevPath = Read-Path 'Path of known_exploited_vulnerabilities.json'
         if ($kevPath -and (Test-Path -LiteralPath $kevPath)) { $ap['KevFile'] = $kevPath } else { Write-Host "Not found, KEV skipped: $kevPath" -ForegroundColor Yellow }
     }
+    Write-Host "`nVulnerable drivers: the driver files on the hosts are compared, by SHA-256, with the LOLDrivers catalog of known vulnerable and malicious drivers. HostBadger ships a copy of it; a fresh one is a download from www.loldrivers.io/api/drivers.json (one HTTPS GET of about 30 MB, nothing is sent), kept next to the report." -ForegroundColor DarkGray
+    if (Test-Yes 'Download a fresh LOLDrivers catalog from www.loldrivers.io? (y/N)') { $ap['DriversOnline'] = $true }
     if (Test-Yes "Also write JSON Lines for a SIEM? (y/N)") { $ap['OutJsonl'] = Read-Path "JSON Lines path" ($ap['OutHtml'] -replace '\.html?$', '.jsonl') }
     $prev = Read-Path "Findings CSV of an earlier run, to show new and resolved (optional, Enter to skip)"
     if ($prev) { if (Test-Path -LiteralPath $prev) { $ap['CompareTo'] = $prev } else { Write-Host "Not found, comparison skipped: $prev" -ForegroundColor Yellow } }
@@ -249,7 +278,7 @@ function Add-AiParams {
         if ($env:GEMINI_API_KEY) {
             $Params['SendToAI'] = $true
             if ($Mode -eq 'C') { $Params['AiConfirm'] = $true }
-            $m = Read-Host "Gemini model [gemini-3.7-flash]"
+            $m = Read-Host "Gemini model [gemini-3.8-flash]"
             if ($m.Trim()) { $Params['Model'] = $m.Trim() }
             $r = Read-Host "Gemini attempts on timeout / busy server, 0 = keep trying [3]"
             if ($r -match '^\d+$') { $Params['AiMaxAttempts'] = [int]$r }
@@ -270,6 +299,11 @@ function Invoke-AiOffer {
     $mode = Read-AiMode 'Add an AI summary with Gemini?  [N]o, [D]ry run (only write the prompt), [S]end, [C]onfirm after reading the prompt (N/d/s/c)' -Default 'N'
     if ($mode -eq 'N') { return }
     $again = @{}; foreach ($k in $Params.Keys) { $again[$k] = $Params[$k] }
+    # The catalogs downloaded for the report are kept next to it: the AI run reuses those copies, so it
+    # downloads nothing again and works on the same data as the report.
+    $stem = [System.IO.Path]::GetFullPath($Params['OutHtml']) -replace '\.html?$', ''
+    if ($again['KevOnline'] -and (Test-Path -LiteralPath "${stem}_kev.json")) { $again.Remove('KevOnline'); $again['KevFile'] = "${stem}_kev.json" }
+    if ($again['DriversOnline'] -and (Test-Path -LiteralPath "${stem}_drivers.json")) { $again.Remove('DriversOnline'); $again['DriversFile'] = "${stem}_drivers.json" }
     Add-AiParams -Params $again -Mode $mode
     Invoke-Sub 'HostBadger.ps1' $again
 }
@@ -289,6 +323,8 @@ while ($true) {
         '2' { $ap = Get-AnalysisParams; if ($ap) { Invoke-Sub 'HostBadger.ps1' $ap; Invoke-AiOffer $ap } }
         '3' {
             $dir = [string](@(Invoke-CollectStep) | Select-Object -Last 1)
+            # The password just typed for the collection opens the snapshot without asking again
+            # (Get-AnalysisParams passes $script:CollectPassword on).
             if ($dir) { $ap = Get-AnalysisParams -Snapshot $dir; if ($ap) { Invoke-Sub 'HostBadger.ps1' $ap; Invoke-AiOffer $ap } }
         }
         '4' { $ap = Get-AnalysisParams -WithAi $true; if ($ap) { Invoke-Sub 'HostBadger.ps1' $ap } }

@@ -17,7 +17,7 @@
     Collection time (default 2026-10-01T08:00:00Z, so ages are stable).
 #>
 param(
-    [ValidateSet('weak', 'hardened', 'laptop', 'dc', 'partial')][string]$Scenario = 'weak',
+    [ValidateSet('weak', 'hardened', 'laptop', 'dc', 'partial', 'dc2016', 'srv2025')][string]$Scenario = 'weak',
     [Parameter(Mandatory)][string]$OutFile,
     [string]$CollectedAtUtc = '2026-10-01T08:00:00Z'
 )
@@ -25,8 +25,8 @@ param(
 $domainSid = 'S-1-5-21-1111111111-2222222222-3333333333'
 $machineSid = @{ weak = 'S-1-5-21-4000000001-4000000002-4000000003'; hardened = 'S-1-5-21-5000000001-5000000002-5000000003'
     laptop = 'S-1-5-21-7000000001-7000000002-7000000003'; dc = $domainSid; partial = 'S-1-5-21-6000000001-6000000002-6000000003' }[$Scenario]
-$name = @{ weak = 'WKS-ACCT-017'; hardened = 'SRV-APP-02'; laptop = 'LT-SALES-112'; dc = 'DC01'; partial = 'WKS-HR-004' }[$Scenario]
-$role = @{ weak = 'workstation'; hardened = 'server'; laptop = 'workstation'; dc = 'dc'; partial = 'workstation' }[$Scenario]
+$name = @{ weak = 'WKS-ACCT-017'; hardened = 'SRV-APP-02'; laptop = 'LT-SALES-112'; dc = 'DC01'; partial = 'WKS-HR-004'; dc2016 = 'DC16-01'; srv2025 = 'SRV-2025-01' }[$Scenario]
+$role = @{ weak = 'workstation'; hardened = 'server'; laptop = 'workstation'; dc = 'dc'; partial = 'workstation'; dc2016 = 'dc'; srv2025 = 'server' }[$Scenario]
 
 function Svc([string]$n, [string]$path, [string]$exe, [string]$account = 'LocalSystem', [string]$state = 'Running', $writable = @(), $ancestors = @()) {
     [ordered]@{ name = $n; displayName = $n; startMode = 'Auto'; state = $state; account = $account; pathName = $path; executable = $exe; writableBy = @($writable); ancestorControl = @($ancestors) }
@@ -42,7 +42,16 @@ $allAudit = @(
     @('0cce9217-69ae-11d9-bed3-505054503030', 'Account Lockout'), @('0cce921b-69ae-11d9-bed3-505054503030', 'Special Logon'),
     @('0cce9227-69ae-11d9-bed3-505054503030', 'Other Object Access Events'), @('0cce922f-69ae-11d9-bed3-505054503030', 'Audit Policy Change'),
     @('0cce9230-69ae-11d9-bed3-505054503030', 'Authentication Policy Change'), @('0cce9228-69ae-11d9-bed3-505054503030', 'Sensitive Privilege Use'),
-    @('0cce9211-69ae-11d9-bed3-505054503030', 'Security System Extension'), @('0cce9212-69ae-11d9-bed3-505054503030', 'System Integrity')
+    @('0cce9211-69ae-11d9-bed3-505054503030', 'Security System Extension'), @('0cce9212-69ae-11d9-bed3-505054503030', 'System Integrity'),
+    @('0cce9239-69ae-11d9-bed3-505054503030', 'Application Group Management'), @('0cce9248-69ae-11d9-bed3-505054503030', 'Plug and Play Events'),
+    @('0cce9249-69ae-11d9-bed3-505054503030', 'Group Membership'), @('0cce9216-69ae-11d9-bed3-505054503030', 'Logoff'),
+    @('0cce921c-69ae-11d9-bed3-505054503030', 'Other Logon/Logoff Events'), @('0cce9244-69ae-11d9-bed3-505054503030', 'Detailed File Share'),
+    @('0cce9224-69ae-11d9-bed3-505054503030', 'File Share'), @('0cce9245-69ae-11d9-bed3-505054503030', 'Removable Storage'),
+    @('0cce9231-69ae-11d9-bed3-505054503030', 'Authorization Policy Change'), @('0cce9232-69ae-11d9-bed3-505054503030', 'MPSSVC Rule-Level Policy Change'),
+    @('0cce9234-69ae-11d9-bed3-505054503030', 'Other Policy Change Events'), @('0cce9213-69ae-11d9-bed3-505054503030', 'IPsec Driver'),
+    @('0cce9214-69ae-11d9-bed3-505054503030', 'Other System Events'), @('0cce9210-69ae-11d9-bed3-505054503030', 'Security State Change'),
+    @('0cce9236-69ae-11d9-bed3-505054503030', 'Computer Account Management'), @('0cce9238-69ae-11d9-bed3-505054503030', 'Distribution Group Management'),
+    @('0cce923a-69ae-11d9-bed3-505054503030', 'Other Account Management Events'), @('0cce923b-69ae-11d9-bed3-505054503030', 'Directory Service Access')
 )
 $fullAudit = @($allAudit | ForEach-Object { Audit $_[0] 3 $_[1] })
 $standardAsr = @(
@@ -64,6 +73,18 @@ function Get-StigCompliantValue($e) {
 $stigMachine = New-Object System.Collections.Generic.List[object]
 $stigUser = New-Object System.Collections.Generic.List[object]
 $stigEntries = ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\data\stig-catalog.json')))
+# Kernel drivers: stock ones whose hashes match nothing, and two from the LOLDrivers catalog shipped in
+# data\ (taken from it, so the scenario follows a catalog update): RTCore64.sys, a verified vulnerable
+# driver, and the first verified malicious one.
+$drvCatalog = @((ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\data\vulnerable-drivers.json')))).entries | ForEach-Object { $_ })
+$drvVulnerable = $drvCatalog | Where-Object { $_.n -eq 'RTCore64.sys' -and $_.v -and $_.c -eq 'V' } | Select-Object -First 1
+$drvMalicious = $drvCatalog | Where-Object { $_.c -eq 'M' -and $_.v } | Select-Object -First 1
+function Drv([string]$Name, [string]$Path, [string]$Hash, [string]$State = 'Running', [string]$Start = 'System') { [ordered]@{ name = $Name; state = $State; startMode = $Start; path = $Path; sha256 = $Hash } }
+$baseDrivers = @(
+    (Drv 'ACPI' 'C:\Windows\system32\drivers\ACPI.sys' ('a1' * 32) 'Running' 'Boot'),
+    (Drv 'disk' 'C:\Windows\system32\drivers\disk.sys' ('b2' * 32) 'Running' 'Boot'),
+    (Drv 'WdFilter' 'C:\Windows\system32\drivers\wd\WdFilter.sys' ('c3' * 32) 'Running' 'Boot')
+)
 foreach ($e in @($stigEntries | ForEach-Object { $_ })) {
     $v = Get-StigCompliantValue $e
     if ($null -eq $v) { continue }
@@ -75,10 +96,10 @@ function Remove-StigValues($List, [string]$Product, [int]$Count) {
     $drop = @($List | Where-Object { $_.p -eq $Product } | Select-Object -First $Count)
     return @($List | Where-Object { $drop -notcontains $_ })
 }
-# $Os is the Windows STIG product that applies to the host ('win10', 'win11' or none for a server): the two
-# Windows STIGs can ask for different values on the same key, and a host is only one of them.
+# $Os is the Windows STIG product that applies to the host ('win10', 'win11', 'srv2022ms', 'srv2019dc'...):
+# the Windows STIGs can ask for different values on the same key, and a host is only one of them.
 function Get-StigSection($Machine, $User, $Products, [string]$Os = '') {
-    $keep = { $_.p -notin 'win10', 'win11' -or $_.p -eq $Os }
+    $keep = { $_.p -notin 'win10', 'win11', 'srv2016dc', 'srv2016ms', 'srv2019dc', 'srv2019ms', 'srv2022dc', 'srv2022ms', 'srv2025dc', 'srv2025ms' -or $_.p -eq $Os }
     $Machine = @($Machine | Where-Object $keep); $User = @($User | Where-Object $keep)
     [ordered]@{
         products = $Products
@@ -113,6 +134,17 @@ $cleanRights = [ordered]@{
     SeDenyNetworkLogonRight = @($GST, $LOCACC); SeDenyBatchLogonRight = @($GST); SeDenyServiceLogonRight = @($GST)
     SeDenyInteractiveLogonRight = @($GST); SeDenyRemoteInteractiveLogonRight = @($GST, $LOCACC)
 }
+# Servers follow the member server and domain controller variants of the CIS Server benchmarks.
+$AUTH = 'S-1-5-11'; $EDC = 'S-1-5-9'
+if ($role -eq 'server') {
+    $cleanRights.SeNetworkLogonRight = @($A, $AUTH); $cleanRights.SeInteractiveLogonRight = @($A)
+    $cleanRights.SeDenyNetworkLogonRight = @($GST, 'S-1-5-114')
+}
+elseif ($role -eq 'dc') {
+    $cleanRights.SeNetworkLogonRight = @($A, $AUTH, $EDC); $cleanRights.SeInteractiveLogonRight = @($A, $EDC); $cleanRights.SeRemoteInteractiveLogonRight = @($A)
+    $cleanRights.SeEnableDelegationPrivilege = @($A); $cleanRights.SeMachineAccountPrivilege = @($A)
+    $cleanRights.SeDenyNetworkLogonRight = @($GST); $cleanRights.SeDenyRemoteInteractiveLogonRight = @($GST)
+}
 
 # ------------------------------------------------------------------ hardened baseline
 $s = [ordered]@{
@@ -120,7 +152,7 @@ $s = [ordered]@{
         tool = 'HostBadger'; kind = 'host'; computerName = $name; schemaVersion = 1; collectorVersion = '1.0'; synthetic = $true
         collectedAtUtc = $CollectedAtUtc; collectedBy = 'NT AUTHORITY\SYSTEM'; runningAsSystem = $true; runningAsAdmin = $true; psVersion = '5.1.20348.2849'
         options = [ordered]@{ skipAcl = $false; checkUpdates = $false }
-        sectionsCollected = @('host', 'patches', 'defender', 'bitlocker', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'audit', 'securityPolicy', 'hardening', 'stig', 'software', 'services', 'scheduledTasks', 'autoruns')
+        sectionsCollected = @('host', 'patches', 'defender', 'bitlocker', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'audit', 'securityPolicy', 'hardening', 'stig', 'software', 'services', 'drivers', 'scheduledTasks', 'autoruns')
         collectionErrors = @()
     }
     host                 = [ordered]@{
@@ -134,7 +166,7 @@ $s = [ordered]@{
     boot                 = [ordered]@{ secureBootEnabled = $true; firmware = 'UEFI' }
     credentialProtection = [ordered]@{ runAsPPL = 2; lsaCfgFlags = 1; credentialGuardRunning = $true; hvciRunning = $true; vbsStatus = 2; wdigestUseLogonCredential = 0; cachedLogonsCount = '1'; lmCompatibilityLevel = 5; noLmHash = 1; restrictAnonymous = 1; restrictAnonymousSam = 1 }
     network              = [ordered]@{
-        smb1ServerEnabled = $false; smbServerSigningRequired = $true; smbClientSigningRequired = $true; llmnrPolicyEnableMulticast = 0
+        smb1ServerEnabled = $false; smbServerSigningRequired = $true; smbClientSigningRequired = $true; llmnrPolicyEnableMulticast = 0; mdnsPolicyEnable = 0; mdnsServiceEnable = $null
         netbios = @([ordered]@{ adapter = 'vmxnet3 Ethernet Adapter'; tcpipNetbiosOptions = 2 })
         firewallProfiles = @('Domain', 'Private', 'Public' | ForEach-Object { [ordered]@{ name = $_; enabled = $true; defaultInboundAction = 'Block'; logBlocked = 'True' } })
         listening = @([ordered]@{ protocol = 'tcp'; address = '0.0.0.0'; port = 445; process = 'System' }, [ordered]@{ protocol = 'tcp'; address = '0.0.0.0'; port = 443; process = 'w3wp' }, [ordered]@{ protocol = 'tcp'; address = '127.0.0.1'; port = 6379; process = 'redis-server' })
@@ -147,7 +179,7 @@ $s = [ordered]@{
         administrators = @([ordered]@{ path = "$name/LocalAdm"; sid = "$machineSid-500"; class = 'User' }, [ordered]@{ path = 'CORP/Domain Admins'; sid = "$domainSid-512"; class = 'Group' }, [ordered]@{ path = 'CORP/Server Admins'; sid = "$domainSid-1105"; class = 'Group' })
         administratorsReadable = $true
     }
-    laps                 = [ordered]@{ windowsLapsBackupDirectory = 2; legacyLapsEnabled = $null; legacyLapsCseInstalled = $false }
+    laps                 = [ordered]@{ windowsLapsPolicyRoot = 'gpo'; windowsLapsBackupDirectory = 2; windowsLapsPasswordExpirationProtection = 1; legacyLapsEnabled = $null; legacyLapsCseInstalled = $false }
     uac                  = [ordered]@{ enableLua = 1; consentPromptBehaviorAdmin = 2; localAccountTokenFilterPolicy = $null; filterAdministratorToken = 1; alwaysInstallElevated = $null }
     powershell           = [ordered]@{ scriptBlockLogging = 1; moduleLogging = 1; transcription = 1; v2EngineVersion = '' }
     audit                = [ordered]@{ processCreationIncludeCmdLine = 1; securityLogMaxSizeBytes = 1073741824; subcategories = $fullAudit }
@@ -160,26 +192,36 @@ $s = [ordered]@{
         schannel = $schannelClean; ldapServer = [ordered]@{ integrity = 2; channelBinding = 2 }; pointAndPrint = [ordered]@{ restrictDriverInstallToAdmins = 1; noWarningNoElevationOnInstall = 0; noWarningNoElevationOnUpdate = 0 }
         smbInsecureGuestAuth = 0; ldapClientIntegrity = 1; ntlmMinClientSec = 537395200; ntlmMinServerSec = 537395200
         allowNullSessionFallback = 0; allowOnlineId = 0; everyoneIncludesAnonymous = 0; limitBlankPasswordUse = 1; forceGuest = 0
-        enablePlainTextPassword = 0; nullSessionPipesCount = 0; nullSessionSharesCount = 0; restrictNullSessAccess = 1
-        netlogon = [ordered]@{ requireSignOrSeal = 1; sealSecureChannel = 1; signSecureChannel = 1; requireStrongKey = 1; disablePasswordChange = 0; maximumPasswordAge = 30 }
-        winrm = [ordered]@{ clientAllowBasic = 0; clientAllowUnencryptedTraffic = 0; clientAllowDigest = 0; serviceAllowBasic = 0; serviceAllowUnencryptedTraffic = 0 }
-        rdpPolicy = [ordered]@{ securityLayer = 2; minEncryptionLevel = 3; promptForPassword = 1; encryptRpcTraffic = 1; disableDriveRedirection = 1 }
+        enablePlainTextPassword = 0; nullSessionPipesCount = 0; nullSessionPipesNonDcCount = 0; nullSessionSharesCount = 0; restrictNullSessAccess = 1
+        netlogon = [ordered]@{ requireSignOrSeal = 1; sealSecureChannel = 1; signSecureChannel = 1; requireStrongKey = 1; disablePasswordChange = 0; maximumPasswordAge = 30; refusePasswordChange = 0; vulnerableChannelAllowListPresent = $false }
+        serverLogon = [ordered]@{ submitControl = 0; shutdownWithoutLogon = 0; forceUnlockLogon = 1 }
+        winrm = [ordered]@{ clientAllowBasic = 0; clientAllowUnencryptedTraffic = 0; clientAllowDigest = 0; serviceAllowBasic = 0; serviceAllowUnencryptedTraffic = 0; serviceDisableRunAs = 1; serviceAllowAutoConfig = 0 }
+        firewallPolicy = [ordered]@{ domainDisableNotifications = 1; privateDisableNotifications = 1; publicDisableNotifications = 1 }
+        certPaddingCheck = '1'; certPaddingCheckWow = '1'; is64BitOs = $true
+        bitlockerPolicy = [ordered]@{ DisableExternalDMAUnderLock = 1; RDVDenyWriteAccess = 1; OSHardwareEncryption = 0; UseTPMPIN = 1; FDVDiscoveryVolumeType = '' }
+        rdpPolicy = [ordered]@{ securityLayer = 2;minEncryptionLevel = 3; promptForPassword = 1; encryptRpcTraffic = 1; disableDriveRedirection = 1 }
+        serverSmb = [ordered]@{ minSmb2Dialect = 785; clientRequireEncryption = 1 }
+        defenderPolicy = [ordered]@{ hideExclusionsFromLocalUsers = 1; quickScanIncludeExclusions = 1 }
+        terminalServicesPolicy = [ordered]@{ perSessionTempDir = 1; singleSessionPerUser = 1 }
+        serverPolicy = [ordered]@{ disableMotwInsecureCopy = 0; ipv6DefaultDnsDisabled = 1; ieFeedBasicAuthInClear = 0; ldapClientConfidentiality = 1; samNgcRocaValidation = 1; auditNtlmInDomain = 7; appInstaller = [ordered]@{ localArchiveMalwareScanOverride = 0; bypassCertPinningForStore = 0; commandLineInterfaces = 0 } }
         explorer = [ordered]@{ noDriveTypeAutoRun = 255; noAutorun = 1; noAutoplayForNonVolume = 1 }
         winlogon = [ordered]@{ autoAdminLogon = '0'; defaultPasswordPresent = $false }
         interactiveLogon = [ordered]@{ inactivityTimeoutSecs = 900; legalNoticeTextSet = $true; legalNoticeCaptionSet = $true; dontDisplayLastUserName = 1; disableCad = 0 }
         uacExtra = [ordered]@{ enableInstallerDetection = 1; enableSecureUiaPaths = 1; promptOnSecureDesktop = 1; enableVirtualization = 1 }
-        noAutoUpdate = 0; enableSmartScreen = 1
+        wpadDisabled = 1; noAutoUpdate = 0; enableSmartScreen = 1
         eventLogs = @([ordered]@{ name = 'Application'; maxSizeBytes = 33554432 }, [ordered]@{ name = 'System'; maxSizeBytes = 33554432 })
         mrxsmb10Start = 4; disableExceptionChainValidation = 0; safeDllSearchMode = 1
         ipStack = [ordered]@{ disableIpSourceRoutingV4 = 2; disableIpSourceRoutingV6 = 2; enableIcmpRedirect = 0 }
     }
-    stig                 = Get-StigSection $stigMachine $stigUser ([ordered]@{ edge = $true; chrome = $true; firefox = $true; office = $true })
+    # The baseline is a Windows Server 2022 member server; the scenarios set their own product.
+    stig                 = Get-StigSection $stigMachine $stigUser ([ordered]@{ edge = $true; chrome = $true; firefox = $true; office = $true }) 'srv2022ms'
     software             = @(
         [ordered]@{ name = 'Microsoft Visual C++ 2022 Redistributable (x64) - 14.38.33135'; version = '14.38.33135.0'; publisher = 'Microsoft Corporation' },
         [ordered]@{ name = 'CrowdStrike Windows Sensor'; version = '7.10.18605.0'; publisher = 'CrowdStrike, Inc.' },
         [ordered]@{ name = 'Notepad++ (64-bit x64)'; version = '8.6.2'; publisher = 'Notepad++ Team' })
     updatesPending       = $null
     services             = $baseServices
+    drivers              = [ordered]@{ list = $baseDrivers; blocklistEnable = 1 }
     scheduledTasks       = @([ordered]@{ path = '\'; name = 'Backup'; state = 'Ready'; userId = 'SYSTEM'; groupId = ''; runLevel = 'Highest'; author = 'CORP\backupadm'
             actions = @([ordered]@{ execute = 'C:\Program Files\Backup\agent.exe'; arguments = '-p ***'; executable = 'C:\Program Files\Backup\agent.exe'; writableBy = @() }) })
     autoruns             = @([ordered]@{ location = 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'; name = 'SecurityHealth'; command = '%windir%\system32\SecurityHealthSystray.exe'; executable = 'C:\Windows\system32\SecurityHealthSystray.exe'; writableBy = @() })
@@ -187,8 +229,15 @@ $s = [ordered]@{
 
 # ------------------------------------------------------------------ scenarios
 switch ($Scenario) {
-    'hardened' { }
+    'hardened' {
+        # One Windows Server 2022 member server STIG rule not configured: even a hardened host drifts.
+        $s.stig = Get-StigSection (Remove-StigValues $stigMachine 'srv2022ms' 1) $stigUser ([ordered]@{ edge = $true; chrome = $true; firefox = $true; office = $true }) 'srv2022ms'
+    }
     'laptop' {
+        # BitLocker from an older image: XTS-AES 128 on the OS volume, the drive's own encryption on D:.
+        $s.bitlocker.volumes = @(
+            [ordered]@{ mountPoint = 'C:'; volumeType = 'OperatingSystem'; protectionStatus = 'On'; volumeStatus = 'FullyEncrypted'; encryptionMethod = 'XtsAes128'; keyProtectors = @('Tpm', 'RecoveryPassword') },
+            [ordered]@{ mountPoint = 'D:'; volumeType = 'Data'; protectionStatus = 'On'; volumeStatus = 'FullyEncrypted'; encryptionMethod = 'Hardware'; keyProtectors = @('ExternalKey') })
         $s.meta.options.checkUpdates = $true; $s.meta.sectionsCollected = @($s.meta.sectionsCollected) + 'updatesPending'
         $s.updatesPending = [ordered]@{ searched = $true; source = 'Microsoft Update'; pending = @() }
         # Two Windows 11 STIG settings not configured, one with a wrong value.
@@ -209,6 +258,11 @@ switch ($Scenario) {
     'weak' {
         $s.host.os = [ordered]@{ caption = 'Microsoft Windows 10 Pro'; version = '10.0.19045'; build = 19045; ubr = 6093; displayVersion = '22H2'; editionId = 'Professional'; productType = 1; architecture = '64-bit'; installDateUtc = '2020-03-02T09:00:00Z'; lastBootUtc = '2026-06-01T07:00:00Z' }
         $s.patches = [ordered]@{ hotfixes = @([ordered]@{ id = 'KB5063709'; description = 'Security Update'; installedOnUtc = '2026-05-14T00:00:00Z' }); lastUpdateInstalledUtc = '2026-05-14T10:00:00Z' }
+        # Drivers: MSI Afterburner's RTCore64.sys loaded, a known malicious driver left in a user's
+        # temp folder (not running), and the Microsoft vulnerable driver blocklist turned off.
+        $s.drivers = [ordered]@{ blocklistEnable = 0; list = @($baseDrivers) + @(
+                (Drv 'RTCore64' 'C:\Program Files (x86)\MSI Afterburner\RTCore64.sys' $drvVulnerable.h 'Running' 'Auto'),
+                (Drv 'kbdhelper' 'C:\Users\jsmith\AppData\Local\Temp\kbdhelper.sys' $drvMalicious.h 'Stopped' 'Manual')) }
         $s.defender.realTimeProtectionEnabled = $false
         $s.defender.isTamperProtected = $false
         $s.defender.signatureUpdatedUtc = '2026-08-20T10:00:00Z'
@@ -224,7 +278,7 @@ switch ($Scenario) {
         $s.network.smb1ServerEnabled = $true
         $s.network.smbServerSigningRequired = $false
         $s.network.smbClientSigningRequired = $false
-        $s.network.llmnrPolicyEnableMulticast = $null
+        $s.network.llmnrPolicyEnableMulticast = $null; $s.network.mdnsPolicyEnable = $null
         $s.network.netbios = @([ordered]@{ adapter = 'Intel(R) Ethernet Connection I219-LM'; tcpipNetbiosOptions = 0 }, [ordered]@{ adapter = 'Intel(R) Wi-Fi 6 AX201'; tcpipNetbiosOptions = 1 })
         $s.network.firewallProfiles = @(
             [ordered]@{ name = 'Domain'; enabled = $true; defaultInboundAction = 'Allow'; logBlocked = 'False' },
@@ -243,7 +297,7 @@ switch ($Scenario) {
             [ordered]@{ path = "$name/Administrator"; sid = "$machineSid-500"; class = 'User' }, [ordered]@{ path = "$name/support"; sid = "$machineSid-1001"; class = 'User' },
             [ordered]@{ path = 'CORP/Domain Admins'; sid = "$domainSid-512"; class = 'Group' }, [ordered]@{ path = 'CORP/jsmith'; sid = "$domainSid-1342"; class = 'User' },
             [ordered]@{ path = 'CORP/Helpdesk'; sid = "$domainSid-1201"; class = 'Group' })
-        $s.laps = [ordered]@{ windowsLapsBackupDirectory = $null; legacyLapsEnabled = $null; legacyLapsCseInstalled = $false }
+        $s.laps = [ordered]@{ windowsLapsPolicyRoot = $null; windowsLapsBackupDirectory = $null; windowsLapsPasswordExpirationProtection = $null; legacyLapsEnabled = $null; legacyLapsCseInstalled = $false }
         $s.uac = [ordered]@{ enableLua = 0; consentPromptBehaviorAdmin = 0; localAccountTokenFilterPolicy = 1; filterAdministratorToken = 0; alwaysInstallElevated = 1 }
         $s.powershell = [ordered]@{ scriptBlockLogging = $null; moduleLogging = $null; transcription = $null; v2EngineVersion = '2.0' }
         $s.audit = [ordered]@{ processCreationIncludeCmdLine = $null; securityLogMaxSizeBytes = 20971520
@@ -262,10 +316,16 @@ switch ($Scenario) {
         $hd = $s.hardening
         $hd.smbInsecureGuestAuth = 1; $hd.ldapClientIntegrity = 0; $hd.ntlmMinClientSec = 536870912; $hd.ntlmMinServerSec = 536870912
         $hd.allowNullSessionFallback = 1; $hd.allowOnlineId = 1; $hd.everyoneIncludesAnonymous = 1; $hd.limitBlankPasswordUse = 0; $hd.forceGuest = 1
-        $hd.enablePlainTextPassword = 1; $hd.nullSessionPipesCount = 1; $hd.nullSessionSharesCount = 2; $hd.restrictNullSessAccess = 0
-        $hd.netlogon = [ordered]@{ requireSignOrSeal = 0; sealSecureChannel = 0; signSecureChannel = 0; requireStrongKey = 0; disablePasswordChange = 1; maximumPasswordAge = 90 }
-        $hd.winrm = [ordered]@{ clientAllowBasic = 1; clientAllowUnencryptedTraffic = 1; clientAllowDigest = 1; serviceAllowBasic = 1; serviceAllowUnencryptedTraffic = 1 }
-        $hd.rdpPolicy = [ordered]@{ securityLayer = 0; minEncryptionLevel = 2; promptForPassword = 0; encryptRpcTraffic = 0; disableDriveRedirection = $null }
+        $hd.enablePlainTextPassword = 1; $hd.nullSessionPipesCount = 1; $hd.nullSessionPipesNonDcCount = 1; $hd.nullSessionSharesCount = 2; $hd.restrictNullSessAccess = 0
+        $hd.netlogon = [ordered]@{ requireSignOrSeal = 0; sealSecureChannel = 0; signSecureChannel = 0; requireStrongKey = 0; disablePasswordChange = 1; maximumPasswordAge = 90; refusePasswordChange = $null; vulnerableChannelAllowListPresent = $false }
+        $hd.winrm = [ordered]@{ clientAllowBasic = 1; clientAllowUnencryptedTraffic = 1; clientAllowDigest = 1; serviceAllowBasic = 1; serviceAllowUnencryptedTraffic = 1; serviceDisableRunAs = 0; serviceAllowAutoConfig = 1 }
+        $hd.certPaddingCheck = $null; $hd.certPaddingCheckWow = $null
+        $hd.firewallPolicy = [ordered]@{ domainDisableNotifications = 0; privateDisableNotifications = 0; publicDisableNotifications = 1 }
+        # Weak: hardware encryption and no-TPM allowed, DMA policy unset, USB writes allowed. Gaps: two
+        # values off the CIS profile, one compliant ("1 or 2"), the rest unset (not judged).
+        $hd.bitlockerPolicy = [ordered]@{ OSHardwareEncryption = 1; EnableBDEWithNoTPM = 1; DisableExternalDMAUnderLock = $null; RDVDenyWriteAccess = 0
+            OSActiveDirectoryBackup = 0; FDVDiscoveryVolumeType = '<none>'; FDVRecoveryPassword = 2 }
+        $hd.rdpPolicy = [ordered]@{ securityLayer = 0;minEncryptionLevel = 2; promptForPassword = 0; encryptRpcTraffic = 0; disableDriveRedirection = $null }
         $hd.explorer = [ordered]@{ noDriveTypeAutoRun = 145; noAutorun = $null; noAutoplayForNonVolume = $null }
         $hd.winlogon = [ordered]@{ autoAdminLogon = '1'; defaultPasswordPresent = $true }
         $hd.interactiveLogon = [ordered]@{ inactivityTimeoutSecs = $null; legalNoticeTextSet = $false; legalNoticeCaptionSet = $false; dontDisplayLastUserName = 0; disableCad = 1 }
@@ -290,7 +350,10 @@ switch ($Scenario) {
                 [ordered]@{ kb = 'KB5077777'; title = 'Feature update preview (KB5077777)'; severity = ''; categories = 'Updates'; downloaded = $false; rebootRequired = $true },
                 [ordered]@{ kb = 'KB2267602'; title = 'Security Intelligence Update for Microsoft Defender Antivirus - KB2267602'; severity = ''; categories = 'Definition Updates, Microsoft Defender Antivirus'; downloaded = $false; rebootRequired = $false }) }
         # A neglected host with no EDR on it at all.
+        # WPAD left on and the WebClient (WebDAV) service enabled: two NTLM-capture / coercion vectors.
+        $s.hardening.wpadDisabled = 0
         $s.services = @($baseServices | Where-Object { $_.name -ne 'CSFalconService' }) + @(
+            (Svc 'WebClient' 'C:\Windows\system32\svchost.exe -k LocalService -p' 'C:\Windows\system32\svchost.exe' 'NT AUTHORITY\LocalService' 'Stopped'),
             (Svc 'SSDPSRV' 'C:\Windows\system32\svchost.exe -k LocalServiceAndNoImpersonation -p' 'C:\Windows\system32\svchost.exe' 'NT AUTHORITY\LocalService'),
             (Svc 'XblAuthManager' 'C:\Windows\system32\svchost.exe -k netsvcs -p' 'C:\Windows\system32\svchost.exe'),
             (Svc 'LxssManager' 'C:\Windows\system32\svchost.exe -k LxssManagerUser -p' 'C:\Windows\system32\svchost.exe'),
@@ -308,17 +371,48 @@ switch ($Scenario) {
             [ordered]@{ location = 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'; name = 'TrayHelper'; command = 'C:\ProgramData\TrayHelper\tray.exe'; executable = 'C:\ProgramData\TrayHelper\tray.exe'; writableBy = @((W 'file' 'S-1-5-32-545')) })
     }
     'dc' {
-        $s.host.os.caption = 'Microsoft Windows Server 2016 Standard'
-        $s.host.os.version = '10.0.14393'; $s.host.os.build = 14393; $s.host.os.ubr = 8422; $s.host.os.displayVersion = '1607'
+        $s.host.os.caption = 'Microsoft Windows Server 2019 Standard'
+        $s.host.os.version = '10.0.17763'; $s.host.os.build = 17763; $s.host.os.ubr = 6893; $s.host.os.displayVersion = '1809'
+        # DISA STIG: the domain controller rules of Server 2019, two of them not configured.
+        $s.stig = Get-StigSection (Remove-StigValues $stigMachine 'srv2019dc' 2) $stigUser ([ordered]@{ edge = $true; chrome = $true; firefox = $true; office = $true }) 'srv2019dc'
         $s.credentialProtection.credentialGuardRunning = $false
         $s.hardening.ldapServer = [ordered]@{ integrity = $null; channelBinding = 1 }
         # The EDR agent is installed but its service is stopped.
         $s.services = @($baseServices | Where-Object { $_.name -ne 'CSFalconService' }) + @((Svc 'CSFalconService' '"C:\Program Files\CrowdStrike\CSFalconService.exe"' 'C:\Program Files\CrowdStrike\CSFalconService.exe' 'LocalSystem' 'Stopped'))
         $s.credentialProtection.cachedLogonsCount = '10'
+        # The Windows default on a domain controller: every authenticated user may add workstations.
+        $s.securityPolicy.privilegeRights.SeMachineAccountPrivilege = @('S-1-5-11')
+        # A Zerologon exception kept for an old appliance, Server Operators allowed to schedule tasks,
+        # and the shutdown button on the logon screen.
+        $s.hardening.netlogon.vulnerableChannelAllowListPresent = $true; $s.hardening.netlogon.refusePasswordChange = 1
+        $s.hardening.serverLogon.submitControl = 1; $s.hardening.serverLogon.shutdownWithoutLogon = 1
+        # CIS Windows Server settings that Windows 11 does not have, all left at the Windows default.
+        $s.hardening.serverSmb = [ordered]@{ minSmb2Dialect = $null; clientRequireEncryption = $null }
+        $s.hardening.defenderPolicy = [ordered]@{ hideExclusionsFromLocalUsers = $null; quickScanIncludeExclusions = 0 }
+        $s.hardening.terminalServicesPolicy = [ordered]@{ perSessionTempDir = 0; singleSessionPerUser = $null }
+        $s.hardening.serverPolicy = [ordered]@{ disableMotwInsecureCopy = 1; ipv6DefaultDnsDisabled = 0; ieFeedBasicAuthInClear = 1; ldapClientConfidentiality = 0; samNgcRocaValidation = $null; auditNtlmInDomain = $null; appInstaller = [ordered]@{ localArchiveMalwareScanOverride = 1; bypassCertPinningForStore = $null; commandLineInterfaces = 1 } }
         $s.network.smbServerSigningRequired = $false
         $s.localAccounts.users = @([ordered]@{ name = 'Administrator'; sid = "$domainSid-500"; enabled = $true; passwordRequired = $true; passwordExpires = $true; lastLogonUtc = '2026-09-30T09:00:00Z'; passwordLastSetUtc = '2026-08-01T09:00:00Z' })
         $s.localAccounts.administrators = @([ordered]@{ path = 'CORP/Administrator'; sid = "$domainSid-500"; class = 'User' }, [ordered]@{ path = 'CORP/Domain Admins'; sid = "$domainSid-512"; class = 'Group' })
         $s.audit.subcategories = @($allAudit | ForEach-Object { $v = if ($_[1] -like 'Kerberos*' -or $_[1] -eq 'Directory Service Changes') { 0 } else { 3 }; Audit $_[0] $v $_[1] })
+    }
+    'dc2016' {
+        # A Server 2016 domain controller, otherwise at the compliant baseline: it exercises the
+        # Server 2016 CIS numbering and the Windows Server 2016 DISA STIG (two rules not configured).
+        $s.host.os.caption = 'Microsoft Windows Server 2016 Standard'
+        $s.host.os.version = '10.0.14393'; $s.host.os.build = 14393; $s.host.os.ubr = 7513; $s.host.os.displayVersion = '1607'; $s.host.os.productType = 2
+        $s.stig = Get-StigSection (Remove-StigValues $stigMachine 'srv2016dc' 2) $stigUser ([ordered]@{ edge = $false; chrome = $false; firefox = $false; office = $false }) 'srv2016dc'
+        $s.localAccounts.users = @([ordered]@{ name = 'Administrator'; sid = "$domainSid-500"; enabled = $true; passwordRequired = $true; passwordExpires = $true; lastLogonUtc = '2026-09-30T09:00:00Z'; passwordLastSetUtc = '2026-08-01T09:00:00Z' })
+        $s.localAccounts.administrators = @([ordered]@{ path = 'CORP/Administrator'; sid = "$domainSid-500"; class = 'User' }, [ordered]@{ path = 'CORP/Domain Admins'; sid = "$domainSid-512"; class = 'Group' })
+        $s.audit.subcategories = @($allAudit | ForEach-Object { $v = if ($_[1] -like 'Kerberos*' -or $_[1] -eq 'Directory Service Changes') { 0 } else { 3 }; Audit $_[0] $v $_[1] })
+    }
+    'srv2025' {
+        # A Server 2025 member server at the compliant baseline, to exercise the Windows Server 2025
+        # DISA STIG (two rules not configured). Build 26100 is shared with Windows 11 24H2, so the
+        # server product type disambiguates it.
+        $s.host.os.caption = 'Microsoft Windows Server 2025 Standard'
+        $s.host.os.version = '10.0.26100'; $s.host.os.build = 26100; $s.host.os.ubr = 1742; $s.host.os.displayVersion = '24H2'; $s.host.os.editionId = 'ServerStandard'; $s.host.os.productType = 3
+        $s.stig = Get-StigSection (Remove-StigValues $stigMachine 'srv2025ms' 2) $stigUser ([ordered]@{ edge = $false; chrome = $false; firefox = $false; office = $false }) 'srv2025ms'
     }
     'partial' {
         $s.meta.collectedBy = 'CORP\jdoe'; $s.meta.runningAsSystem = $false; $s.meta.runningAsAdmin = $false

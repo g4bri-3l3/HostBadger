@@ -34,6 +34,7 @@
       "stig",
       "software",
       "services",
+      "drivers",
       "scheduledTasks",
       "autoruns",
       "updatesPending"
@@ -149,6 +150,8 @@
     "smbServerSigningRequired": false,
     "smbClientSigningRequired": false,
     "llmnrPolicyEnableMulticast": null,
+    "mdnsPolicyEnable": null,
+    "mdnsServiceEnable": null,
     "netbios": [
       {
         "adapter": "Intel(R) Ethernet Connection I219-LM",
@@ -276,7 +279,9 @@
     "administratorsReadable": true
   },
   "laps": {
+    "windowsLapsPolicyRoot": null,
     "windowsLapsBackupDirectory": null,
+    "windowsLapsPasswordExpirationProtection": null,
     "legacyLapsEnabled": null,
     "legacyLapsCseInstalled": false
   },
@@ -390,6 +395,114 @@
       {
         "name": "System Integrity",
         "guid": "0cce9212-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Application Group Management",
+        "guid": "0cce9239-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Plug and Play Events",
+        "guid": "0cce9248-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Group Membership",
+        "guid": "0cce9249-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Logoff",
+        "guid": "0cce9216-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Other Logon/Logoff Events",
+        "guid": "0cce921c-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Detailed File Share",
+        "guid": "0cce9244-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "File Share",
+        "guid": "0cce9224-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Removable Storage",
+        "guid": "0cce9245-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Authorization Policy Change",
+        "guid": "0cce9231-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "MPSSVC Rule-Level Policy Change",
+        "guid": "0cce9232-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Other Policy Change Events",
+        "guid": "0cce9234-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "IPsec Driver",
+        "guid": "0cce9213-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Other System Events",
+        "guid": "0cce9214-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Security State Change",
+        "guid": "0cce9210-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Computer Account Management",
+        "guid": "0cce9236-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Distribution Group Management",
+        "guid": "0cce9238-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Other Account Management Events",
+        "guid": "0cce923a-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 0
+      },
+      {
+        "name": "Directory Service Access",
+        "guid": "0cce923b-69ae-11d9-bed3-505054503030",
         "inclusion": "",
         "value": 0
       }
@@ -589,6 +702,7 @@
     "forceGuest": 1,
     "enablePlainTextPassword": 1,
     "nullSessionPipesCount": 1,
+    "nullSessionPipesNonDcCount": 1,
     "nullSessionSharesCount": 2,
     "restrictNullSessAccess": 0,
     "netlogon": {
@@ -597,14 +711,40 @@
       "signSecureChannel": 0,
       "requireStrongKey": 0,
       "disablePasswordChange": 1,
-      "maximumPasswordAge": 90
+      "maximumPasswordAge": 90,
+      "refusePasswordChange": null,
+      "vulnerableChannelAllowListPresent": false
+    },
+    "serverLogon": {
+      "submitControl": 0,
+      "shutdownWithoutLogon": 0,
+      "forceUnlockLogon": 1
     },
     "winrm": {
       "clientAllowBasic": 1,
       "clientAllowUnencryptedTraffic": 1,
       "clientAllowDigest": 1,
       "serviceAllowBasic": 1,
-      "serviceAllowUnencryptedTraffic": 1
+      "serviceAllowUnencryptedTraffic": 1,
+      "serviceDisableRunAs": 0,
+      "serviceAllowAutoConfig": 1
+    },
+    "firewallPolicy": {
+      "domainDisableNotifications": 0,
+      "privateDisableNotifications": 0,
+      "publicDisableNotifications": 1
+    },
+    "certPaddingCheck": null,
+    "certPaddingCheckWow": null,
+    "is64BitOs": true,
+    "bitlockerPolicy": {
+      "OSHardwareEncryption": 1,
+      "EnableBDEWithNoTPM": 1,
+      "DisableExternalDMAUnderLock": null,
+      "RDVDenyWriteAccess": 0,
+      "OSActiveDirectoryBackup": 0,
+      "FDVDiscoveryVolumeType": "<none>",
+      "FDVRecoveryPassword": 2
     },
     "rdpPolicy": {
       "securityLayer": 0,
@@ -612,6 +752,31 @@
       "promptForPassword": 0,
       "encryptRpcTraffic": 0,
       "disableDriveRedirection": null
+    },
+    "serverSmb": {
+      "minSmb2Dialect": 785,
+      "clientRequireEncryption": 1
+    },
+    "defenderPolicy": {
+      "hideExclusionsFromLocalUsers": 1,
+      "quickScanIncludeExclusions": 1
+    },
+    "terminalServicesPolicy": {
+      "perSessionTempDir": 1,
+      "singleSessionPerUser": 1
+    },
+    "serverPolicy": {
+      "disableMotwInsecureCopy": 0,
+      "ipv6DefaultDnsDisabled": 1,
+      "ieFeedBasicAuthInClear": 0,
+      "ldapClientConfidentiality": 1,
+      "samNgcRocaValidation": 1,
+      "auditNtlmInDomain": 7,
+      "appInstaller": {
+        "localArchiveMalwareScanOverride": 0,
+        "bypassCertPinningForStore": 0,
+        "commandLineInterfaces": 0
+      }
     },
     "explorer": {
       "noDriveTypeAutoRun": 145,
@@ -635,6 +800,7 @@
       "promptOnSecureDesktop": 0,
       "enableVirtualization": 0
     },
+    "wpadDisabled": 0,
     "noAutoUpdate": 1,
     "enableSmartScreen": 0,
     "eventLogs": [
@@ -3152,6 +3318,17 @@
       "ancestorControl": []
     },
     {
+      "name": "WebClient",
+      "displayName": "WebClient",
+      "startMode": "Auto",
+      "state": "Stopped",
+      "account": "NT AUTHORITY\\LocalService",
+      "pathName": "C:\\Windows\\system32\\svchost.exe -k LocalService -p",
+      "executable": "C:\\Windows\\system32\\svchost.exe",
+      "writableBy": [],
+      "ancestorControl": []
+    },
+    {
       "name": "SSDPSRV",
       "displayName": "SSDPSRV",
       "startMode": "Auto",
@@ -3248,6 +3425,46 @@
       "ancestorControl": []
     }
   ],
+  "drivers": {
+    "blocklistEnable": 0,
+    "list": [
+      {
+        "name": "ACPI",
+        "state": "Running",
+        "startMode": "Boot",
+        "path": "C:\\Windows\\system32\\drivers\\ACPI.sys",
+        "sha256": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+      },
+      {
+        "name": "disk",
+        "state": "Running",
+        "startMode": "Boot",
+        "path": "C:\\Windows\\system32\\drivers\\disk.sys",
+        "sha256": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+      },
+      {
+        "name": "WdFilter",
+        "state": "Running",
+        "startMode": "Boot",
+        "path": "C:\\Windows\\system32\\drivers\\wd\\WdFilter.sys",
+        "sha256": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+      },
+      {
+        "name": "RTCore64",
+        "state": "Running",
+        "startMode": "Auto",
+        "path": "C:\\Program Files (x86)\\MSI Afterburner\\RTCore64.sys",
+        "sha256": "01aa278b07b58dc46c84bd0b1b5c8e9ee4e62ea0bf7a695862444af32e87f1fd"
+      },
+      {
+        "name": "kbdhelper",
+        "state": "Stopped",
+        "startMode": "Manual",
+        "path": "C:\\Users\\jsmith\\AppData\\Local\\Temp\\kbdhelper.sys",
+        "sha256": "0052aa88e42055a2eed5ddd17c3499c692360155e5e031a211edfcef577acce3"
+      }
+    ]
+  },
   "scheduledTasks": [
     {
       "path": "\\Contoso\\",

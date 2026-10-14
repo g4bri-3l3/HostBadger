@@ -1,0 +1,30 @@
+# Real host data: never commit snapshots or reports.
+# Synthetic samples under examples/ are kept.
+hostsnapshot_*.json
+hostsnapshot_*.zip
+hostbadger_*.html
+hostbadger_*.csv
+*.jsonl
+auditpol_*.csv
+*_ai_prompt.txt
+*_ai_response.json
+hostbadger_ai_prompt_*.txt
+report.html
+report.csv
+secpol_*
+snapshots/
+remediation/
+rollback_*.json
+
+!examples/**
+
+# Local, not part of the project
+CLAUDE.md
+.claude/
+IDWolf/
+output/
+gog-galaxy-*.txt
+session_*.txt
+testhtml.txt
+*_kev.json
+*.hbx

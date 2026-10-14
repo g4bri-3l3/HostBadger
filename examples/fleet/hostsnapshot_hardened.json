@@ -34,6 +34,7 @@
       "stig",
       "software",
       "services",
+      "drivers",
       "scheduledTasks",
       "autoruns"
     ],
@@ -196,6 +197,8 @@
     "smbServerSigningRequired": true,
     "smbClientSigningRequired": true,
     "llmnrPolicyEnableMulticast": 0,
+    "mdnsPolicyEnable": 0,
+    "mdnsServiceEnable": null,
     "netbios": [
       {
         "adapter": "vmxnet3 Ethernet Adapter",
@@ -288,7 +291,9 @@
     "administratorsReadable": true
   },
   "laps": {
+    "windowsLapsPolicyRoot": "gpo",
     "windowsLapsBackupDirectory": 2,
+    "windowsLapsPasswordExpirationProtection": 1,
     "legacyLapsEnabled": null,
     "legacyLapsCseInstalled": false
   },
@@ -404,6 +409,114 @@
         "guid": "0cce9212-69ae-11d9-bed3-505054503030",
         "inclusion": "",
         "value": 3
+      },
+      {
+        "name": "Application Group Management",
+        "guid": "0cce9239-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Plug and Play Events",
+        "guid": "0cce9248-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Group Membership",
+        "guid": "0cce9249-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Logoff",
+        "guid": "0cce9216-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Other Logon/Logoff Events",
+        "guid": "0cce921c-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Detailed File Share",
+        "guid": "0cce9244-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "File Share",
+        "guid": "0cce9224-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Removable Storage",
+        "guid": "0cce9245-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Authorization Policy Change",
+        "guid": "0cce9231-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "MPSSVC Rule-Level Policy Change",
+        "guid": "0cce9232-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Other Policy Change Events",
+        "guid": "0cce9234-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "IPsec Driver",
+        "guid": "0cce9213-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Other System Events",
+        "guid": "0cce9214-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Security State Change",
+        "guid": "0cce9210-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Computer Account Management",
+        "guid": "0cce9236-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Distribution Group Management",
+        "guid": "0cce9238-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Other Account Management Events",
+        "guid": "0cce923a-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
+      },
+      {
+        "name": "Directory Service Access",
+        "guid": "0cce923b-69ae-11d9-bed3-505054503030",
+        "inclusion": "",
+        "value": 3
       }
     ]
   },
@@ -424,12 +537,11 @@
       "SeTrustedCredManAccessPrivilege": [],
       "SeNetworkLogonRight": [
         "S-1-5-32-544",
-        "S-1-5-32-555"
+        "S-1-5-11"
       ],
       "SeTcbPrivilege": [],
       "SeInteractiveLogonRight": [
-        "S-1-5-32-544",
-        "S-1-5-32-545"
+        "S-1-5-32-544"
       ],
       "SeRemoteInteractiveLogonRight": [
         "S-1-5-32-544",
@@ -475,7 +587,7 @@
       ],
       "SeDenyNetworkLogonRight": [
         "S-1-5-32-546",
-        "S-1-5-113"
+        "S-1-5-114"
       ],
       "SeDenyBatchLogonRight": [
         "S-1-5-32-546"
@@ -599,6 +711,7 @@
     "forceGuest": 0,
     "enablePlainTextPassword": 0,
     "nullSessionPipesCount": 0,
+    "nullSessionPipesNonDcCount": 0,
     "nullSessionSharesCount": 0,
     "restrictNullSessAccess": 1,
     "netlogon": {
@@ -607,14 +720,38 @@
       "signSecureChannel": 1,
       "requireStrongKey": 1,
       "disablePasswordChange": 0,
-      "maximumPasswordAge": 30
+      "maximumPasswordAge": 30,
+      "refusePasswordChange": 0,
+      "vulnerableChannelAllowListPresent": false
+    },
+    "serverLogon": {
+      "submitControl": 0,
+      "shutdownWithoutLogon": 0,
+      "forceUnlockLogon": 1
     },
     "winrm": {
       "clientAllowBasic": 0,
       "clientAllowUnencryptedTraffic": 0,
       "clientAllowDigest": 0,
       "serviceAllowBasic": 0,
-      "serviceAllowUnencryptedTraffic": 0
+      "serviceAllowUnencryptedTraffic": 0,
+      "serviceDisableRunAs": 1,
+      "serviceAllowAutoConfig": 0
+    },
+    "firewallPolicy": {
+      "domainDisableNotifications": 1,
+      "privateDisableNotifications": 1,
+      "publicDisableNotifications": 1
+    },
+    "certPaddingCheck": "1",
+    "certPaddingCheckWow": "1",
+    "is64BitOs": true,
+    "bitlockerPolicy": {
+      "DisableExternalDMAUnderLock": 1,
+      "RDVDenyWriteAccess": 1,
+      "OSHardwareEncryption": 0,
+      "UseTPMPIN": 1,
+      "FDVDiscoveryVolumeType": ""
     },
     "rdpPolicy": {
       "securityLayer": 2,
@@ -622,6 +759,31 @@
       "promptForPassword": 1,
       "encryptRpcTraffic": 1,
       "disableDriveRedirection": 1
+    },
+    "serverSmb": {
+      "minSmb2Dialect": 785,
+      "clientRequireEncryption": 1
+    },
+    "defenderPolicy": {
+      "hideExclusionsFromLocalUsers": 1,
+      "quickScanIncludeExclusions": 1
+    },
+    "terminalServicesPolicy": {
+      "perSessionTempDir": 1,
+      "singleSessionPerUser": 1
+    },
+    "serverPolicy": {
+      "disableMotwInsecureCopy": 0,
+      "ipv6DefaultDnsDisabled": 1,
+      "ieFeedBasicAuthInClear": 0,
+      "ldapClientConfidentiality": 1,
+      "samNgcRocaValidation": 1,
+      "auditNtlmInDomain": 7,
+      "appInstaller": {
+        "localArchiveMalwareScanOverride": 0,
+        "bypassCertPinningForStore": 0,
+        "commandLineInterfaces": 0
+      }
     },
     "explorer": {
       "noDriveTypeAutoRun": 255,
@@ -645,6 +807,7 @@
       "promptOnSecureDesktop": 1,
       "enableVirtualization": 1
     },
+    "wpadDisabled": 1,
     "noAutoUpdate": 0,
     "enableSmartScreen": 1,
     "eventLogs": [
@@ -1873,6 +2036,506 @@
         "k": "Software\\Policies\\Microsoft\\office\\16.0\\lync",
         "n": "disablehttpconnect",
         "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\mrxsmb10",
+        "n": "Start",
+        "v": 4
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Personalization",
+        "n": "NoLockScreenSlideshow",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\Wdigest",
+        "n": "UseLogonCredential",
+        "v": 0
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters",
+        "n": "DisableIPSourceRouting",
+        "v": 2
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters",
+        "n": "DisableIPSourceRouting",
+        "v": 2
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters",
+        "n": "EnableICMPRedirect",
+        "v": 0
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Netbt\\Parameters",
+        "n": "NoNameReleaseOnDemand",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\LanmanWorkstation",
+        "n": "AllowInsecureGuestAuth",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\NetworkProvider\\HardenedPaths",
+        "n": "\\\\*\\NETLOGON",
+        "v": "RequireMutualAuthentication=1, RequireIntegrity=1"
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\NetworkProvider\\HardenedPaths",
+        "n": "\\\\*\\SYSVOL",
+        "v": "RequireMutualAuthentication=1, RequireIntegrity=1"
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\Audit",
+        "n": "ProcessCreationIncludeCmdLine_Enabled",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\CredentialsDelegation",
+        "n": "AllowProtectedCreds",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
+        "n": "EnableVirtualizationBasedSecurity",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
+        "n": "RequirePlatformSecurityFeatures",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Policies\\EarlyLaunch",
+        "n": "DriverLoadPolicy",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Group Policy\\{35378EAC-683F-11D2-A89A-00C04FBBCFA2}",
+        "n": "NoGPOListChanges",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers",
+        "n": "DisableWebPnPDownload",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers",
+        "n": "DisableHTTPPrinting",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+        "n": "DontDisplayNetworkSelectionUI",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Power\\PowerSettings\\0e796bdb-100d-47d6-a2d5-f7d2daa51f51",
+        "n": "DCSettingIndex",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Power\\PowerSettings\\0e796bdb-100d-47d6-a2d5-f7d2daa51f51",
+        "n": "ACSettingIndex",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\AppCompat",
+        "n": "DisableInventory",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+        "n": "NoAutoplayfornonVolume",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+        "n": "NoAutorun",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\policies\\Explorer",
+        "n": "NoDriveTypeAutoRun",
+        "v": 255
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\CredUI",
+        "n": "EnumerateAdministrators",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
+        "n": "AllowTelemetry",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization",
+        "n": "DODownloadMode",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\EventLog\\Application",
+        "n": "MaxSize",
+        "v": 32768
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\EventLog\\Security",
+        "n": "MaxSize",
+        "v": 1234569216
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\EventLog\\System",
+        "n": "MaxSize",
+        "v": 32768
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+        "n": "EnableSmartScreen",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+        "n": "NoDataExecutionPrevention",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+        "n": "NoHeapTerminationOnCorruption",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+        "n": "PreXPSP2ShellProtocolBehavior",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
+        "n": "DisablePasswordSaving",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
+        "n": "fDisableCdm",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
+        "n": "fPromptForPassword",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
+        "n": "fEncryptRPCTraffic",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
+        "n": "MinEncryptionLevel",
+        "v": 3
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Internet Explorer\\Feeds",
+        "n": "DisableEnclosureDownload",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Internet Explorer\\Feeds",
+        "n": "AllowBasicAuthInClear",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
+        "n": "AllowIndexingEncryptedStoresOrItems",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Installer",
+        "n": "EnableUserControl",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Installer",
+        "n": "AlwaysInstallElevated",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\Installer",
+        "n": "SafeForScripting",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "DisableAutomaticRestartSignOn",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging",
+        "n": "EnableScriptBlockLogging",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Client",
+        "n": "AllowBasic",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Client",
+        "n": "AllowUnencryptedTraffic",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Client",
+        "n": "AllowDigest",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service",
+        "n": "AllowBasic",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service",
+        "n": "AllowUnencryptedTraffic",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service",
+        "n": "DisableRunAs",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\Transcription",
+        "n": "EnableTranscripting",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "LocalAccountTokenFilterPolicy",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+        "n": "EnumerateLocalUsers",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows NT\\Rpc",
+        "n": "RestrictRemoteClients",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+        "n": "CachedLogonsCount",
+        "v": "4"
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa",
+        "n": "RestrictRemoteSAM",
+        "v": "O:BAG:BAD:(A;;RC;;;BA)"
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
+        "n": "LsaCfgFlags",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa",
+        "n": "LimitBlankPasswordUse",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa",
+        "n": "SCENoApplyLegacyAuditPolicy",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+        "n": "RequireSignOrSeal",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+        "n": "SealSecureChannel",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+        "n": "SignSecureChannel",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+        "n": "DisablePasswordChange",
+        "v": 0
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+        "n": "MaximumPasswordAge",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+        "n": "RequireStrongKey",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "InactivityTimeoutSecs",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+        "n": "scremoveoption",
+        "v": "1"
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters",
+        "n": "RequireSecuritySignature",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters",
+        "n": "EnableSecuritySignature",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters",
+        "n": "EnablePlainTextPassword",
+        "v": 0
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
+        "n": "RequireSecuritySignature",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
+        "n": "EnableSecuritySignature",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa",
+        "n": "RestrictAnonymousSAM",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa",
+        "n": "RestrictAnonymous",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa",
+        "n": "EveryoneIncludesAnonymous",
+        "v": 0
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
+        "n": "RestrictNullSessAccess",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\LSA",
+        "n": "UseMachineId",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\LSA\\MSV1_0",
+        "n": "allownullsessionfallback",
+        "v": 0
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\LSA\\pku2u",
+        "n": "AllowOnlineID",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\Kerberos\\Parameters",
+        "n": "SupportedEncryptionTypes",
+        "v": 2147483640
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa",
+        "n": "NoLMHash",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa",
+        "n": "LmCompatibilityLevel",
+        "v": 5
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Services\\LDAP",
+        "n": "LDAPClientIntegrity",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0",
+        "n": "NTLMMinClientSec",
+        "v": 537395200
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0",
+        "n": "NTLMMinServerSec",
+        "v": 537395200
+      },
+      {
+        "k": "SOFTWARE\\Policies\\Microsoft\\Cryptography",
+        "n": "ForceKeyProtection",
+        "v": 2
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Lsa\\FIPSAlgorithmPolicy",
+        "n": "Enabled",
+        "v": 1
+      },
+      {
+        "k": "SYSTEM\\CurrentControlSet\\Control\\Session Manager",
+        "n": "ProtectionMode",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "FilterAdministratorToken",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "EnableUIADesktopToggle",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "ConsentPromptBehaviorAdmin",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "ConsentPromptBehaviorUser",
+        "v": 0
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "EnableInstallerDetection",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "EnableSecureUIAPaths",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "EnableLUA",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        "n": "EnableVirtualization",
+        "v": 1
       }
     ],
     "users": [
@@ -2488,6 +3151,11 @@
             "k": "software\\policies\\microsoft\\office\\16.0\\word\\security\\filevalidation",
             "n": "enableonload",
             "v": 1
+          },
+          {
+            "k": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Attachments",
+            "n": "SaveZoneInformation",
+            "v": 2
           }
         ]
       }
@@ -2546,6 +3214,32 @@
       "ancestorControl": []
     }
   ],
+  "drivers": {
+    "list": [
+      {
+        "name": "ACPI",
+        "state": "Running",
+        "startMode": "Boot",
+        "path": "C:\\Windows\\system32\\drivers\\ACPI.sys",
+        "sha256": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+      },
+      {
+        "name": "disk",
+        "state": "Running",
+        "startMode": "Boot",
+        "path": "C:\\Windows\\system32\\drivers\\disk.sys",
+        "sha256": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+      },
+      {
+        "name": "WdFilter",
+        "state": "Running",
+        "startMode": "Boot",
+        "path": "C:\\Windows\\system32\\drivers\\wd\\WdFilter.sys",
+        "sha256": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+      }
+    ],
+    "blocklistEnable": 1
+  },
   "scheduledTasks": [
     {
       "path": "\\",

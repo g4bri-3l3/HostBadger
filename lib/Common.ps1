@@ -72,7 +72,7 @@ function Get-SnapshotFiles {
         if (-not (Test-Path -LiteralPath $p)) { throw "Not found: $p" }
         $item = Get-Item -LiteralPath $p
         if ($item.PSIsContainer) {
-            foreach ($f in @(Get-ChildItem -LiteralPath $item.FullName -Recurse -File | Where-Object { $_.Name -match '^hostsnapshot_.*\.(json|zip)$' } | Sort-Object FullName)) {
+            foreach ($f in @(Get-ChildItem -LiteralPath $item.FullName -Recurse -File | Where-Object { $_.Name -match '^hostsnapshot_.*\.(json|zip|hbx)$' } | Sort-Object FullName)) {
                 $files.Add($f.FullName)
             }
         }
@@ -81,18 +81,81 @@ function Get-SnapshotFiles {
     return $files.ToArray()
 }
 
+# Encrypted snapshots (.hbx, written by the collector with -EncryptPassword or -EncryptCertificate;
+# the format is described above Protect-SnapshotBytes in Collect-HostSnapshot.ps1). The password is
+# $script:HbxPassword (a SecureString, set by HostBadger.ps1); a certificate's private key comes
+# from the certificate stores or from $script:HbxPfxCerts (-SnapshotPfx).
+$script:HbxPassword = $null
+$script:HbxPfxCerts = $null
+
+function Get-SnapshotEncryption {
+    # 'password', 'certificate', or '' for a file that is not an encrypted snapshot.
+    param([string]$Path)
+    if ($Path -notmatch '(?i)\.hbx$') { return '' }
+    $fs = [System.IO.File]::OpenRead($Path)
+    try { $head = New-Object byte[] 5; [void]$fs.Read($head, 0, 5) } finally { $fs.Dispose() }
+    if ([Text.Encoding]::ASCII.GetString($head, 0, 4) -ne 'HBX1') { return '' }
+    switch ($head[4]) { 1 { return 'password' } 2 { return 'certificate' } }
+    return ''
+}
+
+function Unprotect-SnapshotBytes {
+    param([byte[]]$Data, [string]$Path)
+    if ($Data.Length -lt 6 -or [Text.Encoding]::ASCII.GetString($Data, 0, 4) -ne 'HBX1') { throw "$Path is not an encrypted HostBadger snapshot." }
+    if ($Data[4] -eq 2) {
+        Add-Type -AssemblyName System.Security
+        $cms = New-Object System.Security.Cryptography.Pkcs.EnvelopedCms
+        $der = New-Object byte[] ($Data.Length - 5)
+        [Array]::Copy($Data, 5, $der, 0, $der.Length)
+        $cms.Decode($der)
+        try { if ($script:HbxPfxCerts) { $cms.Decrypt($script:HbxPfxCerts) } else { $cms.Decrypt() } }
+        catch { throw "$Path is encrypted to a certificate whose private key is not available here (certificate store or -SnapshotPfx)." }
+        return , $cms.ContentInfo.Content
+    }
+    if ($Data[4] -ne 1 -or $Data.Length -lt 75) { throw "$Path is damaged or of an unknown format." }
+    if (-not $script:HbxPassword) { throw "$Path is encrypted with a password: give -SnapshotPassword." }
+    $kdfId = $Data[5]; $iter = [BitConverter]::ToInt32($Data, 6)
+    $salt = [byte[]]$Data[10..25]; $iv = [byte[]]$Data[26..41]
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($script:HbxPassword)
+    try { $pw = [Text.Encoding]::UTF8.GetBytes([Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)) }
+    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+    $kdf = if ($kdfId -eq 1) { [System.Security.Cryptography.Rfc2898DeriveBytes]::new($pw, $salt, $iter, [System.Security.Cryptography.HashAlgorithmName]::SHA256) }
+    else { New-Object System.Security.Cryptography.Rfc2898DeriveBytes -ArgumentList $pw, $salt, $iter }
+    $keys = $kdf.GetBytes(64)
+    $hmac = New-Object System.Security.Cryptography.HMACSHA256 -ArgumentList (, [byte[]]$keys[32..63])
+    $tag = $hmac.ComputeHash($Data, 0, $Data.Length - 32)
+    # Constant-time comparison: the tag is checked before anything is decrypted.
+    $diff = 0
+    for ($i = 0; $i -lt 32; $i++) { $diff = $diff -bor ($tag[$i] -bxor $Data[$Data.Length - 32 + $i]) }
+    if ($diff -ne 0) { throw "$Path`: wrong password, or the file is damaged." }
+    $aes = [System.Security.Cryptography.Aes]::Create()
+    $aes.Mode = 'CBC'; $aes.Padding = 'PKCS7'; $aes.Key = [byte[]]$keys[0..31]; $aes.IV = $iv
+    return , $aes.CreateDecryptor().TransformFinalBlock($Data, 42, $Data.Length - 42 - 32)
+}
+
+function Read-ZipSnapshot {
+    # The hostsnapshot_*.json inside a zip, from a stream (a file or decrypted bytes).
+    param($Stream, [string]$Path)
+    Add-Type -AssemblyName System.IO.Compression
+    $zip = New-Object System.IO.Compression.ZipArchive -ArgumentList $Stream, ([System.IO.Compression.ZipArchiveMode]::Read)
+    try {
+        $entry = @($zip.Entries | Where-Object { $_.Name -match '(?i)^hostsnapshot_.*\.json$' }) | Select-Object -First 1
+        if (-not $entry) { throw "no hostsnapshot_*.json inside $Path" }
+        $reader = New-Object System.IO.StreamReader($entry.Open(), [System.Text.Encoding]::UTF8)
+        try { return $reader.ReadToEnd() } finally { $reader.Dispose() }
+    }
+    finally { $zip.Dispose() }
+}
+
 function Read-SnapshotText {
     param([string]$Path)
+    if ($Path -match '(?i)\.hbx$') {
+        $plain = Unprotect-SnapshotBytes -Data ([System.IO.File]::ReadAllBytes($Path)) -Path $Path
+        return Read-ZipSnapshot -Stream (New-Object System.IO.MemoryStream -ArgumentList (, $plain)) -Path $Path
+    }
     if ($Path -match '(?i)\.zip$') {
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        $zip = [System.IO.Compression.ZipFile]::OpenRead($Path)
-        try {
-            $entry = @($zip.Entries | Where-Object { $_.Name -match '(?i)^hostsnapshot_.*\.json$' }) | Select-Object -First 1
-            if (-not $entry) { throw "no hostsnapshot_*.json inside $Path" }
-            $reader = New-Object System.IO.StreamReader($entry.Open(), [System.Text.Encoding]::UTF8)
-            try { return $reader.ReadToEnd() } finally { $reader.Dispose() }
-        }
-        finally { $zip.Dispose() }
+        $fs = [System.IO.File]::OpenRead($Path)
+        try { return Read-ZipSnapshot -Stream $fs -Path $Path } finally { $fs.Dispose() }
     }
     return [System.IO.File]::ReadAllText($Path)
 }
@@ -118,6 +181,26 @@ function Get-SnapshotHostName {
     param($Snapshot)
     if ($Snapshot.host -and $Snapshot.host.name) { return "$($Snapshot.host.name)" }
     return "$($Snapshot.meta.computerName)"
+}
+
+function Get-LocalAccountMix {
+    # Local accounts of one host: enabled members of the local Administrators group (by SID), other
+    # enabled accounts, disabled accounts. $null when it cannot be told: a domain controller (no local
+    # accounts), no account list, or an Administrators group that could not be read.
+    param($Snapshot)
+    $la = $Snapshot.localAccounts
+    if ((Get-SnapshotRole $Snapshot) -eq 'dc' -or -not $la -or $la.administratorsReadable -eq $false) { return $null }
+    $users = @($la.users | Where-Object { $_ })
+    if ($users.Count -eq 0) { return $null }
+    $adminSids = @{}
+    foreach ($m in @($la.administrators | Where-Object { $_ -and $_.sid })) { $adminSids["$($m.sid)"] = $true }
+    $mix = [PSCustomObject]@{ Admin = 0; Standard = 0; Disabled = 0 }
+    foreach ($u in $users) {
+        if ($u.enabled -ne $true) { $mix.Disabled++ }
+        elseif ($adminSids.ContainsKey("$($u.sid)")) { $mix.Admin++ }
+        else { $mix.Standard++ }
+    }
+    return $mix
 }
 
 function Get-SnapshotRole {

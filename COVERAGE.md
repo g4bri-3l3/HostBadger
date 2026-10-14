@@ -1,8 +1,8 @@
 # HostBadger coverage
 
-Every check in `lib\Checks.ps1`, generated from the catalog (105 checks, of which 8 cover the 638 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
+Every check in `lib\Checks.ps1`, generated from the catalog (129 checks, of which 12 cover the 1427 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
 
-The CIS column gives the rule number in the *CIS Microsoft Windows 11 Enterprise Benchmark v3.0.0* and its profile level (L1 corporate, L2 high security). Rule numbers and expected values were taken from the MIT-licensed [ansible-lockdown/Windows-11-CIS](https://github.com/ansible-lockdown/Windows-11-CIS) role; the descriptions are HostBadger's own. A check is a read-only comparison of the host's setting with the rule; it is not a certification of conformity, and the benchmark covers many more settings (most of the administrative templates, for instance) than HostBadger reads.
+The CIS column gives the rule number in the *CIS Microsoft Windows 11 Enterprise Benchmark v3.0.0* and its profile level (L1 corporate, L2 high security); the descriptions are HostBadger's own. A check is a read-only comparison of the host's setting with the rule; it is not a certification of conformity, and the benchmark covers many more settings (most of the administrative templates, for instance) than HostBadger reads. On Windows 10 and on Windows Server 2022, 2019 and 2016 the findings quote the same setting in that version's CIS benchmark instead (Windows 10 Enterprise v3.0.0, Server 2022 and 2019 v4.0.0, Server 2016 v3.0.0). Checks marked *Server* follow a rule that only the server benchmarks have.
 
 The last column says whether HostBadger can write a remediation script for the check (`-OutRemediation`): one setting, the expected value, reversible, previewed by default and with a rollback file. `no` means the fix needs a decision, carries a risk, or is an upgrade: follow the remediation text in the report.
 
@@ -10,7 +10,7 @@ The last column says whether HostBadger can write a remediation script for the c
 
 | ID | Severity | MITRE | CIS | Roles | Fix script | Title |
 |---|---|---|---|---|---|---|
-| `lsa_not_protected` | Medium | T1003.001 |  | W, S, DC | no | LSASS not running as a protected process |
+| `lsa_not_protected` | Medium | T1003.001 | 18.9.26.2 (L1) | W, S, DC | no | LSASS not running as a protected process |
 | `credential_guard_off` | Medium | T1003.001 |  | W, S | no | Credential Guard not running |
 | `wdigest_cleartext` | High | T1003.001 | 18.4.8 (L1) | W, S, DC | yes | WDigest stores cleartext passwords |
 | `cached_logons_high` | Low | T1003.005 | 2.3.7.7 (L2) | W, S | yes | Many domain logons cached |
@@ -23,6 +23,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `autologon_enabled` | Medium | T1552.002 | 18.5.1 (L1) | W, S, DC | no | Automatic logon configured |
 | `lsa_weak_auth_options` | Medium | T1557 | 2.3.11.2, 2.3.11.3 (L1) | W, S, DC | yes | LocalSystem NULL session fallback or PKU2U online identities allowed |
 | `hvci_off` | Low | T1068 |  | W, S | no | Memory integrity (HVCI) not running |
+| `dc_security_policy_gaps` | Medium | T1556 | Server 18.9.39.1, 2.3.11.13 (L1) | DC | no | Domain controller is missing a CIS Windows Server security setting |
 
 ## Antivirus
 
@@ -40,7 +41,8 @@ The last column says whether HostBadger can write a remediation script for the c
 | `edr_expected_missing` | High | T1562.001 |  | W, S, DC | no | Expected EDR agent not found |
 | `edr_not_found` | Low | T1562.001 |  | W, S, DC | no | No EDR or endpoint protection agent found |
 | `asr_other_rules_not_blocking` | Low | T1204.002 |  | W, S, DC | no | Other attack surface reduction rules not in block mode |
-| `defender_protection_features_off` | Medium | T1562.001 |  | W, S, DC | no | Defender protection feature turned off |
+| `defender_protection_features_off` | Medium | T1562.001 | 18.10.42.5.2, 18.10.42.10.1, 18.10.42.10.4 (L1/L2) | W, S, DC | no | Defender protection feature turned off |
+| `defender_server_baseline_gaps` | Low | T1562.001 | Server 18.10.43.13.1, 18.10.43.17 (L1) | S, DC | no | Server Defender policy differs from the CIS Windows Server baseline |
 
 ## Disk and Boot
 
@@ -49,6 +51,9 @@ The last column says whether HostBadger can write a remediation script for the c
 | `bitlocker_os_volume_off` | High | T1005 |  | W, S, DC | no | Operating system volume not encrypted |
 | `bitlocker_tpm_only` | Low | T1005 |  | W | no | BitLocker without pre-boot PIN |
 | `bitlocker_data_volume_off` | Low | T1005 |  | W, S, DC | no | Fixed data volume not encrypted |
+| `bitlocker_weak_encryption` | Low | T1005 |  | W, S, DC | no | BitLocker volume uses a weak encryption method |
+| `bitlocker_policy_weak` | Medium | T1005 | 18.10.9.x (BitLocker profile) | W, S, DC | no | BitLocker policy weakens the protection of the disks |
+| `bitlocker_policy_gaps` | Low | T1005 | 18.10.9.1.1 - 18.10.9.3.15 (BitLocker profile) | W, S, DC | no | BitLocker policy differs from the CIS BitLocker profile |
 | `secure_boot_off` | Medium | T1542.003 |  | W, S, DC | no | Secure Boot off |
 
 ## Network Exposure
@@ -58,7 +63,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `smb1_server_enabled` | High | T1210 | 18.4.4 (L1) | W, S, DC | yes | SMBv1 server enabled |
 | `smb_server_signing_not_required` | Medium | T1557.001 | 2.3.9.2 (L1) | W, S, DC | yes | SMB server signing not required |
 | `smb_client_signing_not_required` | Low | T1557.001 | 2.3.8.1 (L1) | W, S, DC | yes | SMB client signing not required |
-| `llmnr_enabled` | Medium | T1557.001 |  | W, S, DC | yes | LLMNR not disabled |
+| `llmnr_enabled` | Medium | T1557.001 | 18.6.4.3 (L1) | W, S, DC | yes | LLMNR not disabled |
 | `netbios_enabled` | Low | T1557.001 |  | W, S, DC | no | NetBIOS over TCP/IP enabled |
 | `firewall_profile_disabled` | High | T1562.004 |  | W, S, DC | yes | Windows Firewall profile disabled |
 | `firewall_default_inbound_allow` | High | T1562.004 |  | W, S, DC | yes | Firewall allows inbound by default |
@@ -69,11 +74,19 @@ The last column says whether HostBadger can write a remediation script for the c
 | `null_session_access` | Medium | T1135 | 2.3.10.6, 2.3.10.9, 2.3.10.11 (L1) | W, S, DC | yes | Shares or pipes reachable without authentication |
 | `secure_channel_unprotected` | Medium | T1557 | 2.3.6.1 - 2.3.6.6 (L1) | W, S, DC | yes | Domain secure channel not protected |
 | `smb_plaintext_password` | High | T1557 | 2.3.8.3 (L1) | W, S, DC | yes | Unencrypted passwords sent to third-party SMB servers |
-| `winrm_insecure_auth` | Medium | T1021.006 | 18.10.88.1.1 - 18.10.88.2.3 (L1) | W, S, DC | yes | WinRM allows Basic, Digest or unencrypted traffic |
+| `winrm_insecure_auth` | Medium | T1021.006 | 18.10.88.1.1 - 18.10.88.2.4 (L1/L2) | W, S, DC | yes | WinRM allows Basic, Digest, unencrypted traffic, or an unsafe service configuration |
+| `mdns_enabled` | Low | T1557.001 | Server 18.6.4.1 (L1) | W, S, DC | yes | Multicast DNS (mDNS) enabled |
+| `firewall_notifications_on` | Low | T1562.004 | 9.1.3, 9.2.3, 9.3.3 (L1) | W, S, DC | yes | Windows Firewall shows notifications when it blocks a program |
 | `smb1_client_driver_enabled` | Low | T1210 | 18.4.3 (L1) | W, S, DC | yes | SMBv1 client driver enabled |
 | `ip_stack_hardening_gaps` | Low | T1557 | 18.5.2, 18.5.3, 18.5.5 (L1) | W, S, DC | yes | IP stack accepts source routing or ICMP redirects |
 | `schannel_legacy_crypto_enabled` | Medium | T1557 |  | W, S, DC | no | Legacy TLS/SSL protocol or weak cipher explicitly enabled |
-| `ldap_server_signing_off` | Medium | T1557 |  | DC | no | Domain controller does not require LDAP signing or channel binding |
+| `ldap_server_signing_off` | Medium | T1557 | Server 2.3.5.3, 2.3.5.4 (L1) | DC | no | Domain controller does not require LDAP signing or channel binding |
+| `dc_netlogon_policy_weak` | High | T1210 | Server 2.3.5.1, 2.3.5.2, 2.3.5.5 (L1) | DC | yes | Domain controller weakens Netlogon or lets Server Operators schedule tasks |
+| `smb_server_hardening_gaps` | Medium | T1557 | Server 18.6.7.1, 18.6.8.2 (L1) | S, DC | no | Server does not mandate a minimum SMB dialect or SMB client encryption |
+| `server_network_policy_gaps` | Low | T1557 | Server 18.6.4.3 (L2), 18.10.58.2 (L1) | S, DC | no | Server network setting differs from the CIS Windows Server baseline |
+| `ldap_client_encryption_weak` | Medium | T1557 | Server 2.3.11.8 (L1) | S, DC | no | LDAP client does not require encryption |
+| `webclient_webdav_enabled` | Low | T1187 |  | W, S, DC | no | WebClient (WebDAV) service is enabled |
+| `wpad_not_disabled` | Low | T1557.001 |  | W, S, DC | no | WPAD auto-discovery is not disabled |
 
 ## Remote Access
 
@@ -101,7 +114,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `uac_hardening_gaps` | Low | T1548.002 | 2.3.17.1, 2.3.17.4, 2.3.17.5, 2.3.17.7, 2.3.17.8 (L1) | W, S, DC | yes | UAC settings weaker than the baseline |
 | `password_policy_weak` | Medium | T1110 | 1.1.1 - 1.1.5, 1.1.7 (L1) | W, S | no | Local password policy weaker than the baseline |
 | `account_lockout_weak` | Medium | T1110 | 1.2.1, 1.2.2, 1.2.4 (L1) | W, S | no | Account lockout missing or too lenient |
-| `deny_logon_rights_missing` | Low | T1078.001 | 2.2.16 - 2.2.20 (L1) | W | no | Guests or local accounts not denied network or remote logon |
+| `deny_logon_rights_missing` | Low | T1078.001 | 2.2.16 - 2.2.20 (L1) | W, S, DC | no | Guests or local accounts not denied network or remote logon |
 
 ## Privilege Escalation
 
@@ -112,17 +125,19 @@ The last column says whether HostBadger can write a remediation script for the c
 | `service_binary_writable` | High | T1574.010 |  | W, S, DC | no | Service program writable by users |
 | `task_binary_writable` | High | T1053.005 |  | W, S, DC | no | Privileged scheduled task runs a user-writable program |
 | `autorun_writable` | High | T1547.001 |  | W, S, DC | no | Machine-wide autorun points to a user-writable program |
+| `vulnerable_driver_present` | High | T1068 |  | W, S, DC | no | Known vulnerable or malicious driver on the host |
+| `driver_blocklist_off` | Medium | T1068 |  | W, S, DC | yes | Microsoft vulnerable driver blocklist turned off |
 | `spooler_on_dc` | Medium | T1187 |  | DC | yes | Print Spooler running on a domain controller |
-| `user_rights_excessive` | Medium | T1134 | 2.2.1 - 2.2.39, Level 1 rights (L1) | W | no | User right granted to more principals than the baseline |
+| `user_rights_excessive` | Medium | T1134 | 2.2.1 - 2.2.39, Level 1 rights (L1) | W, S, DC | no | User right granted to more principals than the baseline |
 | `service_path_ancestor_control` | Medium | T1574.010 |  | W, S, DC | no | Service program under a folder that a non-administrator controls |
-| `print_point_and_print_weak` | Medium | T1068 |  | W, S, DC | no | Point and Print allows driver installation without elevation |
+| `print_point_and_print_weak` | Medium | T1068 | 18.7.8, 18.7.10, 18.7.11 (L1) | W, S, DC | no | Point and Print allows driver installation without elevation |
 
 ## Logging
 
 | ID | Severity | MITRE | CIS | Roles | Fix script | Title |
 |---|---|---|---|---|---|---|
-| `audit_policy_gaps` | Medium | T1562.002 |  | W, S, DC | no | Audit policy gaps |
-| `cmdline_audit_off` | Medium | T1562.002 |  | W, S, DC | yes | Command lines missing from process events |
+| `audit_policy_gaps` | Medium | T1562.002 | 17.1.1, 17.2.1 - 17.2.3, 17.3.1 - 17.3.2, 17.5.1 - 17.5.6, 17.6.1 - 17.6.4, 17.7.1 - 17.7.5, 17.8.1, 17.9.1 - 17.9.5 (L1) | W, S, DC | no | Audit policy gaps |
+| `cmdline_audit_off` | Medium | T1562.002 | 18.9.3.1 (L1) | W, S, DC | yes | Command lines missing from process events |
 | `powershell_scriptblock_logging_off` | Medium | T1562.002 | 18.10.86.1 (L2) | W, S, DC | yes | PowerShell script block logging off |
 | `powershell_v2_enabled` | Medium | T1562.010 |  | W, S, DC | yes | PowerShell 2.0 engine installed |
 | `security_log_small` | Low | T1070.001 | 18.10.25.2.2 (L1) | W, S, DC | yes | Security event log too small |
@@ -144,13 +159,18 @@ The last column says whether HostBadger can write a remediation script for the c
 
 | ID | Severity | MITRE | CIS | Roles | Fix script | Title |
 |---|---|---|---|---|---|---|
+| `authenticode_padding_check_off` | Low | T1553.002 |  | W, S, DC | no | Stricter Authenticode signature check not enabled (CVE-2013-3900) |
 | `autoplay_enabled` | Low | T1091 | 18.10.7.1 - 18.10.7.3 (L1) | W, S, DC | yes | AutoPlay / AutoRun not fully turned off |
 | `inactivity_lock_missing` | Low |  | 2.3.7.4 (L1) | W, S, DC | yes | No machine inactivity lock within 15 minutes |
 | `logon_banner_missing` | Low |  | 2.3.7.5, 2.3.7.6 (L1) | W, S, DC | no | No logon warning message |
 | `interactive_logon_gaps` | Low | T1087 | 2.3.7.1, 2.3.7.2 (L1) | W, S, DC | yes | Logon screen shows the last user or skips CTRL+ALT+DEL |
-| `service_should_be_disabled` | Low | T1021 | 5.3 - 5.44, Level 1 services (L1) | W | no | Service the baseline says to disable is running or automatic |
+| `service_should_be_disabled` | Low | T1021 | 5.1 - 5.44, Level 1 services (L1) | W | no | Service the baseline says to disable is running or automatic |
 | `sehop_disabled` | Medium | T1203 | 18.4.6 (L1) | W, S, DC | yes | SEHOP exploit mitigation disabled |
 | `safe_dll_search_off` | Medium | T1574.001 | 18.5.9 (L1) | W, S, DC | yes | Safe DLL search mode disabled |
+| `server_baseline_gaps` | Low | T1078 | Server 2.3.7.8, 2.3.13.1, 18.9.25.2 (L1) | S, DC | yes | Server setting differs from the CIS Windows Server baseline |
+| `terminal_services_server_gaps` | Low | T1563.002 | Server 18.10.57.3.2.1 (L2), 18.10.57.3.11.2 (L1) | S, DC | no | Remote Desktop session settings differ from the CIS Windows Server baseline |
+| `explorer_motw_bypass` | Medium | T1553.005 | Server 18.10.29.2 (L1) | S, DC | no | Mark of the Web is not applied to files copied from insecure sources |
+| `app_installer_policy_gaps` | Low | T1059 | Server 18.10.18.4, 18.10.18.6 (L1), 18.10.18.7 (L2) | S, DC | no | App Installer (winget) is not restricted per the CIS Windows Server baseline |
 
 ## Software
 
@@ -164,6 +184,10 @@ The last column says whether HostBadger can write a remediation script for the c
 |---|---|---|---|---|---|---|
 | `stig_windows10` | Medium | T1112 |  | W | no | Windows 10 setting differs from the DISA STIG |
 | `stig_windows11` | Medium | T1112 |  | W | no | Windows 11 setting differs from the DISA STIG |
+| `stig_server2016` | Medium | T1112 |  | S, DC | no | Windows Server 2016 setting differs from the DISA STIG |
+| `stig_server2019` | Medium | T1112 |  | S, DC | no | Windows Server 2019 setting differs from the DISA STIG |
+| `stig_server2022` | Medium | T1112 |  | S, DC | no | Windows Server 2022 setting differs from the DISA STIG |
+| `stig_server2025` | Medium | T1112 |  | S, DC | no | Windows Server 2025 setting differs from the DISA STIG |
 | `stig_defender` | Medium | T1562.001 |  | W, S, DC | no | Microsoft Defender Antivirus setting differs from the DISA STIG |
 | `stig_firewall` | Medium | T1562.004 |  | W, S, DC | no | Windows Firewall setting differs from the DISA STIG |
 | `stig_edge` | Medium | T1189 |  | W, S, DC | no | Microsoft Edge policy differs from the DISA STIG |
@@ -173,7 +197,7 @@ The last column says whether HostBadger can write a remediation script for the c
 
 ## DISA STIG rules read by the stig_* checks
 
-The registry rules of the DISA STIGs, from the processed data of [Microsoft PowerSTIG](https://github.com/microsoft/PowerSTIG) (MIT license; STIG content published by DISA). Each rule is a catalog entry in `data\stig-catalog.json` (rebuilt with `tools\Convert-PowerStigData.ps1`) and one finding when the host differs. The collector reads exactly those values and nothing else. Rules that need an organization decision (a banner text, an approved URL list) are left out. Browser and Office rules are judged only when the product is installed; Office rules are per-user policies and are judged on the user profiles that were loaded when the snapshot was taken.
+The registry rules of the DISA STIGs (STIG content published by DISA). Each rule is one finding when the host differs; the collector reads exactly those values and nothing else. Rules that need an organization decision (a banner text, an approved URL list) are left out. Browser and Office rules are judged only when the product is installed; Office rules are per-user policies and are judged on the user profiles that were loaded when the snapshot was taken.
 
 | Product | STIG release | Rules | CAT I | CAT II | CAT III |
 |---|---|---|---|---|---|
@@ -185,4 +209,8 @@ The registry rules of the DISA STIGs, from the processed data of [Microsoft Powe
 | `stig_chrome` | Google Chrome V2R11 | 40 | 0 | 39 | 1 |
 | `stig_firefox` | Mozilla Firefox V6R7 | 43 | 1 | 40 | 2 |
 | `stig_office` | Microsoft Office 365 ProPlus V3R5 | 127 | 1 | 126 | 0 |
+| `stig_server2016` | Windows Server 2016 V2R10 (DC + member) | 200 | 25 | 161 | 14 |
+| `stig_server2019` | Windows Server 2019 V3R8 (DC + member) | 200 | 25 | 159 | 16 |
+| `stig_server2022` | Windows Server 2022 V2R8 (DC + member) | 201 | 25 | 160 | 16 |
+| `stig_server2025` | Windows Server 2025 V1R1 (DC + member) | 188 | 21 | 151 | 16 |
 
