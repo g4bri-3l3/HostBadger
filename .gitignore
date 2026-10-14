@@ -15,15 +15,11 @@ secpol_*
 snapshots/
 remediation/
 rollback_*.json
-
 !examples/**
-
 # Local, not part of the project
 CLAUDE.md
 .claude/
-IDWolf/
 output/
-gog-galaxy-*.txt
 session_*.txt
 testhtml.txt
 *_kev.json
