@@ -708,8 +708,9 @@ the reply are kept, invented checks are dropped, and nothing is sent without
 
 ## Known limitations
 
-- **One host at a time.** HostBadger doesn't yet compare what the GPOs intend
-  with what the host does. That is the next step.
+- **Effective settings only, no GPO comparison.** Each host is judged on the
+  settings it actually has. HostBadger doesn't read the GPOs, so it can't tell
+  a setting that a GPO failed to apply from one that no GPO sets.
 - **The Windows lifecycle table.** The end-of-servicing dates per build and
   edition are built in (`lib\Common.ps1`) and come from Microsoft's lifecycle
   pages. Check a date before you rely on it, and extend the table as releases
@@ -719,9 +720,10 @@ the reply are kept, invented checks are dropped, and nothing is sent without
   rights are read with `secedit /export`, which needs administrator or SYSTEM.
   Without it, those four checks are listed as not evaluated. What it reads is
   the effective local policy: domain accounts follow the domain policy, so the
-  password and lockout checks speak for local accounts. The user rights check
-  applies to workstations only, because servers and domain controllers have
-  their own benchmarks and legitimately differ.
+  password and lockout checks speak for local accounts. The user rights are
+  judged against the CIS benchmark of the host's role: workstations against
+  Windows 11 (or 10), domain controllers and member servers against the
+  domain-controller and member-server rules of the Windows Server benchmarks.
 - **Audit policy.** It is read with `auditpol /backup`, which gives numeric
   values in any language. A snapshot from a host where only the localized text
   was available is judged on English text only. Other languages are skipped
@@ -745,6 +747,10 @@ the reply are kept, invented checks are dropped, and nothing is sent without
   product's settings are not inspected. The EDR inventory is a separate,
   independent check and does recognize 15 common vendors by service name
   regardless of Defender's state; see "EDR agents" above.
+- **DISA STIG: registry rules only.** The STIG layer judges the rules that
+  check a registry value. STIG rules about audit policy, user rights, account
+  policy and other settings outside the registry are not judged as STIG
+  findings; the CIS-based checks cover part of the same ground.
 
 ## License
 

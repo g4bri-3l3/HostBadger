@@ -253,6 +253,10 @@ new major if the snapshot or the JSON Lines format ever breaks.
   the names); older snapshots keep the previous behaviour.
 
 ### Changed
+- README "Known limitations": the user rights check is described as it now
+  works (judged on every role, against the CIS benchmark of that role), the
+  GPO point is renamed "Effective settings only, no GPO comparison", and the
+  STIG layer is said to judge registry rules only.
 - The analyzer writes its output to a `.\output` folder by default instead of
   the current directory. A new `-OutDir` sets the folder; a `-OutHtml` / `-OutCsv`
   / `-OutJsonl` / `-OutRemediation` given as a bare file name lands there, while a
