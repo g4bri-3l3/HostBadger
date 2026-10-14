@@ -22,7 +22,7 @@ is weak. It works in two steps. A single PowerShell script takes a
 Lines for a SIEM. Hand it one snapshot or a folder with hundreds and you get
 the whole fleet in one report, or one report per host.
 
-- **129 checks** and about 1,545 settings: 117 hand-written checks plus 1427 DISA
+- **131 checks** and about 1,547 settings: 119 hand-written checks plus 1427 DISA
   STIG registry rules, with the CIS Windows 11 benchmark as the baseline, and
   the drivers matched against 2,198 known vulnerable or malicious driver files
   (LOLDrivers).
@@ -33,7 +33,8 @@ the whole fleet in one report, or one report per host.
   call unless you ask for one: `-CheckUpdates` (the Windows Update service
   searches for missing updates), `-KevOnline` (downloads the CISA KEV catalog,
   www.cisa.gov), `-DriversOnline` (downloads the LOLDrivers catalog,
-  www.loldrivers.io) and `-SendToAI` (Gemini). Each one is named where it is offered.
+  www.loldrivers.io), `-EolOnline` (downloads software lifecycle data,
+  endoflife.date) and `-SendToAI` (Gemini). Each one is named where it is offered.
   `Test-HostBadgerSafety.ps1` proves the rest from the code.
 - **Honest about gaps**: what could not be read is listed as *not evaluated*,
   never as clean.
@@ -72,7 +73,16 @@ should.
   the report with pie charts by publisher; with the CISA KEV catalog (`-KevFile`
   or `-KevOnline`) each program that matches a product with vulnerabilities
   known to be exploited becomes a lead to verify (the catalog has no version
-  ranges, so the match is by vendor and product name only).
+  ranges, so the match is by vendor and product name only). Releases past
+  their end of support (Flash, Java 6/7, old Office, Exchange and SQL Server,
+  Python, Node.js, .NET, old Visual C++ runtimes) are flagged from a lifecycle
+  table, no download needed. With `-EolOnline` (or `-EolFile`) the dates come
+  from [endoflife.date](https://endoflife.date) (MIT), which adds Oracle Java,
+  PowerShell 7, VirtualBox and Wireshark and flags programs behind the latest
+  release of their line (`software_outdated`: Python 3.12.1 when 3.12.9 has been
+  out for months, a Firefox, Chrome or Notepad++ that stopped updating). A
+  release counts only if it came out before the snapshot and more than
+  `-SoftwareGraceDays` (30) earlier.
 - **Vulnerable and malicious drivers**: the SHA-256 of every kernel driver file
   is matched against the [LOLDrivers](https://www.loldrivers.io) catalog
   (Apache License 2.0) of drivers used in "bring your own vulnerable driver"
@@ -424,7 +434,9 @@ or, without one, when they have the same title.
   Microsoft Update), one GET of the CISA KEV catalog
   (www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json,
   `-KevOnline`), one GET of the LOLDrivers catalog
-  (www.loldrivers.io/api/drivers.json, `-DriversOnline`) and the Gemini call
+  (www.loldrivers.io/api/drivers.json, `-DriversOnline`), one GET of the
+  endoflife.date lifecycle data (endoflife.date/api/v1/products/full,
+  `-EolOnline`) and the Gemini call
   (`-SendToAI`). The code that sends or
   downloads lives in `lib\AI.ps1` only. `Test-HostBadgerSafety.ps1` checks all this from the code
   and fails on any command that is not on its reviewed list. The regression
@@ -492,6 +504,7 @@ standard user with Defender in passive mode.
     [-SkipStig]                                  # leave out the DISA STIG checks (about 1,400 registry rules)
     [-KevFile known_exploited_vulnerabilities.json] | [-KevOnline]   # match installed software to the CISA KEV catalog (-KevOnline downloads it from www.cisa.gov)
     [-DriversFile drivers.json] | [-DriversOnline]   # a LOLDrivers catalog you have, or a fresh one (-DriversOnline downloads it from www.loldrivers.io)
+    [-EolFile r_eol.json] | [-EolOnline] [-SoftwareGraceDays 30]   # software lifecycle data (-EolOnline downloads it from endoflife.date): current end-of-support dates and software_outdated
     [-SnapshotPassword <SecureString>] [-SnapshotPfx <file.pfx> [-SnapshotPfxPassword <SecureString>]]   # open encrypted .hbx snapshots (asked for when missing)
     [-HideCis] [-HideStig]                       # keep those findings out of the HTML listing (CSV and JSON Lines keep them)
     [-AiIncludeStig]                             # also send the STIG findings to Gemini (large prompt, may time out)

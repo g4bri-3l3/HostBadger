@@ -233,6 +233,8 @@ function Get-AnalysisParams {
     }
     Write-Host "`nVulnerable drivers: the driver files on the hosts are compared, by SHA-256, with the LOLDrivers catalog of known vulnerable and malicious drivers. HostBadger ships a copy of it; a fresh one is a download from www.loldrivers.io/api/drivers.json (one HTTPS GET of about 30 MB, nothing is sent), kept next to the report." -ForegroundColor DarkGray
     if (Test-Yes 'Download a fresh LOLDrivers catalog from www.loldrivers.io? (y/N)') { $ap['DriversOnline'] = $true }
+    Write-Host "`nSoftware lifecycle: without a download, programs past their end of support are found with the table HostBadger ships. With current data from endoflife.date the dates are up to date and programs that missed a newer release of their line are flagged too (Python, Node.js, .NET, Office, Exchange, Java, Firefox, Chrome, Notepad++, PowerShell, VirtualBox, Wireshark). Downloading connects to endoflife.date/api/v1/products/full (one HTTPS GET of about 3 MB, nothing is sent); a copy is kept next to the report." -ForegroundColor DarkGray
+    if (Test-Yes 'Download software lifecycle data from endoflife.date? (y/N)') { $ap['EolOnline'] = $true }
     if (Test-Yes "Also write JSON Lines for a SIEM? (y/N)") { $ap['OutJsonl'] = Read-Path "JSON Lines path" ($ap['OutHtml'] -replace '\.html?$', '.jsonl') }
     $prev = Read-Path "Findings CSV of an earlier run, to show new and resolved (optional, Enter to skip)"
     if ($prev) { if (Test-Path -LiteralPath $prev) { $ap['CompareTo'] = $prev } else { Write-Host "Not found, comparison skipped: $prev" -ForegroundColor Yellow } }
@@ -304,6 +306,7 @@ function Invoke-AiOffer {
     $stem = [System.IO.Path]::GetFullPath($Params['OutHtml']) -replace '\.html?$', ''
     if ($again['KevOnline'] -and (Test-Path -LiteralPath "${stem}_kev.json")) { $again.Remove('KevOnline'); $again['KevFile'] = "${stem}_kev.json" }
     if ($again['DriversOnline'] -and (Test-Path -LiteralPath "${stem}_drivers.json")) { $again.Remove('DriversOnline'); $again['DriversFile'] = "${stem}_drivers.json" }
+    if ($again['EolOnline'] -and (Test-Path -LiteralPath "${stem}_eol.json")) { $again.Remove('EolOnline'); $again['EolFile'] = "${stem}_eol.json" }
     Add-AiParams -Params $again -Mode $mode
     Invoke-Sub 'HostBadger.ps1' $again
 }

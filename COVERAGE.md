@@ -1,6 +1,6 @@
 # HostBadger coverage
 
-Every check in `lib\Checks.ps1`, generated from the catalog (129 checks, of which 12 cover the 1427 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
+Every check in `lib\Checks.ps1`, generated from the catalog (131 checks, of which 12 cover the 1427 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
 
 The CIS column gives the rule number in the *CIS Microsoft Windows 11 Enterprise Benchmark v3.0.0* and its profile level (L1 corporate, L2 high security); the descriptions are HostBadger's own. A check is a read-only comparison of the host's setting with the rule; it is not a certification of conformity, and the benchmark covers many more settings (most of the administrative templates, for instance) than HostBadger reads. On Windows 10 and on Windows Server 2022, 2019 and 2016 the findings quote the same setting in that version's CIS benchmark instead (Windows 10 Enterprise v3.0.0, Server 2022 and 2019 v4.0.0, Server 2016 v3.0.0). Checks marked *Server* follow a rule that only the server benchmarks have.
 
@@ -177,6 +177,8 @@ The last column says whether HostBadger can write a remediation script for the c
 | ID | Severity | MITRE | CIS | Roles | Fix script | Title |
 |---|---|---|---|---|---|---|
 | `kev_software_match` | Low | T1190 |  | W, S, DC | no | Installed software with vulnerabilities known to be exploited (CISA KEV) |
+| `software_eol` | Medium | T1203 |  | W, S, DC | no | Installed software no longer supported by its vendor |
+| `software_outdated` | Low | T1203 |  | W, S, DC | no | Installed software behind the latest release of its line |
 
 ## DISA STIG
 

@@ -54,6 +54,20 @@
     A LOLDrivers catalog you already have, instead of the copy in data\: the
     drivers.json from www.loldrivers.io, or the <report>_drivers.json that
     -DriversOnline keeps next to a report. No network.
+.PARAMETER EolOnline
+    Download software lifecycle data from endoflife.date now (MIT licensed): the
+    release lines of Python, Node.js, .NET, Office, Exchange, Oracle Java, Firefox,
+    Chrome, Notepad++, PowerShell, VirtualBox and Wireshark, with their end of
+    support and latest version. One HTTPS GET of about 3 MB to
+    endoflife.date/api/v1/products/full; nothing is sent. Turns on
+    software_outdated and gives software_eol current dates. The reduced copy is
+    kept next to the report (<report>_eol.json).
+.PARAMETER EolFile
+    endoflife.date data you already have: the <report>_eol.json that -EolOnline
+    keeps, or an API v1 response (/products/full or one product). No network.
+.PARAMETER SoftwareGraceDays
+    Days a program may take to install a new release before software_outdated
+    flags it (default 30).
 .PARAMETER SnapshotPassword
     Password of snapshots encrypted with the collector's -EncryptPassword
     (.hbx). Without it, HostBadger asks for it when it finds such a snapshot.
@@ -152,6 +166,9 @@ param(
     [switch]$KevOnline,
     [switch]$DriversOnline,
     [string]$DriversFile = '',
+    [switch]$EolOnline,
+    [string]$EolFile = '',
+    [int]$SoftwareGraceDays = 30,
     [System.Security.SecureString]$SnapshotPassword,
     [string]$SnapshotPfx = '',
     [System.Security.SecureString]$SnapshotPfxPassword,
@@ -196,7 +213,7 @@ $config = @{
     AllowedAdmins = @($AllowedAdmins); MaxPatchAgeDays = $MaxPatchAgeDays; MaxSignatureAgeDays = $MaxSignatureAgeDays
     SupportWarningDays = $SupportWarningDays; MaxCachedLogonsWorkstation = $MaxCachedLogonsWorkstation
     MaxCachedLogonsServer = $MaxCachedLogonsServer; MinSecurityLogKB = $MinSecurityLogKB
-    ExpectedEdr = @($ExpectedEdr); ExtraEdrServices = @($ExtraEdrServices)
+    ExpectedEdr = @($ExpectedEdr); ExtraEdrServices = @($ExtraEdrServices); SoftwareGraceDays = $SoftwareGraceDays
 }
 
 $stamp = (Get-Date).ToString('yyyyMMdd_HHmmss')
@@ -271,6 +288,30 @@ elseif ($DriversOnline) {
         catch { Write-Host "LOLDrivers catalog not readable, using the copy in data\: $($_.Exception.Message)" -ForegroundColor Yellow; $config.Remove('Drivers') }
     }
     else { Write-Host 'Using the LOLDrivers copy in data\.' -ForegroundColor Yellow }
+}
+
+# Software lifecycle data (endoflife.date): a file you give, or a download. Without it software_eol
+# uses the table in lib\Checks.ps1 and software_outdated is off.
+if ($EolFile -or $EolOnline) {
+    $eolJson = $null
+    if ($EolFile) {
+        if (Test-Path -LiteralPath $EolFile) { $eolJson = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $EolFile).Path) }
+        else { Write-Host "endoflife.date file not found: $EolFile" -ForegroundColor Yellow }
+    }
+    else { $eolJson = Get-EolCatalogOnline }
+    if ($eolJson) {
+        try {
+            $config['Eol'] = ConvertFrom-EolCatalog $eolJson
+            if (-not $EolFile) {
+                $eolCopy = ([System.IO.Path]::GetFullPath($OutHtml) -replace '\.html?$', '') + '_eol.json'
+                $eolSource = "endoflife.date ($($script:EolApiUrl)), MIT License; downloaded $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC"
+                [System.IO.File]::WriteAllText($eolCopy, (ConvertTo-EolCatalogJson $config['Eol'] $eolSource), (New-Object System.Text.UTF8Encoding($false)))
+                Write-Host "endoflife.date data kept at $eolCopy" -ForegroundColor DarkGray
+            }
+            Write-Host "endoflife.date: $($config['Eol'].Count) products." -ForegroundColor DarkGray
+        }
+        catch { Write-Host "endoflife.date data not readable, using the lifecycle table in lib\: $($_.Exception.Message)" -ForegroundColor Yellow; $config.Remove('Eol') }
+    }
 }
 
 $files = @(Get-SnapshotFiles $Snapshot)

@@ -342,7 +342,12 @@ switch ($Scenario) {
         $s.stig = Get-StigSection $wm (Remove-StigValues $stigUser 'office' 3) ([ordered]@{ edge = $true; chrome = $true; firefox = $true; office = $true }) 'win10'
         $s.software = @($s.software) + @(
             [ordered]@{ name = 'Contoso CAD Viewer'; version = '5.1.0'; publisher = 'Contoso Ltd.' },
-            [ordered]@{ name = 'Mozilla Firefox (x64 en-US)'; version = '118.0'; publisher = 'Mozilla' })
+            [ordered]@{ name = 'Mozilla Firefox (x64 en-US)'; version = '118.0'; publisher = 'Mozilla' },
+            # Out of support: Flash (High), Python 2 (Medium), Node.js 16 (by version), Visual C++ 2010 (Low).
+            [ordered]@{ name = 'Adobe Flash Player 32 NPAPI'; version = '32.0.0.465'; publisher = 'Adobe' },
+            [ordered]@{ name = 'Python 2.7.18 (64-bit)'; version = '2.7.18150'; publisher = 'Python Software Foundation' },
+            [ordered]@{ name = 'Node.js'; version = '16.20.2'; publisher = 'Node.js Foundation' },
+            [ordered]@{ name = 'Microsoft Visual C++ 2010  x64 Redistributable - 10.0.40219'; version = '10.0.40219'; publisher = 'Microsoft Corporation' })
         $s.meta.options.checkUpdates = $true; $s.meta.sectionsCollected = @($s.meta.sectionsCollected) + 'updatesPending'
         $s.updatesPending = [ordered]@{ searched = $true; source = 'WSUS'; pending = @(
                 [ordered]@{ kb = 'KB5099999'; title = '2026-09 Cumulative Update for Windows 10 Version 22H2 (KB5099999)'; severity = 'Critical'; categories = 'Security Updates'; downloaded = $true; rebootRequired = $true },

@@ -8,6 +8,37 @@ new major if the snapshot or the JSON Lines format ever breaks.
 
 ## [Unreleased]
 ### Added
+- `software_eol`: installed software past its vendor's end of support (Flash,
+  Shockwave, Silverlight, Java 6/7, Adobe Reader/Acrobat XI, 2015 and 2017,
+  Office/Visio/Project 2007 to LTSC 2021, Exchange 2010 to 2019, SQL Server 2008
+  to 2016, Python 2 and 3.5 to 3.9, Node.js by major version, .NET Core / .NET 1.0
+  to 7, Visual C++ 2005 to 2013 runtimes). The lifecycle table lives in
+  `lib\Checks.ps1` next to the Windows one and is judged at collection time;
+  severity per product (High for browser plugins, old readers and Exchange, Low
+  for the Visual C++ runtimes). No collector change: it reads the existing
+  `software` section. The installed name is tokenized for the AI prompt like
+  the KEV finding. Paid extended support still running (Exchange 2016/2019,
+  Oracle Java 8) lowers the finding to Low and says until when.
+- Software lifecycle data from [endoflife.date](https://endoflife.date) (MIT):
+  `-EolOnline` (one HTTPS GET of about 3 MB to endoflife.date/api/v1/products/full,
+  nothing is sent; the reduced copy is kept next to the report as
+  `<report>_eol.json`) or `-EolFile`. With it `software_eol` uses current dates
+  and also covers Oracle Java, PowerShell 7, VirtualBox and Wireshark, and the
+  new check `software_outdated` flags a program behind the latest release of its
+  line (Python, Node.js, .NET runtimes, Java, PowerShell, VirtualBox, Wireshark),
+  or a Firefox, Chrome or Notepad++ whose release line has already been replaced.
+  A release counts only if it came out before collection and more than
+  `-SoftwareGraceDays` (default 30) earlier; Medium when it is over 180 days old.
+  The guided menu asks for it; the AI re-run reuses the kept copy. Allowed in
+  `Test-HostBadgerSafety.ps1` as the only new address. The three catalog
+  downloads now share one function (`Get-CatalogText`).
+### Fixed
+- AI pseudonymizer: a four-part program version ("version 32.0.0.465") is no
+  longer taken for an IP address.
+- AI pseudonymizer: check titles are no longer tokenized. On a host with an
+  account called "support", "Windows version out of support" reached the model
+  as "out of USER-1"; titles are now set aside like the CIS references, and the
+  leak test ignores them (the same word elsewhere is still caught).
 - `tests\New-ReportGif.ps1` turns a report into the slide GIF of the README
   (headless Edge or Chrome, Windows PowerShell 5.1). `examples\demo_report.gif`
   is regenerated from the current synthetic fleet and now includes the AI

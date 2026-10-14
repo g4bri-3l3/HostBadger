@@ -427,6 +427,14 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Installed software with vulnerabilities known to be exploited (CISA KEV)'
         Description = 'An installed program matches a vendor and product in the CISA Known Exploited Vulnerabilities catalog. The match is by name only: the catalog has no version ranges, so HostBadger cannot tell whether the installed version is one of the affected ones. Treat it as a lead to verify against the vendor advisory. Medium when some of the listed vulnerabilities are used in ransomware campaigns. Only present when a KEV catalog was given (-KevFile or -KevOnline).'
         Remediation = 'Compare the installed version with the advisories for the listed CVEs, update the program or remove it if it is not needed, and add an exception if the installed version is not affected.' }
+    software_eol = @{ Category = 'Software'; Severity = 'Medium'; Mitre = 'T1203'; Needs = @('software'); Roles = $script:AllRoles
+        Title = 'Installed software no longer supported by its vendor'
+        Description = 'An installed program is a release that its vendor no longer fixes: Flash, Silverlight, Java 6/7, old Adobe Reader and Office, Exchange, SQL Server, Python, Node.js, .NET and Visual C++ runtimes past their end of life. New vulnerabilities in it stay open for good. The release is read from the Programs and Features name (and the version for Node.js) and compared with the lifecycle table in lib\Checks.ps1, or with the endoflife.date data when it was given (-EolFile or -EolOnline), which also covers Oracle Java, PowerShell 7, VirtualBox and Wireshark; per-user installs are not listed. Severity follows the product: High for browser plugins, old document readers and Exchange, Low for the Visual C++ runtimes, and Low while paid extended support still runs.'
+        Remediation = 'Upgrade to a supported release, or uninstall it if nothing needs it. A Visual C++ runtime may be needed by an old program: remove it with that program. For SQL Server, Extended Security Updates can cover the gap while the upgrade is planned (add an exception if the host is enrolled).' }
+    software_outdated = @{ Category = 'Software'; Severity = 'Low'; Mitre = 'T1203'; Needs = @('software'); Roles = $script:AllRoles
+        Title = 'Installed software behind the latest release of its line'
+        Description = 'The release line of an installed program is still maintained, but a newer version of that line came out before the snapshot was taken, with the security fixes since the installed one. For products that ship every few weeks (Firefox, Chrome, Notepad++) a line that has already been replaced counts here too. A release counts only once it is older than the grace period (-SoftwareGraceDays, 30 days), so a host waiting for its normal update is not flagged. Medium when the missing release is more than 180 days old. Only present when lifecycle data from endoflife.date was given (-EolFile or -EolOnline).'
+        Remediation = 'Update the program, and check why it did not update itself: auto-update turned off, a deployment ring that does not include it, or a copy that nobody manages.' }
 
     # ---------------- Further settings (Microsoft documentation, DISA STIG and ACSC guidance) ----------------
     asr_other_rules_not_blocking = @{ Category = 'Antivirus'; Severity = 'Low'; Mitre = 'T1204.002'; Needs = @('defender', 'defender.preferences'); Roles = $script:AllRoles
@@ -922,8 +930,227 @@ function Get-KevIndex {
     return $list
 }
 
+# Software lifecycle: the end of support of releases still found on hosts, from the vendors' lifecycle
+# pages (Microsoft, Adobe, Oracle, python.org, nodejs.org). Like $script:WindowsLifecycle, check a date
+# before relying on it and add releases as they reach their end. Name is matched against the Programs
+# and Features name, Version (when present) against its version; the first match wins. Only releases
+# whose end has passed at collection give a finding.
+$script:SoftwareLifecycle = @(
+    @{ Product = 'Adobe Flash Player'; Name = '^Adobe Flash Player\b'; End = '2020-12-31'; Severity = 'High' }
+    @{ Product = 'Adobe Shockwave Player'; Name = '^Adobe Shockwave Player\b'; End = '2019-04-09'; Severity = 'High' }
+    @{ Product = 'Microsoft Silverlight'; Name = '^Microsoft Silverlight\b'; End = '2021-10-12'; Severity = 'Medium' }
+    @{ Product = 'Java 6'; Name = '^Java(\(TM\))? 6\b|^Java(\(TM\))? SE Development Kit 6\b'; End = '2018-12-31'; Severity = 'High' }
+    @{ Product = 'Java 7'; Name = '^Java(\(TM\))? 7\b|^Java(\(TM\))? SE Development Kit 7\b'; End = '2019-07-31'; Extended = '2022-07-19'; Severity = 'High' }
+    @{ Product = 'Adobe Reader/Acrobat XI and older'; Name = '^Adobe (Reader|Acrobat)( Pro| Standard)? (XI|X|[5-9])\b'; End = '2017-10-15'; Severity = 'High' }
+    @{ Product = 'Adobe Acrobat 2015'; Name = '^Adobe Acrobat\b.*\b2015\b'; End = '2020-04-07'; Severity = 'High' }
+    @{ Product = 'Adobe Acrobat 2017'; Name = '^Adobe Acrobat\b.*\b2017\b'; End = '2022-06-06'; Severity = 'High' }
+    @{ Product = 'Microsoft Office 2007'; Name = '^Microsoft (Office|Visio|Project)\b.*\b2007\b'; End = '2017-10-10'; Severity = 'High' }
+    @{ Product = 'Microsoft Office 2010'; Name = '^Microsoft (Office|Visio|Project)\b.*\b2010\b'; End = '2020-10-13'; Severity = 'High' }
+    @{ Product = 'Microsoft Office 2013'; Name = '^Microsoft (Office|Visio|Project)\b.*\b2013\b'; End = '2023-04-11'; Severity = 'High' }
+    @{ Product = 'Microsoft Office 2016'; Name = '^Microsoft (Office|Visio|Project)\b.*\b2016\b'; End = '2025-10-14'; Severity = 'Medium' }
+    @{ Product = 'Microsoft Office 2019'; Name = '^Microsoft (Office|Visio|Project)\b.*\b2019\b'; End = '2025-10-14'; Severity = 'Medium' }
+    @{ Product = 'Microsoft Office LTSC 2021'; Name = '^Microsoft (Office|Visio|Project)\b.*\b2021\b'; End = '2026-10-13'; Severity = 'Medium' }
+    @{ Product = 'Microsoft Exchange Server 2010'; Name = '^Microsoft Exchange Server 2010\b'; End = '2020-10-13'; Severity = 'High' }
+    @{ Product = 'Microsoft Exchange Server 2013'; Name = '^Microsoft Exchange Server 2013\b'; End = '2023-04-11'; Severity = 'High' }
+    @{ Product = 'Microsoft Exchange Server 2016'; Name = '^Microsoft Exchange Server 2016\b'; End = '2025-10-14'; Extended = '2026-11-01'; Severity = 'High' }
+    @{ Product = 'Microsoft Exchange Server 2019'; Name = '^Microsoft Exchange Server 2019\b'; End = '2025-10-14'; Extended = '2026-11-01'; Severity = 'High' }
+    @{ Product = 'Microsoft SQL Server 2008'; Name = '^Microsoft SQL Server 2008( R2)?( \((32|64)-bit\))?$'; End = '2019-07-09'; Severity = 'Medium' }
+    @{ Product = 'Microsoft SQL Server 2012'; Name = '^Microsoft SQL Server 2012( \((32|64)-bit\))?$'; End = '2022-07-12'; Severity = 'Medium' }
+    @{ Product = 'Microsoft SQL Server 2014'; Name = '^Microsoft SQL Server 2014( \((32|64)-bit\))?$'; End = '2024-07-09'; Severity = 'Medium' }
+    @{ Product = 'Microsoft SQL Server 2016'; Name = '^Microsoft SQL Server 2016( \((32|64)-bit\))?$'; End = '2026-07-14'; Severity = 'Medium' }
+    @{ Product = 'Python 2'; Name = '^Python 2\.\d'; End = '2020-01-01'; Severity = 'Medium' }
+    @{ Product = 'Python 3.5'; Name = '^Python 3\.5\.\d'; End = '2020-09-30'; Severity = 'Medium' }
+    @{ Product = 'Python 3.6'; Name = '^Python 3\.6\.\d'; End = '2021-12-23'; Severity = 'Medium' }
+    @{ Product = 'Python 3.7'; Name = '^Python 3\.7\.\d'; End = '2023-06-27'; Severity = 'Medium' }
+    @{ Product = 'Python 3.8'; Name = '^Python 3\.8\.\d'; End = '2024-10-07'; Severity = 'Medium' }
+    @{ Product = 'Python 3.9'; Name = '^Python 3\.9\.\d'; End = '2025-10-31'; Severity = 'Medium' }
+    @{ Product = 'Microsoft Visual C++ 2005 Redistributable'; Name = '^Microsoft Visual C\+\+ 2005\b.*Redistributable'; End = '2016-04-12'; Severity = 'Low' }
+    @{ Product = 'Microsoft Visual C++ 2008 Redistributable'; Name = '^Microsoft Visual C\+\+ 2008\b.*Redistributable'; End = '2018-04-10'; Severity = 'Low' }
+    @{ Product = 'Microsoft Visual C++ 2010 Redistributable'; Name = '^Microsoft Visual C\+\+ 2010\b.*Redistributable'; End = '2020-07-14'; Severity = 'Low' }
+    @{ Product = 'Microsoft Visual C++ 2012 Redistributable'; Name = '^Microsoft Visual C\+\+ 2012\b.*Redistributable'; End = '2023-01-10'; Severity = 'Low' }
+    @{ Product = 'Microsoft Visual C++ 2013 Redistributable'; Name = '^Microsoft Visual C\+\+ 2013\b.*Redistributable'; End = '2024-04-09'; Severity = 'Low' }
+)
+# .NET (Core): runtimes, SDKs and the ASP.NET Core and Windows Desktop runtimes carry the release in the
+# name. .NET Framework is part of Windows and not listed here.
+foreach ($r in @(@('1.0', '2019-06-27'), @('1.1', '2019-06-27'), @('2.0', '2018-10-01'), @('2.1', '2021-08-19'), @('2.2', '2019-12-23'), @('3.0', '2020-03-03'), @('3.1', '2022-12-13'), @('5.0', '2022-05-10'), @('6.0', '2024-11-12'), @('7.0', '2024-05-14'))) {
+    $label = if ([int]$r[0].Split('.')[0] -lt 5) { ".NET Core $($r[0])" } else { ".NET $($r[0].Split('.')[0])" }
+    $script:SoftwareLifecycle += @{ Product = "Microsoft $label"; Name = ('^Microsoft (ASP\.NET Core|\.NET( Core)?( Runtime| SDK| Host( FX Resolver)?)?|Windows Desktop Runtime)( -)? ' + [regex]::Escape($r[0]) + '\.'); End = $r[1]; Severity = 'Medium' }
+}
+# Node.js names no release: the major version says it.
+foreach ($r in @(@('[4-9]|0', '2019-12-31', '9 and older'), @('10', '2021-04-30'), @('11', '2019-06-30'), @('12', '2022-04-30'), @('13', '2020-06-01'), @('14', '2023-04-30'), @('15', '2021-06-01'), @('16', '2023-09-11'), @('17', '2022-06-01'), @('18', '2025-04-30'), @('19', '2023-06-01'), @('20', '2026-04-30'), @('21', '2024-06-01'), @('23', '2025-06-01'))) {
+    $label = if ($r.Count -gt 2) { $r[2] } else { $r[0] }
+    $script:SoftwareLifecycle += @{ Product = "Node.js $label"; Name = '^Node\.js\b'; Version = "^($($r[0]))\."; End = $r[1]; Severity = 'Medium' }
+}
+
+function Get-SoftwareLifecycle {
+    # The lifecycle row of an installed program (name, version), or nothing.
+    param($Software)
+    $n = "$($Software.name)"; $v = "$($Software.version)"
+    foreach ($row in $script:SoftwareLifecycle) {
+        if ($n -notmatch $row.Name) { continue }
+        if ($row.Version -and $v -notmatch $row.Version) { continue }
+        return $row
+    }
+}
+
+# Lifecycle data from endoflife.date (MIT, -EolOnline or -EolFile): the release lines of each product,
+# with their end of support, paid extended support and latest version. Each entry ties a Programs and
+# Features name to one product there: c is the release line ("3.12", "8", "2016"), v the installed
+# version when the name or the version gives it. Rapid products (a release every few weeks, each fixed
+# only until the next) are behind, not out of support, when their line has ended.
+$script:EolProductMap = @(
+    @{ Slug = 'python'; Label = 'Python'; Name = '^Python (?<v>(?<c>\d+\.\d+)\.\d+)' }
+    @{ Slug = 'nodejs'; Label = 'Node.js'; Name = '^Node\.js$'; Version = '^(?<v>(?<c>\d+)\.\d+\.\d+)' }
+    @{ Slug = 'dotnet'; Label = 'Microsoft .NET'; Name = '^Microsoft (?:ASP\.NET Core|\.NET(?: Core)? Runtime -|Windows Desktop Runtime -) (?<v>(?<c>\d+\.\d+)\.\d+)' }
+    @{ Slug = 'office'; Label = 'Microsoft Office'; Name = '^Microsoft (?:Office|Visio|Project)\b.*\b(?<c>20\d\d)\b' }
+    @{ Slug = 'msexchange'; Label = 'Microsoft Exchange Server'; Name = '^Microsoft Exchange Server (?<c>20\d\d)\b'; Severity = 'High' }
+    @{ Slug = 'oracle-jdk'; Label = 'Java'; Name = '^Java(?:\(TM\))? (?:SE Development Kit )?(?<v>(?<c>\d+)(?: Update \d+|(?:\.\d+)+)?)(?!\S)'; Severity = 'High' }
+    @{ Slug = 'firefox'; Label = 'Mozilla Firefox'; Name = '^Mozilla Firefox\b'; Version = '^(?<v>(?<c>\d+)\.\d+(?:\.\d+)*)'; Rapid = $true }
+    @{ Slug = 'chrome'; Label = 'Google Chrome'; Name = '^Google Chrome$'; Version = '^(?<v>(?<c>\d+)\.\d+(?:\.\d+)*)'; Rapid = $true }
+    @{ Slug = 'notepad-plus-plus'; Label = 'Notepad++'; Name = '^Notepad\+\+'; Version = '^(?<v>(?<c>\d+\.\d+)(?:\.\d+)*)'; Rapid = $true }
+    @{ Slug = 'powershell'; Label = 'PowerShell'; Name = '^PowerShell \d'; Version = '^(?<v>(?<c>\d+\.\d+)\.\d+)' }
+    @{ Slug = 'virtualbox'; Label = 'Oracle VirtualBox'; Name = '^Oracle (?:VM )?VirtualBox\b'; Version = '^(?<v>(?<c>\d+\.\d+)\.\d+)' }
+    @{ Slug = 'wireshark'; Label = 'Wireshark'; Name = '^Wireshark\b'; Version = '^(?<v>(?<c>\d+\.\d+)\.\d+)' }
+)
+
+function ConvertTo-EolDateText {
+    # PowerShell 7 turns "2026-10-13" into a local DateTime: keep the calendar date as written.
+    param($Value)
+    if ($Value -is [datetime]) { return $Value.ToString('yyyy-MM-dd') }
+    if ("$Value" -match '^\d{4}-\d{2}-\d{2}') { return "$Value".Substring(0, 10) }
+    return ''
+}
+
+function ConvertFrom-EolCatalog {
+    # endoflife.date API v1: /products/full (result is the list of products), one product (result is
+    # that product), or the reduced copy HostBadger keeps next to a report (same shape). Returns
+    # @{ slug = releases }, only for the products in $script:EolProductMap.
+    param([string]$Json)
+    $doc = ConvertFrom-Json -InputObject $Json
+    $wanted = @($script:EolProductMap | ForEach-Object { $_.Slug })
+    $out = @{}
+    foreach ($p in @($doc.result | ForEach-Object { $_ })) {
+        $slug = "$($p.name)"
+        if ($wanted -notcontains $slug) { continue }
+        $rels = New-Object System.Collections.Generic.List[object]
+        foreach ($r in @($p.releases | ForEach-Object { $_ })) {
+            if (-not "$($r.name)") { continue }
+            $rels.Add([PSCustomObject]@{ Name = "$($r.name)"; IsEol = ($r.isEol -eq $true); EolFrom = (ConvertTo-EolDateText $r.eolFrom); EoesFrom = (ConvertTo-EolDateText $r.eoesFrom)
+                    Latest = "$(if ($r.latest) { $r.latest.name })"; LatestDate = (ConvertTo-EolDateText $(if ($r.latest) { $r.latest.date })) })
+        }
+        $out[$slug] = $rels.ToArray()
+    }
+    if ($out.Count -eq 0) { throw 'no product HostBadger knows (python, nodejs, dotnet...) in this file' }
+    return $out
+}
+
+function ConvertTo-EolCatalogJson {
+    # The reduced copy kept next to the report: the API v1 shape, only the products HostBadger maps.
+    param($Catalog, [string]$Source)
+    $products = foreach ($slug in @($Catalog.Keys | Sort-Object)) {
+        [ordered]@{ name = $slug; releases = @($Catalog[$slug] | ForEach-Object {
+                    [ordered]@{ name = $_.Name; isEol = $_.IsEol; eolFrom = $(if ($_.EolFrom) { $_.EolFrom } else { $null }); eoesFrom = $(if ($_.EoesFrom) { $_.EoesFrom } else { $null })
+                        latest = $(if ($_.Latest) { [ordered]@{ name = $_.Latest; date = $(if ($_.LatestDate) { $_.LatestDate } else { $null }) } } else { $null }) }
+                }) }
+    }
+    return ([ordered]@{ source = $Source; result = @($products) } | ConvertTo-Json -Depth 8)
+}
+
+function Find-EolRelease {
+    # The endoflife.date release line of an installed program, or nothing (unknown product or line).
+    param($Software, $Catalog)
+    $n = "$($Software.name)"; $ver = "$($Software.version)"
+    foreach ($m in $script:EolProductMap) {
+        if ($n -notmatch $m.Name) { continue }
+        $g = $Matches
+        if ($m.Version) { if ($ver -match $m.Version) { $g = $Matches } else { return } }
+        $rels = @($Catalog[$m.Slug] | Where-Object { $_ })
+        if ($rels.Count -eq 0) { return }
+        $c = "$($g['c'])"
+        $rel = $rels | Where-Object { $_.Name -eq $c } | Select-Object -First 1
+        # .NET 5 and later are listed by major version ("6"), the installed name says "6.0".
+        if (-not $rel) { $rel = $rels | Where-Object { $_.Name -eq $c.Split('.')[0] } | Select-Object -First 1 }
+        if (-not $rel) { return }
+        return [PSCustomObject]@{ Map = $m; Release = $rel; Cycle = $c; Version = "$($g['v'])" }
+    }
+}
+
+function Compare-SoftwareVersion {
+    # -1, 0 or 1, comparing the numbers in order: "8 Update 431" < "8u503", "157.0" < "157.0.1".
+    param([string]$A, [string]$B)
+    $x = @([regex]::Matches($A, '\d+') | ForEach-Object { [long]$_.Value })
+    $y = @([regex]::Matches($B, '\d+') | ForEach-Object { [long]$_.Value })
+    for ($i = 0; $i -lt [Math]::Max($x.Count, $y.Count); $i++) {
+        # Not $a/$b: variables ignore case, and those would be the [string] parameters.
+        $p = if ($i -lt $x.Count) { $x[$i] } else { [long]0 }
+        $q = if ($i -lt $y.Count) { $y[$i] } else { [long]0 }
+        if ($p -lt $q) { return -1 }
+        if ($p -gt $q) { return 1 }
+    }
+    return 0
+}
+
 function Invoke-SoftwareChecks {
     param($S, $Config, $can)
+    if ((& $can 'software_eol') -or (& $can 'software_outdated')) {
+        # Days a program may take to pick up a new release (auto-update, a monthly ring) before it is late.
+        $grace = if ($Config.SoftwareGraceDays) { [int]$Config.SoftwareGraceDays } else { 30 }
+        $seen = @{}
+        $emit = {
+            param($Type, $Object, $Severity, $Detail, $Found, $Expected)
+            if (-not (& $can $Type) -or $seen.ContainsKey("$Type|$Object")) { return }
+            $seen["$Type|$Object"] = $true
+            Add-Finding -Type $Type -Object $Object -Severity $Severity -Detail $Detail -Found $Found -Expected $Expected
+        }
+        foreach ($sw in @($S.software | Where-Object { $_ })) {
+            if ($seen.Count -ge 100) { break }
+            $row = Get-SoftwareLifecycle $sw
+            $hit = if ($Config.Eol) { Find-EolRelease $sw $Config.Eol } else { $null }
+            $ver = if ("$($sw.version)") { "version $($sw.version)" } else { 'no version recorded' }
+            if ($hit) {
+                # The downloaded lifecycle data wins over the table; the table still names the product
+                # (so a finding keeps its Object whether or not the data was given) and its severity.
+                $r = $hit.Release
+                $product = if ($row) { $row.Product } else { "$($hit.Map.Label) $($r.Name)" }
+                $end = ConvertTo-UtcDate $r.EolFrom
+                $ended = if ($end) { $end -le $script:RefDate } else { $r.IsEol }
+                $endText = if ($end) { $end.ToString('yyyy-MM-dd') } else { 'on a date endoflife.date does not give' }
+                $days = if ($end) { [int][Math]::Floor(($script:RefDate - $end).TotalDays) } else { $null }
+                if ($ended -and $hit.Map.Rapid) {
+                    if ($null -ne $days -and $days -le $grace) { continue }
+                    $sev = if ($null -eq $days -or $days -gt 180) { 'Medium' } else { 'Low' }
+                    & $emit 'software_outdated' "software: $($hit.Map.Label)" $sev ("Installed as {0} ({1}). Release line {2} stopped receiving fixes {3}{4}: {5} ships a new release every few weeks and fixes only the newest (endoflife.date)." -f $sw.name, $ver, $hit.Cycle, $endText, $(if ($null -ne $days) { ", $days days before collection" } else { '' }), $hit.Map.Label) "$($hit.Map.Label) $($hit.Cycle)" 'the current release'
+                }
+                elseif ($ended) {
+                    $sev = if ($row) { $row.Severity } elseif ($hit.Map.Severity) { $hit.Map.Severity } else { 'Medium' }
+                    $ext = ConvertTo-UtcDate $r.EoesFrom
+                    $extText = ''
+                    if ($ext -and $ext -gt $script:RefDate) { $sev = 'Low'; $extText = " Paid extended support runs until $($ext.ToString('yyyy-MM-dd')): Low while the host is covered by it." }
+                    elseif ($ext) { $extText = " Paid extended support ended $($ext.ToString('yyyy-MM-dd'))." }
+                    & $emit 'software_eol' "software: $product" $sev ("Installed as {0} ({1}). Support for {2} ended {3}{4} (endoflife.date).{5}" -f $sw.name, $ver, $product, $endText, $(if ($null -ne $days) { ", $days days before collection" } else { '' }), $extText) "$product, end of life $endText" 'a supported release'
+                }
+                elseif ($hit.Version -and $r.Latest) {
+                    # Only a release out before collection, and long enough ago to have been installed.
+                    $rd = ConvertTo-UtcDate $r.LatestDate
+                    if (-not $rd -or ($script:RefDate - $rd).TotalDays -le $grace) { continue }
+                    if ((Compare-SoftwareVersion $hit.Version $r.Latest) -ge 0) { continue }
+                    $lag = [int][Math]::Floor(($script:RefDate - $rd).TotalDays)
+                    & $emit 'software_outdated' "software: $($hit.Map.Label)" $(if ($lag -gt 180) { 'Medium' } else { 'Low' }) ("Installed as {0} ({1}). {2} {3} is still supported, but {4} came out {5}, {6} days before collection, with the fixes since {7} (endoflife.date)." -f $sw.name, $ver, $hit.Map.Label, $hit.Cycle, $r.Latest, $rd.ToString('yyyy-MM-dd'), $lag, $hit.Version) $hit.Version "$($r.Latest) or later"
+                }
+                continue
+            }
+            if (-not $row) { continue }
+            $left = Get-AgeDays $row.End
+            if ($null -eq $left -or $left -le 0) { continue }
+            $sev = $row.Severity; $extText = ''
+            if ($row.Extended) {
+                $extLeft = Get-AgeDays $row.Extended
+                if ($extLeft -le 0) { $sev = 'Low'; $extText = " Paid extended support runs until $($row.Extended): Low while the host is covered by it." }
+                else { $extText = " Paid extended support ended $($row.Extended)." }
+            }
+            & $emit 'software_eol' "software: $($row.Product)" $sev ("Installed as {0} ({1}). Support for {2} ended {3}, {4} days before collection.{5}" -f $sw.name, $ver, $row.Product, $row.End, $left, $extText) "$($row.Product), end of life $($row.End)" 'a supported release'
+        }
+    }
     if (& $can 'updates_pending') {
         $up = $S.updatesPending
         $seen = @{}
@@ -1228,10 +1455,12 @@ function Invoke-HostChecks {
 
     $ne = @(Get-NotEvaluatedChecks -Snapshot $Snapshot -Extra $extra)
     # Opt-in checks are not "not evaluated" when nobody asked for them: pending updates exist only in a
-    # snapshot taken with -CheckUpdates, KEV matching only when a catalog was given.
+    # snapshot taken with -CheckUpdates, KEV matching only when a catalog was given, the
+    # software release check only with endoflife.date data.
     $optionalOff = @{}
     if (-not $Snapshot.meta.options.checkUpdates) { $optionalOff['updates_pending'] = $true }
     if (-not $Config.Kev -or @($Config.Kev).Count -eq 0) { $optionalOff['kev_software_match'] = $true }
+    if (-not $Config.Eol -or $Config.Eol.Count -eq 0) { $optionalOff['software_outdated'] = $true }
     $ne = @($ne | Where-Object { -not $optionalOff.ContainsKey($_.Type) })
     $skip = @{}; foreach ($n in $ne) { $skip[$n.Type] = $true }
     foreach ($k in $optionalOff.Keys) { $skip[$k] = $true }

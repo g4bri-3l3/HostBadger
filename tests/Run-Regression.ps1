@@ -50,13 +50,13 @@ $lap = Invoke-One (Join-Path $fleet 'hostsnapshot_laptop.json')
 $dc = Invoke-One (Join-Path $fleet 'hostsnapshot_dc.json')
 $part = Invoke-One (Join-Path $fleet 'hostsnapshot_partial.json')
 
-Assert-Equal @($weak.Findings).Count 185 'weak: total findings'
+Assert-Equal @($weak.Findings).Count 189 'weak: total findings'
 Assert-Equal @($hard.Findings).Count 3 'hardened: total findings'
 Assert-Equal @($lap.Findings).Count 8 'laptop: total findings'
 Assert-Equal @($dc.Findings).Count 28 'dc: total findings'
 Assert-Equal @($part.Findings).Count 2 'partial: total findings'
 $all = @($weak.Findings) + @($hard.Findings) + @($lap.Findings) + @($dc.Findings) + @($part.Findings)
-Assert-Equal ((@('Critical', 'High', 'Medium', 'Low') | ForEach-Object { $s = $_; @($all | Where-Object { $_.Severity -eq $s }).Count }) -join '/') '1/40/106/79' 'fleet: severity split'
+Assert-Equal ((@('Critical', 'High', 'Medium', 'Low') | ForEach-Object { $s = $_; @($all | Where-Object { $_.Severity -eq $s }).Count }) -join '/') '1/41/108/80' 'fleet: severity split'
 Assert-True (Has $weak 'webclient_webdav_enabled' 'service: WebClient') 'host: the WebClient (WebDAV) service enabled is a coercion/relay finding'
 Assert-True (Has $weak 'wpad_not_disabled' 'WPAD auto-discovery') 'host: WPAD not disabled is an NTLM-capture finding'
 # edr_expected_missing only exists when the operator names the EDR every host should run.
@@ -76,8 +76,9 @@ $allWithConfig = @($allWithConfig) + @($dc2016.Findings) + @($srv2025.Findings)
 Assert-True (@($dc2016.Findings | Where-Object { $_.Type -eq 'stig_server2016' -and $_.Object -match '^WN16-DC V-' }).Count -eq 2) 'STIG: a Server 2016 domain controller gets the 2016 DC rules'
 Assert-True (@($srv2025.Findings | Where-Object { $_.Type -eq 'stig_server2025' -and $_.Object -match '^WN25-MS V-' }).Count -eq 2) 'STIG: a Server 2025 member server gets the 2025 MS rules'
 Assert-True (@($dc2016.Findings | Where-Object { $_.Type -in 'stig_server2019', 'stig_server2022', 'stig_server2025' }).Count -eq 0 -and @($srv2025.Findings | Where-Object { $_.Type -in 'stig_server2016', 'stig_server2019', 'stig_server2022' }).Count -eq 0) 'STIG: each server version gets only its own STIG'
-# kev_software_match needs a KEV catalog; it is exercised with a sample catalog further down.
-$never = @($script:CheckCatalog.Keys | Where-Object { $t = $_; $t -ne 'kev_software_match' -and @($allWithConfig | Where-Object { $_.Type -eq $t }).Count -eq 0 })
+# kev_software_match needs a KEV catalog and software_outdated endoflife.date data; both are exercised
+# with sample data further down.
+$never = @($script:CheckCatalog.Keys | Where-Object { $t = $_; $t -notin 'kev_software_match', 'software_outdated' -and @($allWithConfig | Where-Object { $_.Type -eq $t }).Count -eq 0 })
 Assert-Equal ($never -join ',') '' 'every check triggers in at least one scenario'
 $dups = @($all | Group-Object { "$($_.Type)|$($_.Host)|$($_.Object)" } | Where-Object { $_.Count -gt 1 })
 Assert-Equal $dups.Count 0 'Type + Host + Object unique'
@@ -249,14 +250,14 @@ Compress-Archive -LiteralPath (Join-Path $fleet 'hostsnapshot_laptop.json') -Des
 $mainArgs = @{ Snapshot = @($fleet, $zipDir); OutHtml = (Join-Path $out 'r.html'); OutJsonl = (Join-Path $out 'r.jsonl'); OutRemediation = (Join-Path $out 'rem') }
 & (Join-Path $root 'HostBadger.ps1') @mainArgs *>&1 | Out-Null
 $csv = @(Import-Csv (Join-Path $out 'r.csv'))
-Assert-Equal $csv.Count 226 'end to end: findings CSV (zip read, older duplicate ignored)'
+Assert-Equal $csv.Count 230 'end to end: findings CSV (zip read, older duplicate ignored)'
 Assert-Equal @($csv | Where-Object { $_.Host -eq 'LT-SALES-112' -and $_.Type -eq 'os_support_ending' } | ForEach-Object { $_.Detail -match '39 days' }).Count 1 'newest snapshot of a host used'
 $html = [System.IO.File]::ReadAllText((Join-Path $out 'r.html'))
 Assert-True ($html -match 'Incomplete coverage' -and $html -match 'WKS-HR-004') 'report lists not evaluated checks with the host'
 Assert-True ($html -match '5 hosts' -and $html -match 'Weakest: WKS-ACCT-017') 'fleet cards'
 Assert-True ($html -notmatch 'https?://(?!attack\.mitre\.org)') 'report has no external links except MITRE'
 $lines = @(Get-Content (Join-Path $out 'r.jsonl'))
-Assert-Equal $lines.Count 231 'JSON Lines: 226 findings + 5 host summaries'
+Assert-Equal $lines.Count 235 'JSON Lines: 230 findings + 5 host summaries'
 $parsed = @($lines | ForEach-Object { $_ | ConvertFrom-Json })
 Assert-Equal @($parsed | Where-Object { $_.event_type -eq 'host_summary' -and $_.host -eq 'WKS-HR-004' -and $_.not_evaluated -eq 30 }).Count 1 'host summary carries the not evaluated count'
 $id1 = @($parsed | Where-Object { $_.check -eq 'uac_disabled' })[0].finding_id
@@ -278,8 +279,8 @@ New-Item -ItemType Directory -Path $out2 -Force | Out-Null
 $args2 = @{ Snapshot = @($fixed); OutHtml = (Join-Path $out2 'r.html'); OutJsonl = (Join-Path $out2 'r.jsonl'); CompareTo = (Join-Path $out 'r.csv'); ExceptionsFile = $exc }
 & (Join-Path $root 'HostBadger.ps1') @args2 *>&1 | Out-Null
 $csv2 = @(Import-Csv (Join-Path $out2 'r.csv'))
-# 226 - 2 (partial host not collected) - 1 (UAC fixed) - 1 (SMBv1 accepted) - 2 (NetBIOS accepted) = 220
-Assert-Equal $csv2.Count 220 'second run: fixed, accepted and missing-host findings gone'
+# 230 - 2 (partial host not collected) - 1 (UAC fixed) - 1 (SMBv1 accepted) - 2 (NetBIOS accepted) = 224
+Assert-Equal $csv2.Count 224 'second run: fixed, accepted and missing-host findings gone'
 Assert-True (@($csv2 | Where-Object { $_.Type -eq 'guest_enabled' }).Count -eq 1) 'expired exception ignored'
 $j2 = @(Get-Content (Join-Path $out2 'r.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })
 $resolved = @($j2 | Where-Object { $_.event_type -eq 'resolved' })
@@ -295,7 +296,7 @@ $remFiles = @(Get-ChildItem (Join-Path $out 'rem') -Filter 'remediate_*.ps1' -Er
 Assert-Equal ($remFiles.Name -join ',') 'remediate_DC01.ps1,remediate_WKS-ACCT-017.ps1' 'remediation: a script only for hosts with a fixable finding'
 $remWeak = New-RemediationScript -HostName 'WKS-ACCT-017' -Role 'workstation' -Findings $all -Config $config -CollectedUtc '2026-10-01 08:00' -ToolVersion 'test'
 $remDc = New-RemediationScript -HostName 'DC01' -Role 'dc' -Findings $all -Config $config -CollectedUtc '2026-10-01 08:00' -ToolVersion 'test'
-Assert-Equal "$($remWeak.ActionCount)/$($remWeak.FixableFindings)/$($remWeak.TotalFindings)" '83/82/185' 'remediation: weak host settings / findings with a script / findings'
+Assert-Equal "$($remWeak.ActionCount)/$($remWeak.FixableFindings)/$($remWeak.TotalFindings)" '83/82/189' 'remediation: weak host settings / findings with a script / findings'
 Assert-Equal "$($remDc.ActionCount)/$($remDc.FixableFindings)/$($remDc.TotalFindings)" '5/5/28' 'remediation: domain controller settings / findings with a script / findings'
 Assert-Equal @(New-RemediationScript -HostName 'SRV-APP-02' -Role 'server' -Findings $all -Config $config -CollectedUtc 'x' -ToolVersion 'test').ActionCount 0 'remediation: hardened server has nothing to fix'
 # Every check type that promises a script must produce one for at least one finding of the fleet. A
@@ -418,6 +419,7 @@ Assert-Equal ($leaked -join ', ') '' 'AI prompt contains no real host, account, 
 Assert-True ($prompt -match 'HOST-1' -and $prompt -match 'Coverage gaps' -and $prompt -match 'PATH-\d+') 'AI prompt is tokenized and lists coverage gaps'
 Assert-True ($prompt -notmatch 'failed: ') 'collector error messages never reach the prompt'
 Assert-True ($prompt -match 'Support ended') 'an account called "support" does not rewrite the word in the text'
+Assert-True ($prompt -match 'os_unsupported: Windows version out of support \(' -and $prompt -notmatch 'out of USER-\d') 'an account called "support" does not rewrite a check title'
 Assert-True ($prompt -match 'powershell\.exe') 'stock Windows tools stay readable'
 $userPart = $prompt.Substring($prompt.IndexOf('=== USER ==='))
 Assert-True ($userPart -match 'CIS Windows 10 18\.10\.7\.3' -and $userPart -match 'CIS Windows 10 5\.31' -and $userPart -match 'CIS Windows 10 2\.3\.7\.5, 2\.3\.7\.6' -and $userPart -match 'CIS Server 2019 2\.3\.5\.2' -and $userPart -notmatch '\bIP-\d') 'CIS rule numbers and lists of them are not taken for IP addresses, with the server benchmark name too'
@@ -429,6 +431,7 @@ $pzSnaps = @(Get-ChildItem $fleet -Filter *.json | ForEach-Object { Import-HostS
 $pzFind = @($all)
 $pzTest = New-HostPseudonymizer -Snapshots $pzSnaps -Findings $pzFind
 Assert-True (@(Test-AiLeak -Pz $pzTest -Text 'the account jsmith on WKS-ACCT-017').Count -ge 2) 'leak check flags names that survive'
+Assert-True (@(Test-AiLeak -Pz $pzTest -Text 'os_unsupported: Windows version out of support').Count -eq 0 -and @(Test-AiLeak -Pz $pzTest -Text 'Windows version out of support for support').Count -ge 1) 'leak check: a check title is not a leak, the same word outside it still is'
 Assert-True (@(Test-AiLeak -Pz $pzTest -Text 'S-1-5-21-1111111111-2222222222-3333333333-1342 and C:\Users\bob\x.exe').Count -ge 2) 'leak check flags SIDs and drive paths'
 Assert-Equal @(Test-AiLeak -Pz $pzTest -Text 'HOST-1 | account: USER-2 | PATH-3 and C:\Windows\System32\cmd.exe').Count 0 'leak check accepts tokens and stock tools'
 
@@ -481,7 +484,7 @@ Assert-True ($aiHtml -notmatch 'HOST-99') 'unknown host tokens are dropped'
 $psExe = (Get-Process -Id $PID).Path
 $wizDir = Join-Path $work 'wizard'; New-Item -ItemType Directory -Path $wizDir -Force | Out-Null
 $launcher = Join-Path $root 'Start-HostBadger.ps1'
-$wizAnswers = { param($offer) (@('2', $fleet, (Join-Path $wizDir 'w.html'), '', '', '', '', '', 'n', '', '', '', '', '', $offer) + $(if ($offer -eq 'd') { @('', (Join-Path $wizDir 'w_prompt.txt')) } else { @() }) + @('q')) -join "`n" }
+$wizAnswers = { param($offer) (@('2', $fleet, (Join-Path $wizDir 'w.html'), '', '', '', '', '', 'n', '', '', '', '', '', '', $offer) + $(if ($offer -eq 'd') { @('', (Join-Path $wizDir 'w_prompt.txt')) } else { @() }) + @('q')) -join "`n" }
 $wizNo = (& $wizAnswers 'n') | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
 Assert-True ($wizNo -match 'Report ready:' -and -not (Test-Path (Join-Path $wizDir 'w_prompt.txt')) -and [regex]::Matches($wizNo, 'Hosts analyzed').Count -eq 1) 'launcher: after the report it offers the AI summary, and "n" does nothing more'
 $wizDry = (& $wizAnswers 'd') | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
@@ -494,8 +497,8 @@ Copy-Item (Join-Path $fleet 'hostsnapshot_weak.json') (Join-Path $scanDir 'snaps
 Copy-Item (Join-Path $fleet 'hostsnapshot_hardened.json') (Join-Path $scanDir 'snapshots\hostsnapshot_SRV-APP-02_20261001080000.json')
 Push-Location $scanDir
 try {
-    $scanAll = (@('2', '', '', '', '', '', '', '', 'n', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
-    $scanOne = (@('2', '2', '', '', '', '', '', 'n', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    $scanAll = (@('2', '', '', '', '', '', '', '', 'n', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    $scanOne = (@('2', '2', '', '', '', '', '', 'n', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
 }
 finally { Pop-Location }
 Assert-True ($scanAll -match 'Snapshots found in .*snapshots: 3 for 2 host\(s\)' -and $scanAll -match 'WKS-ACCT-017' -and $scanAll -match 'SRV-APP-02' -and $scanAll -match 'older: a folder run ignores it') 'launcher: it lists the snapshots it finds and marks the older one of a host'
@@ -614,7 +617,7 @@ $noStigRes = Invoke-HostChecks -Snapshot $noStig -Config $config
 Assert-True (@($noStigRes.NotEvaluated | Where-Object { $_.Type -like 'stig_*' -and $_.Reason -match "section 'stig' not in the snapshot" }).Count -eq 10 -and @($noStigRes.Findings | Where-Object { $_.Type -like 'stig_*' }).Count -eq 0) 'STIG: a snapshot without the stig section lists the rules as not evaluated, never as clean'
 $skipOut = Join-Path $work 'skipstig'; New-Item -ItemType Directory -Path $skipOut -Force | Out-Null
 $skipRun = & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $skipOut 'r.html') -SkipStig *>&1 | Out-String
-Assert-True (@(Import-Csv (Join-Path $skipOut 'r.csv') | Where-Object { $_.Type -like 'stig_*' }).Count -eq 0 -and @(Import-Csv (Join-Path $skipOut 'r.csv')).Count -eq 199) 'STIG: -SkipStig leaves the STIG findings out and nothing else'
+Assert-True (@(Import-Csv (Join-Path $skipOut 'r.csv') | Where-Object { $_.Type -like 'stig_*' }).Count -eq 0 -and @(Import-Csv (Join-Path $skipOut 'r.csv')).Count -eq 203) 'STIG: -SkipStig leaves the STIG findings out and nothing else'
 # The progress cursor draws only on an interactive console, moves its frame, and clears its line.
 $script:SpinEnabled = $null; $script:SpinWidth = 0; Step-Spinner 'x' 6>&1 | Out-Null
 Assert-True ($script:SpinEnabled -eq $false -or [Console]::IsOutputRedirected -eq $false) 'spinner: off when output is redirected'
@@ -631,7 +634,7 @@ $showHtml = [System.IO.File]::ReadAllText((Join-Path $hideOut 'show.html')); $hi
 Assert-True ($showHtml -match 'DISA STIG compliance: \d+% of \d+ rules' -and $showHtml -match 'CIS-based compliance: \d+% of \d+ checks' -and $showHtml -match 'WN11 V-253260') 'report: compliance charts on top, STIG findings listed'
 Assert-True ($showHtml.IndexOf('Score per host') -lt $showHtml.IndexOf('DISA STIG compliance') -and $showHtml.IndexOf('DISA STIG compliance') -lt $showHtml.IndexOf('Findings by severity')) 'report: the compliance charts sit under the score'
 Assert-True ($hideHtml -match 'DISA STIG compliance' -and $hideHtml -match 'Hidden from this report: \d+ CIS-based and 27 DISA STIG' -and $hideHtml -notmatch 'WN11 V-253260' -and $hideHtml -notmatch 'CIS 18\.10\.7\.3' -and $hideHtml.Length -lt $showHtml.Length) 'report: -HideCis -HideStig leave the findings out and keep the charts'
-Assert-Equal @(Import-Csv (Join-Path $hideOut 'hide.csv')).Count 226 'report: hidden findings stay in the CSV'
+Assert-Equal @(Import-Csv (Join-Path $hideOut 'hide.csv')).Count 230 'report: hidden findings stay in the CSV'
 $aiNo = Join-Path $hideOut 'ai_no.txt'; $aiYes = Join-Path $hideOut 'ai_yes.txt'
 & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $hideOut 'a.html') -AiDryRun $aiNo *>&1 | Out-Null
 & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $hideOut 'b.html') -AiDryRun $aiYes -AiIncludeStig *>&1 | Out-Null
@@ -676,6 +679,56 @@ Assert-True (@($weakKev.Findings | Where-Object { $_.Type -eq 'kev_software_matc
 Assert-Equal @($hardKev.Findings | Where-Object { $_.Type -eq 'kev_software_match' }).Count 0 'KEV: software without a match gives no finding'
 Assert-Equal @($weak.Findings | Where-Object { $_.Type -eq 'kev_software_match' }).Count 0 'KEV: without a catalog the check is off, not "not evaluated"'
 Assert-Equal @($weak.NotEvaluated | Where-Object { $_.Type -in 'kev_software_match', 'updates_pending' }).Count 0 'KEV and pending updates: opt-in checks that nobody asked for are not listed as not evaluated'
+# Software out of support (lifecycle table in lib\Checks.ps1)
+Assert-True ((Has $weak 'software_eol' 'software: Adobe Flash Player' 'High') -and (Has $weak 'software_eol' 'software: Python 2' 'Medium') -and (Has $weak 'software_eol' 'software: Node.js 16' 'Medium') -and (Has $weak 'software_eol' 'software: Microsoft Visual C++ 2010 Redistributable' 'Low')) 'software EOL: Flash High, Python 2 and Node.js 16 Medium, Visual C++ 2010 Low'
+Assert-Equal @($weak.Findings | Where-Object { $_.Type -eq 'software_eol' }).Count 4 'software EOL: supported programs (Firefox, Visual C++ 2022, Notepad++) give no finding'
+Assert-True (@($weak.Findings | Where-Object { $_.Type -eq 'software_eol' -and $_.Detail -match '^Installed as Python 2\.7\.18 \(64-bit\) \(version 2\.7\.18150\)\. Support for Python 2 ended 2020-01-01, \d+ days before collection\.$' -and $_.Found -eq 'Python 2, end of life 2020-01-01' -and $_.Expected -eq 'a supported release' }).Count -eq 1) 'software EOL: detail, found and expected'
+Assert-Equal @($hard.Findings | Where-Object { $_.Type -eq 'software_eol' }).Count 0 'software EOL: hardened host clean'
+$eolCase = { param($n, $v) $r = Get-SoftwareLifecycle ([PSCustomObject]@{ name = $n; version = $v }); if ($r) { $r.Product } else { '-' } }
+Assert-Equal ((@(
+            @('Microsoft .NET Runtime - 6.0.36 (x64)', '48.144.23186'), @('Microsoft ASP.NET Core 3.1.32 - Shared Framework (x64)', '3.1.32.0'), @('Microsoft Windows Desktop Runtime - 8.0.11 (x64)', '64.44.29411'),
+            @('Microsoft .NET Framework 4.8.1 Targeting Pack', '4.8.09032'), @('Node.js', '22.11.0'), @('Node.js', '8.17.0'), @('Java 8 Update 431 (64-bit)', '8.0.4310.11'), @('Java 7 Update 80', '7.0.800'),
+            @('Microsoft Office Professional Plus 2016', '16.0.4266.1001'), @('Microsoft 365 Apps for enterprise - en-us', '16.0.18129.20158'), @('Microsoft Visual Studio 2010 Tools for Office Runtime (x64)', '10.0.60917'),
+            @('Microsoft SQL Server 2014 (64-bit)', ''), @('Microsoft SQL Server 2014 Management Objects', '12.0.2000.8'), @('Adobe Reader XI (11.0.23)', '11.0.23'), @('Adobe Acrobat Reader DC', '24.004.20220'), @('Python 3.12.7 (64-bit)', '3.12.7150.0')
+        ) | ForEach-Object { & $eolCase $_[0] $_[1] }) -join '|') 'Microsoft .NET 6|Microsoft .NET Core 3.1|-|-|-|Node.js 9 and older|-|Java 7|Microsoft Office 2016|-|-|Microsoft SQL Server 2014|-|Adobe Reader/Acrobat XI and older|-|-' 'software EOL: names and versions matched to the right release, supported and unrelated programs left alone'
+$eolSoon = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_hardened.json'); $eolSoon.software = @([ordered]@{ name = 'Microsoft .NET Runtime - 8.0.11 (x64)'; version = '8.0.11'; publisher = 'Microsoft Corporation' }, [ordered]@{ name = 'Microsoft SQL Server 2016 (64-bit)'; version = ''; publisher = 'Microsoft Corporation' })
+$eolSoon.meta.collectedAtUtc = '2026-07-14T08:00:00Z'
+Assert-Equal @((Invoke-HostChecks -Snapshot $eolSoon -Config $config).Findings | Where-Object { $_.Type -eq 'software_eol' }).Count 0 'software EOL: judged at collection time (SQL Server 2016 on its last day of support is not yet a finding)'
+# endoflife.date data (API v1 shape, -EolFile / -EolOnline): current dates for software_eol, and
+# software_outdated for a program behind the latest release of its line. Collected 2026-10-01.
+$eolSample = Join-Path $work 'eol_sample.json'
+$eolRel = { param($n, $isEol, $eol, $latest, $date, $eoes) [ordered]@{ name = $n; isEol = $isEol; eolFrom = $eol; eoesFrom = $eoes; latest = $(if ($latest) { [ordered]@{ name = $latest; date = $date } } else { $null }) } }
+[System.IO.File]::WriteAllText($eolSample, ([ordered]@{ schema_version = '1.2.1'; total = 6; result = @(
+                [ordered]@{ name = 'python'; releases = @((& $eolRel '3.12' $false '2028-10-31' '3.12.9' '2026-06-01'), (& $eolRel '2.7' $true '2020-01-01' '2.7.18' '2020-04-19')) },
+                [ordered]@{ name = 'nodejs'; releases = @((& $eolRel '22' $false '2027-04-30' '22.9.0' '2026-09-21'), (& $eolRel '16' $true '2023-09-11' '16.20.2' '2023-08-08')) },
+                [ordered]@{ name = 'firefox'; releases = @((& $eolRel '157' $false '2026-10-13' '157.0' '2026-09-15'), (& $eolRel '118' $true '2023-10-24' '118.0.2' '2023-10-10')) },
+                [ordered]@{ name = 'oracle-jdk'; releases = @((& $eolRel '8' $true '2022-03-31' '8u503' '2026-07-21' '2030-12-31')) },
+                [ordered]@{ name = 'powershell'; releases = @((& $eolRel '7.4' $false '2026-11-10' '7.4.20' '2026-10-06')) },
+                [ordered]@{ name = 'adonisjs'; releases = @((& $eolRel '7' $false $null '7.0.0' '2026-01-01')) })
+        } | ConvertTo-Json -Depth 8), (New-Object System.Text.UTF8Encoding($false)))
+$eolCat = ConvertFrom-EolCatalog ([System.IO.File]::ReadAllText($eolSample))
+Assert-True ($eolCat.Count -eq 5 -and -not $eolCat.ContainsKey('adonisjs') -and @($eolCat['oracle-jdk'])[0].EoesFrom -eq '2030-12-31' -and @($eolCat['python'] | Where-Object { $_.Name -eq '3.12' })[0].Latest -eq '3.12.9') 'endoflife.date: the products HostBadger maps are read, with end of support, extended support and latest release'
+Assert-Equal (@((ConvertFrom-EolCatalog (ConvertTo-EolCatalogJson $eolCat 'test'))['oracle-jdk']) | ConvertTo-Json -Compress) (@($eolCat['oracle-jdk']) | ConvertTo-Json -Compress) 'endoflife.date: the copy kept next to the report reads back the same'
+Assert-True ((Compare-SoftwareVersion '8 Update 431' '8u503') -lt 0 -and (Compare-SoftwareVersion '157.0' '157.0.1') -lt 0 -and (Compare-SoftwareVersion '3.12.9' '3.12.9') -eq 0 -and (Compare-SoftwareVersion '21.0.12' '21.0.5') -gt 0) 'versions compared number by number'
+$eolHost = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_hardened.json'); $eolHost.meta.collectedAtUtc = '2026-10-01T08:00:00Z'
+$eolHost.software = @(
+    [ordered]@{ name = 'Python 3.12.1 (64-bit)'; version = '3.12.1150.0'; publisher = 'Python Software Foundation' },
+    [ordered]@{ name = 'Python 2.7.18 (64-bit)'; version = '2.7.18150'; publisher = 'Python Software Foundation' },
+    [ordered]@{ name = 'Node.js'; version = '22.1.0'; publisher = 'Node.js Foundation' },
+    [ordered]@{ name = 'Mozilla Firefox (x64 en-US)'; version = '118.0'; publisher = 'Mozilla' },
+    [ordered]@{ name = 'Java 8 Update 431 (64-bit)'; version = '8.0.4310.11'; publisher = 'Oracle Corporation' },
+    [ordered]@{ name = 'PowerShell 7-x64'; version = '7.4.6.0'; publisher = 'Microsoft Corporation' },
+    [ordered]@{ name = 'Adobe Flash Player 32 NPAPI'; version = '32.0.0.465'; publisher = 'Adobe' })
+$cfgEol = $config.Clone(); $cfgEol['Eol'] = $eolCat
+$eolRes = @((Invoke-HostChecks -Snapshot $eolHost -Config $cfgEol).Findings | Where-Object { $_.Type -like 'software_*' })
+Assert-Equal (($eolRes | Sort-Object Type, Object | ForEach-Object { "$($_.Type)|$($_.Object)|$($_.Severity)" }) -join ';') 'software_eol|software: Adobe Flash Player|High;software_eol|software: Java 8|Low;software_eol|software: Python 2|Medium;software_outdated|software: Mozilla Firefox|Medium;software_outdated|software: Python|Low' 'endoflife.date: what is judged and how (Node.js 22.9.0 inside the grace period, PowerShell 7.4.20 released after collection)'
+Assert-True (@($eolRes | Where-Object { $_.Object -eq 'software: Python' -and $_.Detail -match 'Python 3\.12 is still supported, but 3\.12\.9 came out 2026-06-01, 122 days before collection' -and $_.Found -eq '3.12.1' -and $_.Expected -eq '3.12.9 or later' }).Count -eq 1) 'software outdated: names the release line, the missing release and its date'
+Assert-True (@($eolRes | Where-Object { $_.Object -eq 'software: Java 8' -and $_.Detail -match 'Support for Java 8 ended 2022-03-31' -and $_.Detail -match 'Paid extended support runs until 2030-12-31' }).Count -eq 1) 'software EOL: paid extended support still running is Low and says until when'
+Assert-True (@($eolRes | Where-Object { $_.Object -eq 'software: Mozilla Firefox' -and $_.Detail -match 'Release line 118 stopped receiving fixes 2023-10-24' }).Count -eq 1 -and @($eolRes | Where-Object { $_.Type -eq 'software_eol' -and $_.Object -match 'Firefox' }).Count -eq 0) 'software outdated: a rapid-release browser on an ended line is behind, not out of support'
+Assert-True (@($eolRes | Where-Object { $_.Object -eq 'software: Python 2' -and $_.Detail -match '\(endoflife\.date\)' }).Count -eq 1 -and @($eolRes | Where-Object { $_.Object -eq 'software: Adobe Flash Player' -and $_.Detail -notmatch 'endoflife' }).Count -eq 1) 'software EOL: the downloaded data wins, the table keeps the Object and covers what the data lacks'
+$cfgEol['SoftwareGraceDays'] = 5
+Assert-True (@((Invoke-HostChecks -Snapshot $eolHost -Config $cfgEol).Findings | Where-Object { $_.Type -eq 'software_outdated' -and $_.Object -eq 'software: Node.js' }).Count -eq 1) 'software outdated: -SoftwareGraceDays sets how long a host may take to update'
+Assert-Equal @($weak.NotEvaluated | Where-Object { $_.Type -eq 'software_outdated' }).Count 0 'software outdated: without endoflife.date data the check is off, not "not evaluated"'
 # Pending updates (collected with -CheckUpdates)
 Assert-True (Has $weak 'updates_pending' 'update: KB5099999' 'High') 'updates: a Critical missing update is High'
 Assert-True (Has $weak 'updates_pending' 'update: KB5088888' 'Medium') 'updates: an Important missing update is Medium'
@@ -705,6 +758,22 @@ Assert-True ($kevHtml -match 'Installed software by publisher' -and $kevHtml -ma
 $kevFileRun = Join-Path $work 'kevfile'; New-Item -ItemType Directory -Path $kevFileRun -Force | Out-Null
 & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $kevFileRun 'r.html') -KevFile $kevSample *>&1 | Out-Null
 Assert-Equal @(Import-Csv (Join-Path $kevFileRun 'r.csv') | Where-Object { $_.Type -eq 'kev_software_match' }).Count 2 'KEV file: -KevFile gives the same findings and needs no network'
+# endoflife.date download: one GET, the reduced copy kept next to the report, -EolFile reads it back.
+foreach ($try in 1..8) { $eolPort = Get-Random -Minimum 20000 -Maximum 60000; $eolListener = New-Object System.Net.HttpListener; $eolListener.Prefixes.Add("http://127.0.0.1:$eolPort/"); try { $eolListener.Start(); break } catch { $eolListener.Close() } }
+$eolPs = [powershell]::Create(); $eolCap = [hashtable]::Synchronized(@{ Url = ''; Method = '' })
+$eolPs.Runspace.SessionStateProxy.SetVariable('l', $eolListener); $eolPs.Runspace.SessionStateProxy.SetVariable('cap', $eolCap); $eolPs.Runspace.SessionStateProxy.SetVariable('body', [System.IO.File]::ReadAllText($eolSample))
+[void]$eolPs.AddScript({ $ctx = $l.GetContext(); $cap.Url = $ctx.Request.Url.AbsolutePath; $cap.Method = $ctx.Request.HttpMethod; $buf = [System.Text.Encoding]::UTF8.GetBytes($body); $ctx.Response.ContentType = 'application/json'; $ctx.Response.OutputStream.Write($buf, 0, $buf.Length); $ctx.Response.Close() })
+$eolAsync = $eolPs.BeginInvoke()
+$env:HOSTBADGER_EOL_URL = "http://127.0.0.1:$eolPort/api/v1/products/full"
+$eolDl = Join-Path $work 'eoldl'; New-Item -ItemType Directory -Path $eolDl -Force | Out-Null
+try { & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $eolDl 'r.html') -EolOnline *>&1 | Out-Null; [void]$eolAsync.AsyncWaitHandle.WaitOne(5000) }
+finally { Remove-Item Env:\HOSTBADGER_EOL_URL -ErrorAction SilentlyContinue; try { $eolListener.Stop() } catch { }; $eolPs.Dispose() }
+Assert-True ($eolCap.Method -eq 'GET' -and $eolCap.Url -eq '/api/v1/products/full') 'endoflife.date online: a single GET of the data'
+$eolRows = @(Import-Csv (Join-Path $eolDl 'r.csv') | Where-Object { $_.Type -like 'software_*' })
+Assert-True ((Test-Path (Join-Path $eolDl 'r_eol.json')) -and (([System.IO.File]::ReadAllText((Join-Path $eolDl 'r_eol.json'))) -match 'endoflife\.date .*MIT License') -and @($eolRows | Where-Object { $_.Type -eq 'software_outdated' -and $_.Object -eq 'software: Mozilla Firefox' }).Count -eq 1 -and @($eolRows | Where-Object { $_.Type -eq 'software_eol' -and $_.Object -eq 'software: Node.js 16' -and $_.Detail -match 'endoflife\.date' }).Count -eq 1) 'endoflife.date online: the copy is kept next to the report (with its source) and the findings use it'
+$eolFileOut = Join-Path $work 'eolfile'; New-Item -ItemType Directory -Path $eolFileOut -Force | Out-Null
+& (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $eolFileOut 'r.html') -EolFile (Join-Path $eolDl 'r_eol.json') *>&1 | Out-Null
+Assert-Equal ((@(Import-Csv (Join-Path $eolFileOut 'r.csv') | Where-Object { $_.Type -like 'software_*' }) | ForEach-Object { "$($_.Type)|$($_.Host)|$($_.Object)|$($_.Severity)" }) -join ';') (($eolRows | ForEach-Object { "$($_.Type)|$($_.Host)|$($_.Object)|$($_.Severity)" }) -join ';') 'endoflife.date file: -EolFile on the kept copy gives the same findings, no network'
 
 # Vulnerable drivers (LOLDrivers, by SHA-256): a malicious driver is Critical, a loaded vulnerable one
 # High; the blocklist off is Medium; the hardened host has none. The shipped catalog is used unless
@@ -745,10 +814,10 @@ function Read-AiMode { param($Prompt, $Default) 'D' }
 function Add-AiParams { param($Params, $Mode) $Params['AiDryRun'] = 'p.txt' }
 function Invoke-Sub { param($Script, $P) $script:aiRerun = $P }
 $offerDir = Join-Path $work 'offer'; New-Item -ItemType Directory -Path $offerDir -Force | Out-Null
-foreach ($n in 'r.html', 'r_kev.json', 'r_drivers.json') { Set-Content -LiteralPath (Join-Path $offerDir $n) -Value '{}' }
+foreach ($n in 'r.html', 'r_kev.json', 'r_drivers.json', 'r_eol.json') { Set-Content -LiteralPath (Join-Path $offerDir $n) -Value '{}' }
 $script:aiRerun = $null
-Invoke-AiOffer @{ Snapshot = $fleet; OutHtml = (Join-Path $offerDir 'r.html'); KevOnline = $true; DriversOnline = $true } 6>&1 | Out-Null
-Assert-True ($script:aiRerun -and -not $script:aiRerun.ContainsKey('KevOnline') -and -not $script:aiRerun.ContainsKey('DriversOnline') -and $script:aiRerun['KevFile'] -eq (Join-Path $offerDir 'r_kev.json') -and $script:aiRerun['DriversFile'] -eq (Join-Path $offerDir 'r_drivers.json') -and $script:aiRerun['AiDryRun']) 'AI offer: the re-run reuses the catalogs kept next to the report, nothing is downloaded again'
+Invoke-AiOffer @{ Snapshot = $fleet; OutHtml = (Join-Path $offerDir 'r.html'); KevOnline = $true; DriversOnline = $true; EolOnline = $true } 6>&1 | Out-Null
+Assert-True ($script:aiRerun -and -not $script:aiRerun.ContainsKey('KevOnline') -and -not $script:aiRerun.ContainsKey('DriversOnline') -and -not $script:aiRerun.ContainsKey('EolOnline') -and $script:aiRerun['KevFile'] -eq (Join-Path $offerDir 'r_kev.json') -and $script:aiRerun['DriversFile'] -eq (Join-Path $offerDir 'r_drivers.json') -and $script:aiRerun['EolFile'] -eq (Join-Path $offerDir 'r_eol.json') -and $script:aiRerun['AiDryRun']) 'AI offer: the re-run reuses the catalogs kept next to the report, nothing is downloaded again'
 Remove-Item Function:\Read-AiMode, Function:\Add-AiParams, Function:\Invoke-Sub, Function:\Invoke-AiOffer
 # -DriversFile reads the copy kept by -DriversOnline (and the original drivers.json, through the same converter).
 $dfOut = Join-Path $work 'driversfile'; New-Item -ItemType Directory -Path $dfOut -Force | Out-Null
@@ -777,7 +846,7 @@ $zipBytes = [System.IO.File]::ReadAllBytes($weakZip); Remove-Item -LiteralPath $
 $pwSnap = Join-Path $encDir 'pw'; New-Item -ItemType Directory -Path $pwSnap -Force | Out-Null
 [System.IO.File]::WriteAllBytes((Join-Path $pwSnap 'hostsnapshot_WKS-ACCT-017_20261001080000.hbx'), (Protect-SnapshotBytes -Data $zipBytes -Password 'Corr3ct-h0rse'))
 $encPw = & (Join-Path $root 'HostBadger.ps1') -Snapshot $pwSnap -OutHtml (Join-Path $encDir 'pw.html') -SnapshotPassword (ConvertTo-SecureString 'Corr3ct-h0rse' -AsPlainText -Force) *>&1 | Out-String
-Assert-Equal @(Import-Csv (Join-Path $encDir 'pw.csv')).Count 185 'encryption: a password snapshot opens with -SnapshotPassword and gives the same findings'
+Assert-Equal @(Import-Csv (Join-Path $encDir 'pw.csv')).Count 189 'encryption: a password snapshot opens with -SnapshotPassword and gives the same findings'
 $encBad = & (Join-Path $root 'HostBadger.ps1') -Snapshot $pwSnap -OutHtml (Join-Path $encDir 'bad.html') -SnapshotPassword (ConvertTo-SecureString 'wrong' -AsPlainText -Force) *>&1 | Out-String
 Assert-True ($encBad -match 'wrong password, or the file is damaged' -and $encBad -match 'No readable snapshot') 'encryption: a wrong password is reported and the host is skipped'
 $hbxBytes = [System.IO.File]::ReadAllBytes((Join-Path $pwSnap 'hostsnapshot_WKS-ACCT-017_20261001080000.hbx'))
@@ -792,7 +861,7 @@ $pfxFile = Join-Path $encDir 't.pfx'; [System.IO.File]::WriteAllBytes($pfxFile, 
 $certSnap = Join-Path $encDir 'cert'; New-Item -ItemType Directory -Path $certSnap -Force | Out-Null
 [System.IO.File]::WriteAllBytes((Join-Path $certSnap 'hostsnapshot_WKS-ACCT-017_20261001080000.hbx'), (Protect-SnapshotBytes -Data $zipBytes -Certificate (Get-EncryptionCertificate $cerFile)))
 & (Join-Path $root 'HostBadger.ps1') -Snapshot $certSnap -OutHtml (Join-Path $encDir 'cert.html') -SnapshotPfx $pfxFile -SnapshotPfxPassword (ConvertTo-SecureString 'pfx-pw' -AsPlainText -Force) *>&1 | Out-Null
-Assert-Equal @(Import-Csv (Join-Path $encDir 'cert.csv')).Count 185 'encryption: a certificate snapshot opens with the private key in -SnapshotPfx'
+Assert-Equal @(Import-Csv (Join-Path $encDir 'cert.csv')).Count 189 'encryption: a certificate snapshot opens with the private key in -SnapshotPfx'
 $encNoKey = & (Join-Path $root 'HostBadger.ps1') -Snapshot $certSnap -OutHtml (Join-Path $encDir 'nokey.html') *>&1 | Out-String
 Assert-True ($encNoKey -match 'private key is not available here') 'encryption: without the private key the snapshot is not read, and says why'
 $noKevHtml = [System.IO.File]::ReadAllText((Join-Path $hideOut 'show.html'))
@@ -809,6 +878,7 @@ $aiKev = Join-Path $kevFileRun 'ai_kev.txt'
 & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $kevFileRun 'k.html') -KevFile $kevSample -AiDryRun $aiKev *>&1 | Out-Null
 $aiKevTxt = [System.IO.File]::ReadAllText($aiKev)
 Assert-True ($aiKevTxt -match 'kev_software_match' -and $aiKevTxt -match 'CVE-2026-2002' -and $aiKevTxt -notmatch 'Installed as Contoso CAD Viewer' -and $aiKevTxt -match 'Installed as SOFTWARE-\d+') 'AI: the installed program name of a KEV finding is tokenized, the CVE ids are not'
+Assert-True ($aiKevTxt -match 'software_eol' -and $aiKevTxt -notmatch 'Installed as Python 2\.7\.18' -and $aiKevTxt -match 'software: Python 2' -and $aiKevTxt -match '\(version 32\.0\.0\.465\)' -and $aiKevTxt -match 'no longer supported by its vendor') 'AI: the installed program name of a software EOL finding is tokenized, the lifecycle product and a four-part version are not'
 # ------------------------------------------------------------------ real collector run: array-shape smoke test
 # Runs the real collector on this machine (whatever it finds) and checks that every array field the
 # privilege-escalation checks read (writableBy, ancestorControl, startableBy) came through the

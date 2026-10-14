@@ -31,7 +31,7 @@ $script:AiTokenPattern = '\b(?:HOSTFQDN|HOST|DOMAIN|NETBIOS|USER|GROUP|SID|PATH|
 $script:AiSidPattern = 'S-1-(?:5-21|12-1|5-80|5-82|5-83)(?:-\d+)+'
 # Not inside a longer dotted number, and not a CIS rule number ("CIS 18.10.7.3"), because those are
 # not addresses.
-$script:AiIpPattern = '(?<!CIS (?:Server \d{4} |Windows 1[01] )?)(?<![\d.])(?!0\.0\.0\.0(?!\d)|127\.0\.0\.1(?!\d))(?:\d{1,3}\.){3}\d{1,3}(?!\d|\.\d)'
+$script:AiIpPattern = '(?<!CIS (?:Server \d{4} |Windows 1[01] )?)(?<!\(version )(?<![\d.])(?!0\.0\.0\.0(?!\d)|127\.0\.0\.1(?!\d))(?:\d{1,3}\.){3}\d{1,3}(?!\d|\.\d)'
 
 # --------------------------------------------------------------------------
 # Pseudonymizer
@@ -122,7 +122,7 @@ function New-HostPseudonymizer {
         elseif ($o -match '^adapter: (.+)$') { & $add $Matches[1] 'ADAPTER' }
         elseif ($o -match '^account: (.+)$') { & $add $Matches[1] 'USER' }
         elseif ($o -match '^member: (.+)$') { & $addAccount $Matches[1] }
-        elseif (("$($f.Type)" -eq 'kev_software_match') -and "$($f.Detail)" -match '^Installed as (.+) \((?:version [^)]*|no version recorded)\)\.') { & $add $Matches[1] 'SOFTWARE' }
+        elseif (("$($f.Type)" -in 'kev_software_match', 'software_eol', 'software_outdated') -and "$($f.Detail)" -match '^Installed as (.+) \((?:version [^)]*|no version recorded)\)\.') { & $add $Matches[1] 'SOFTWARE' }
         if ("$($f.Type)" -eq 'risky_listener' -and "$($f.Detail)" -match '^Listening on (\S+?)(?: by (.+?))?\.$') {
             if (@('0.0.0.0', '::', '127.0.0.1', '::1') -notcontains $Matches[1]) { & $add $Matches[1] 'IP' }
             if ($Matches[2]) { & $add $Matches[2] 'PROC' }
@@ -166,10 +166,23 @@ function Get-AiMatchOptions {
 # too: "CIS Server 2022 2.3.5.2", "CIS Windows 11 2.3.10.2".
 $script:AiCisRefPattern = 'CIS (?:Server \d{4} |Windows 1[01] )?\d+(?:\.\d+)*(?:(?:, and |, | - | and )\d+(?:\.\d+)*)*'
 
+# Check titles are HostBadger's own text, never host data, and they are prose: "Windows version out of
+# support" must not become "out of USER-1" on a host with an account called "support". They are set
+# aside like the CIS references, and the leak test ignores them too.
+$script:AiTitlePatternCache = $null
+function Get-AiTitlePattern {
+    if ($null -eq $script:AiTitlePatternCache -or $script:AiTitlePatternCache.Count -ne $script:CheckCatalog.Count) {
+        $titles = @($script:CheckCatalog.Values | ForEach-Object { "$($_.Title)" } | Where-Object { $_ } | Sort-Object -Unique | Sort-Object Length -Descending)
+        $script:AiTitlePatternCache = @{ Count = $script:CheckCatalog.Count; Pattern = '(?<![\w\-])(?:' + (($titles | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')(?![\w\-])' }
+    }
+    return $script:AiTitlePatternCache.Pattern
+}
+
 function Protect-AiText {
     param($Pz, [string]$Text)
     if (-not $Text) { return $Text }
-    $out = $Text
+    $titles = New-Object System.Collections.Generic.List[string]
+    $out = [regex]::Replace($Text, (Get-AiTitlePattern), { param($m) $titles.Add($m.Value); "$([char]2)$($titles.Count - 1)$([char]2)" })
     # Structural identifiers go first, and whatever they contain is replaced as a whole.
     $out = [regex]::Replace($out, $script:AiSidPattern, { param($m) Get-AiToken $Pz $m.Value 'SID' })
     $out = [regex]::Replace($out, '\\\\[^\s]+', { param($m) Get-AiToken $Pz $m.Value 'UNC' })
@@ -186,6 +199,7 @@ function Protect-AiText {
     $out = [regex]::Replace($out, $script:AiCisRefPattern, { param($m) $refs.Add($m.Value); "$([char]1)$($refs.Count - 1)$([char]1)" })
     $out = [regex]::Replace($out, $script:AiIpPattern, { param($m) Get-AiToken $Pz $m.Value 'IP' })
     $out = [regex]::Replace($out, "$([char]1)(\d+)$([char]1)", { param($m) $refs[[int]$m.Groups[1].Value] })
+    $out = [regex]::Replace($out, "$([char]2)(\d+)$([char]2)", { param($m) $titles[[int]$m.Groups[1].Value] })
     return $out
 }
 
@@ -203,9 +217,10 @@ function Unprotect-AiText {
 function Test-AiLeak {
     param($Pz, [string]$Text)
     $leaks = New-Object System.Collections.Generic.List[string]
+    $prose = [regex]::Replace($Text, (Get-AiTitlePattern), ' ')
     foreach ($k in $Pz.Ordered) {
         if ($k.Length -lt 4) { continue }
-        if ([regex]::IsMatch($Text, '(?<![\w.\-@$])' + [regex]::Escape($k) + '(?![\w\-$]|\.[\w])', (Get-AiMatchOptions $Pz.Candidates[$k]))) { $leaks.Add($k) }
+        if ([regex]::IsMatch($prose,'(?<![\w.\-@$])' + [regex]::Escape($k) + '(?![\w\-$]|\.[\w])', (Get-AiMatchOptions $Pz.Candidates[$k]))) { $leaks.Add($k) }
         if ($leaks.Count -ge 10) { break }
     }
     if ($Text -match $script:AiSidPattern) { $leaks.Add('(a domain, Entra or service SID)') }
@@ -400,52 +415,52 @@ function Invoke-HttpPostWithSpinner {
 }
 
 # --------------------------------------------------------------------------
-# CISA Known Exploited Vulnerabilities catalog (-KevOnline). One HTTPS GET, nothing is sent: this
-# address and no other. HOSTBADGER_KEV_URL is the test hook (the regression runs a local listener).
+# Catalog downloads: one HTTPS GET each, nothing is sent, these addresses and no other.
+# CISA Known Exploited Vulnerabilities (-KevOnline), LOLDrivers (-DriversOnline, about 30 MB) and the
+# endoflife.date software lifecycle data (-EolOnline, about 3 MB). HOSTBADGER_KEV_URL, HOSTBADGER_DRIVERS_URL and
+# HOSTBADGER_EOL_URL are the test hooks (the regression runs a local listener).
 # --------------------------------------------------------------------------
 $script:KevFeedUrl = 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json'
+$script:LolDriversUrl = 'https://www.loldrivers.io/api/drivers.json'
+$script:EolApiUrl = 'https://endoflife.date/api/v1/products/full'
 
-function Get-KevCatalogOnline {
-    param([int]$TimeoutSeconds = 60)
+function Get-CatalogText {
+    param([string]$Uri, [string]$Label, [int]$TimeoutSeconds = 60)
     Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue
     try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
-    $uri = if ($env:HOSTBADGER_KEV_URL) { $env:HOSTBADGER_KEV_URL } else { $script:KevFeedUrl }
     $client = New-Object System.Net.Http.HttpClient
     $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSeconds)
     try {
-        $task = $client.GetAsync($uri)
+        $task = $client.GetAsync($Uri)
         $spin = @('|', '/', '-', '\'); $i = 0
-        while (-not $task.IsCompleted) { Write-Host -NoNewline "`rDownloading the CISA KEV catalog $($spin[$i % 4])  "; Start-Sleep -Milliseconds 120; $i++ }
+        while (-not $task.IsCompleted) { Write-Host -NoNewline "`rDownloading the $Label catalog $($spin[$i % 4])  "; Start-Sleep -Milliseconds 120; $i++ }
         $resp = $task.GetAwaiter().GetResult()
-        if (-not $resp.IsSuccessStatusCode) { Write-Host "`rCISA KEV download failed: HTTP $([int]$resp.StatusCode).          " -ForegroundColor Red; return $null }
-        Write-Host "`rDownloading the CISA KEV catalog... done.          "
+        if (-not $resp.IsSuccessStatusCode) { Write-Host "`r$Label download failed: HTTP $([int]$resp.StatusCode).          " -ForegroundColor Red; return $null }
+        Write-Host "`rDownloading the $Label catalog... done.          "
         return $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
     }
-    catch { Write-Host "`rCISA KEV download failed: $($_.Exception.Message)          " -ForegroundColor Red; return $null }
+    catch { Write-Host "`r$Label download failed: $($_.Exception.Message)          " -ForegroundColor Red; return $null }
     finally { $client.Dispose() }
 }
 
-# LOLDrivers catalog of known vulnerable and malicious drivers (-DriversOnline). One HTTPS GET of
-# about 30 MB, nothing is sent; the caller converts it (ConvertFrom-LolDrivers in lib\Checks.ps1).
-$script:LolDriversUrl = 'https://www.loldrivers.io/api/drivers.json'
+function Get-KevCatalogOnline {
+    param([int]$TimeoutSeconds = 60)
+    $uri = if ($env:HOSTBADGER_KEV_URL) { $env:HOSTBADGER_KEV_URL } else { $script:KevFeedUrl }
+    return Get-CatalogText -Uri $uri -Label 'CISA KEV' -TimeoutSeconds $TimeoutSeconds
+}
+
+# The caller converts it (ConvertFrom-LolDrivers in lib\Checks.ps1).
 function Get-LolDriversOnline {
     param([int]$TimeoutSeconds = 180)
-    Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue
-    try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
     $uri = if ($env:HOSTBADGER_DRIVERS_URL) { $env:HOSTBADGER_DRIVERS_URL } else { $script:LolDriversUrl }
-    $client = New-Object System.Net.Http.HttpClient
-    $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSeconds)
-    try {
-        $task = $client.GetAsync($uri)
-        $spin = @('|', '/', '-', '\'); $i = 0
-        while (-not $task.IsCompleted) { Write-Host -NoNewline "`rDownloading the LOLDrivers catalog $($spin[$i % 4])  "; Start-Sleep -Milliseconds 120; $i++ }
-        $resp = $task.GetAwaiter().GetResult()
-        if (-not $resp.IsSuccessStatusCode) { Write-Host "`rLOLDrivers download failed: HTTP $([int]$resp.StatusCode).          " -ForegroundColor Red; return $null }
-        Write-Host "`rDownloading the LOLDrivers catalog... done.          "
-        return $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-    }
-    catch { Write-Host "`rLOLDrivers download failed: $($_.Exception.Message)          " -ForegroundColor Red; return $null }
-    finally { $client.Dispose() }
+    return Get-CatalogText -Uri $uri -Label 'LOLDrivers' -TimeoutSeconds $TimeoutSeconds
+}
+
+# The caller converts it (ConvertFrom-EolCatalog in lib\Checks.ps1).
+function Get-EolCatalogOnline {
+    param([int]$TimeoutSeconds = 120)
+    $uri = if ($env:HOSTBADGER_EOL_URL) { $env:HOSTBADGER_EOL_URL } else { $script:EolApiUrl }
+    return Get-CatalogText -Uri $uri -Label 'endoflife.date' -TimeoutSeconds $TimeoutSeconds
 }
 
 # MaxAttempts 0 keeps trying until it works (Ctrl+C to stop). Only timeouts, 429 and 5xx are
