@@ -253,6 +253,10 @@ new major if the snapshot or the JSON Lines format ever breaks.
   the names); older snapshots keep the previous behaviour.
 
 ### Changed
+- `service_binary_writable` (folder writable, program not): the finding now
+  says a planted DLL *can* be loaded if the program looks for one in its
+  folder, and that this is not checked, instead of saying it *is* loaded.
+  Severity unchanged (Medium, High when non-admins can start the service).
 - README "Known limitations": the user rights check is described as it now
   works (judged on every role, against the CIS benchmark of that role), the
   GPO point is renamed "Effective settings only, no GPO comparison", and the

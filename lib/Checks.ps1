@@ -1568,7 +1568,7 @@ function Invoke-PrivescChecks {
             $starters = @($svc.startableBy | Where-Object { $_ })
             $sev = if ($fileWritable -or $starters.Count -gt 0) { 'High' } else { 'Medium' }
             $detail = "$($svc.executable), runs as $($svc.account) ($($svc.state)): writable by $(Get-WriterText $w)."
-            if (-not $fileWritable) { $detail += ' The program itself is not writable, but files can be added to its folder: a DLL placed there is loaded by the service (DLL planting).' }
+            if (-not $fileWritable) { $detail += ' The program itself is not writable, but files can be added to its folder: a DLL placed there can be loaded by the service if the program looks for one in its folder (DLL planting; whether it does is not checked).' }
             if (-not $fileWritable -and "$($svc.executable)" -match '(?i)^[a-z]:\\programdata\\') { $detail += ' The ProgramData folder lets users create files by default and this folder inherits that: the program was installed under ProgramData, not Program Files.' }
             if ($starters.Count -gt 0) { $detail += " $((@($starters | ForEach-Object { Get-SidLabel $_ }) -join ', ')) can start the service, so the planted code runs on demand." }
             elseif ("$($svc.startMode)" -eq 'Auto') { $detail += ' It starts at boot.' }
