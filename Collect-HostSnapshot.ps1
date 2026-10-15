@@ -1049,6 +1049,28 @@ $hardening = Invoke-Section 'hardening' {
     $blPolicy['RDVDenyWriteAccess'] = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Policies\Microsoft\FVE' 'RDVDenyWriteAccess'
     $ntdsP = 'HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters'
     $pnpP = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint'
+    # Script file types: what a double click runs (machine-wide association: the ProgId of the
+    # extension and its open command). A per-user choice is not seen from SYSTEM.
+    $assoc = @()
+    foreach ($ext in @('.js', '.jse', '.vbs', '.vbe', '.wsf', '.wsh', '.hta', '.scr', '.bat', '.cmd', '.ps1', '.reg')) {
+        $progId = "$(Get-RegValue "HKLM:\SOFTWARE\Classes\$ext" '(default)')"
+        $cmd = if ($progId) { "$(Get-RegValue "HKLM:\SOFTWARE\Classes\$progId\shell\open\command" '(default)')" } else { '' }
+        $assoc += [ordered]@{ ext = $ext; progId = $progId; openCommand = $cmd }
+    }
+    # Outbound firewall rules that block a LOLBin: enabled block rules for outbound traffic whose program
+    # is one of these tools, in the local store and the Group Policy store. Only the tool and the store
+    # are kept (rule names can carry internal names). Rules from Intune (MDM store) are not read.
+    $lolbins = @('certutil.exe', 'mshta.exe', 'wscript.exe', 'cscript.exe', 'regsvr32.exe', 'wmic.exe', 'bitsadmin.exe')
+    $lolBlock = @()
+    foreach ($store in @(@('local', 'HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules'), @('gpo', 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules'))) {
+        foreach ($r in @(Get-RegSubkeyValues $store[1])) {
+            $v = "$($r.value)"
+            if ($v -notmatch '\|Action=Block\|' -or $v -notmatch '\|Active=TRUE\|' -or $v -notmatch '\|Dir=Out\|') { continue }
+            $app = if ($v -match '\|App=([^|]+)') { [System.IO.Path]::GetFileName($Matches[1]).ToLower() } else { '' }
+            if ($lolbins -contains $app) { $lolBlock += [ordered]@{ program = $app; store = $store[0] } }
+        }
+    }
+    $rsd = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices'
     [ordered]@{
         schannel                 = [ordered]@{ protocols = $schProtocols; ciphers = $schCiphers }
         ldapServer               = [ordered]@{ integrity = Get-RegValue $ntdsP 'LDAPServerIntegrity'; channelBinding = Get-RegValue $ntdsP 'LdapEnforceChannelBinding' }
@@ -1177,6 +1199,16 @@ $hardening = Invoke-Section 'hardening' {
             disableIpSourceRoutingV6 = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters' 'DisableIPSourceRouting'
             enableIcmpRedirect       = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' 'EnableICMPRedirect'
         }
+        fileAssociations         = $assoc
+        scriptHostEnabled        = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows Script Host\Settings' 'Enabled'
+        lolbinOutboundBlocks     = $lolBlock
+        # Removable storage policy: every class (Deny_All) and Removable Disks.
+        removableStorage         = [ordered]@{
+            denyAll          = Get-RegValue $rsd 'Deny_All'
+            disksDenyRead    = Get-RegValue "$rsd\{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}" 'Deny_Read'
+            disksDenyWrite   = Get-RegValue "$rsd\{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}" 'Deny_Write'
+            disksDenyExecute = Get-RegValue "$rsd\{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}" 'Deny_Execute'
+        }
     }
 }
 # ------------------------------------------------------------------ installed software
@@ -1226,6 +1258,28 @@ $sqlServer = Invoke-Section 'sqlServer' {
     $out.ToArray()
 }
 
+# ------------------------------------------------------------------ Store apps
+# The Store (AppX) packages: provisioned for new users (Applications) and installed for each user
+# profile, from the AppxAllUserStore registry key, read only. Only the package name and how many
+# profiles have it are kept, not the user SIDs.
+$appx = Invoke-Section 'appx' {
+    $root = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Appx\AppxAllUserStore'
+    $prov = @{}
+    foreach ($k in @(Get-ChildItem -LiteralPath "$root\Applications" -ErrorAction SilentlyContinue)) { $prov[$k.PSChildName.Split('_')[0]] = $true }
+    $users = @{}
+    foreach ($u in @(Get-ChildItem -LiteralPath $root -ErrorAction Stop | Where-Object { $_.PSChildName -match '^S-1-5-21-[\d-]+$' })) {
+        $seen = @{}
+        foreach ($k in @(Get-ChildItem -LiteralPath $u.PSPath -ErrorAction SilentlyContinue)) {
+            $n = $k.PSChildName.Split('_')[0]
+            if ($seen.ContainsKey($n)) { continue }
+            $seen[$n] = $true
+            $users[$n] = 1 + $(if ($users.ContainsKey($n)) { $users[$n] } else { 0 })
+        }
+    }
+    $names = @(@($prov.Keys) + @($users.Keys) | Sort-Object -Unique)
+    foreach ($n in $names) { [ordered]@{ name = $n; provisioned = $prov.ContainsKey($n); users = $(if ($users.ContainsKey($n)) { $users[$n] } else { 0 }) } }
+}
+
 # ------------------------------------------------------------------ pending Windows updates (only with -CheckUpdates)
 # Asks the Windows Update Agent on this machine what is missing. This is the one place where the
 # collector causes network traffic: the agent contacts the WSUS server set by policy (WUServer) or, if
@@ -1259,6 +1313,54 @@ if ($CheckUpdates) {
 # loaded, which is what a SYSTEM run can see). The list is generated from the STIG data.
 # BEGIN STIG-REGISTRY (generated by tools\Convert-PowerStigData.ps1; do not edit)
 $stigRegistryList = @(
+    'M|Software\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown|bEnhancedSecurityStandalone'
+    'M|Software\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown|bEnhancedSecurityInBrowser'
+    'M|Software\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown|iFileAttachmentPerms'
+    'M|Software\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cDefaultLaunchURLPerms\|iUnknownURLPerms'
+    'M|Software\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cDefaultLaunchURLPerms\|iURLPerms'
+    'M|Software\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown|bEnableFlash'
+    'M|Software\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cCloud|bAdobeSendPluginToggle'
+    'M|Software\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown|bDisableTrustedFolders'
+    'U|Software\Adobe\Adobe Acrobat\DC\Security\cDigSig\cEUTLDownload|bLoadSettingsFromURL'
+    'M|Software\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown|bProtectedMode'
+    'M|Software\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown|iProtectedView'
+    'M|Software\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown|bDisablePDFHandlerSwitching'
+    'M|Software\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cCloud|bDisableADCFileStore'
+    'M|Software\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cServices|bTogglePrefsSync'
+    'M|Software\Adobe\Adobe Acrobat\DC\Installer|DisableMaintenance'
+    'M|Software\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cServices|bToggleWebConnectors'
+    'M|Software\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cWebmailProfiles|bDisableWebmail'
+    'M|Software\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cWelcomeScreen|bShowWelcomeScreen'
+    'M|Software\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cSharePoint|bDisableSharePointFeatures'
+    'U|Software\Adobe\Adobe Acrobat\DC\Security\cDigSig\cAdobeDownload|bLoadSettingsFromURL'
+    'M|Software\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown|bDisableTrustedSites'
+    'U|Software\Adobe\Adobe Acrobat\DC\AVGeneral|bFIPSMode'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown|bEnhancedSecurityStandalone'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown|bEnhancedSecurityInBrowser'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown|bProtectedMode'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown|iProtectedView'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown\cDefaultLaunchURLPerms|iURLPerms'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown\cDefaultLaunchURLPerms|iUnknownURLPerms'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown|iFileAttachmentPerms'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown|bEnableFlash'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown|bDisablePDFHandlerSwitching'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown\cCloud|bAdobeSendPluginToggle'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown\cServices|bToggleAdobeDocumentServices'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown\cServices|bTogglePrefsSync'
+    'M|Software\Adobe\Acrobat Reader\DC\Installer|DisableMaintenance'
+    'M|SOFTWARE\Wow6432Node\Adobe\Acrobat Reader\DC\Installer|DisableMaintenance'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown\cServices|bToggleWebConnectors'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown|bAcroSuppressUpsell'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown\cServices|bToggleAdobeSign'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown\cWebmailProfiles|bDisableWebmail'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown\cSharePoint|bDisableSharePointFeatures'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown\cWelcomeScreen|bShowWelcomeScreen'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown\cServices|bUpdater'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown|bDisableTrustedFolders'
+    'M|Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown|bDisableTrustedSites'
+    'U|Software\Adobe\Acrobat Reader\DC\Security\cDigSig\cEUTLDownload|bLoadSettingsFromURL'
+    'U|Software\Adobe\Acrobat Reader\DC\Security\cDigSig\cAdobeDownload|bLoadSettingsFromURL'
+    'U|Software\Adobe\Acrobat Reader\DC\AVGeneral|bFIPSMode'
     'M|Software\Policies\Google\Chrome|RemoteAccessHostFirewallTraversal'
     'M|Software\Policies\Google\Chrome|DefaultGeolocationSetting'
     'M|Software\Policies\Google\Chrome|DefaultPopupsSetting'
@@ -1786,6 +1888,17 @@ $stig = Invoke-Section 'stig' {
         if ($parts[0] -eq 'U') { $userPaths += , $parts; continue }
         $v = Get-RegValue ('HKLM:\' + $parts[1]) $parts[2]
         if ($null -ne $v) { $machine += [ordered]@{ k = $parts[1]; n = $parts[2]; v = $(if ($v -is [array]) { ($v -join ',') } else { $v }) } }
+        # Brave reads the Chromium policies under its own key: the Chrome rules are read there too.
+        if ($parts[0] -eq 'M' -and $parts[1] -like 'Software\Policies\Google\Chrome*') {
+            $bk = 'Software\Policies\BraveSoftware\Brave' + $parts[1].Substring('Software\Policies\Google\Chrome'.Length)
+            $bv = Get-RegValue ('HKLM:\' + $bk) $parts[2]
+            if ($null -ne $bv) { $machine += [ordered]@{ k = $bk; n = $parts[2]; v = $(if ($bv -is [array]) { ($bv -join ',') } else { $bv }) } }
+        }
+    }
+    # Brave's own policies (Brave Group Policy documentation).
+    foreach ($bn in @('TorDisabled', 'BraveRewardsDisabled', 'BraveWalletDisabled')) {
+        $bv = Get-RegValue 'HKLM:\Software\Policies\BraveSoftware\Brave' $bn
+        if ($null -ne $bv) { $machine += [ordered]@{ k = 'Software\Policies\BraveSoftware\Brave'; n = $bn; v = $bv } }
     }
     $users = @()
     foreach ($hive in @(Get-ChildItem -LiteralPath 'Registry::HKEY_USERS' -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^S-1-5-21-[\d-]+$' })) {
@@ -1802,6 +1915,9 @@ $stig = Invoke-Section 'stig' {
             chrome  = [bool]((Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe') -or (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Policies\Google\Chrome'))
             firefox = [bool]((Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\firefox.exe') -or (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Mozilla\Mozilla Firefox') -or (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Policies\Mozilla\Firefox'))
             office  = [bool]((Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration') -or (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Office\16.0\Common\InstallRoot'))
+            adobereader = [bool]((Test-Path -LiteralPath 'HKLM:\SOFTWARE\Adobe\Acrobat Reader\DC') -or (Test-Path -LiteralPath 'HKLM:\SOFTWARE\WOW6432Node\Adobe\Acrobat Reader\DC'))
+            adobepro    = [bool]((Test-Path -LiteralPath 'HKLM:\SOFTWARE\Adobe\Adobe Acrobat\DC') -or (Test-Path -LiteralPath 'HKLM:\SOFTWARE\WOW6432Node\Adobe\Adobe Acrobat\DC'))
+            brave   = [bool]((Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\brave.exe') -or (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Policies\BraveSoftware\Brave') -or (Test-Path -LiteralPath "$env:ProgramFiles\BraveSoftware\Brave-Browser\Application\brave.exe"))
         }
         machine  = $machine
         users    = $users
@@ -1846,6 +1962,7 @@ $snapshot = [ordered]@{
     stig                 = $stig
     software             = @($software | Where-Object { $_ })
     sqlServer            = @($sqlServer | Where-Object { $_ })
+    appx                 = @($appx | Where-Object { $_ })
     updatesPending       = $updatesPending
     # A section that returns an empty list hands back $null, and @($null) would be one empty entry.
     services             = @($services | Where-Object { $_ })

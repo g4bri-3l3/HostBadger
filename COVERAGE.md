@@ -1,6 +1,6 @@
 # HostBadger coverage
 
-Every check in `lib\Checks.ps1`, generated from the catalog (132 checks, of which 12 cover the 1427 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
+Every check in `lib\Checks.ps1`, generated from the catalog (138 checks, of which 13 cover the 1475 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
 
 The CIS column gives the rule number in the *CIS Microsoft Windows 11 Enterprise Benchmark v3.0.0* and its profile level (L1 corporate, L2 high security); the descriptions are HostBadger's own. A check is a read-only comparison of the host's setting with the rule; it is not a certification of conformity, and the benchmark covers many more settings (most of the administrative templates, for instance) than HostBadger reads. On Windows 10 and on Windows Server 2022, 2019 and 2016 the findings quote the same setting in that version's CIS benchmark instead (Windows 10 Enterprise v3.0.0, Server 2022 and 2019 v4.0.0, Server 2016 v3.0.0). Checks marked *Server* follow a rule that only the server benchmarks have.
 
@@ -87,6 +87,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `ldap_client_encryption_weak` | Medium | T1557 | Server 2.3.11.8 (L1) | S, DC | no | LDAP client does not require encryption |
 | `webclient_webdav_enabled` | Low | T1187 |  | W, S, DC | no | WebClient (WebDAV) service is enabled |
 | `wpad_not_disabled` | Low | T1557.001 |  | W, S, DC | no | WPAD auto-discovery is not disabled |
+| `lolbin_outbound_not_blocked` | Low | T1105 |  | W, S, DC | no | System tools used to download payloads can reach the network |
 
 ## Remote Access
 
@@ -164,13 +165,16 @@ The last column says whether HostBadger can write a remediation script for the c
 | `inactivity_lock_missing` | Low |  | 2.3.7.4 (L1) | W, S, DC | yes | No machine inactivity lock within 15 minutes |
 | `logon_banner_missing` | Low |  | 2.3.7.5, 2.3.7.6 (L1) | W, S, DC | no | No logon warning message |
 | `interactive_logon_gaps` | Low | T1087 | 2.3.7.1, 2.3.7.2 (L1) | W, S, DC | yes | Logon screen shows the last user or skips CTRL+ALT+DEL |
-| `service_should_be_disabled` | Low | T1021 | 5.1 - 5.44, Level 1 services (L1) | W | no | Service the baseline says to disable is running or automatic |
+| `service_should_be_disabled` | Low | T1021 | 5.1 - 5.44, Level 1 services (L1) | W, S | no | Service the baseline says to disable is running or automatic |
 | `sehop_disabled` | Medium | T1203 | 18.4.6 (L1) | W, S, DC | yes | SEHOP exploit mitigation disabled |
 | `safe_dll_search_off` | Medium | T1574.001 | 18.5.9 (L1) | W, S, DC | yes | Safe DLL search mode disabled |
 | `server_baseline_gaps` | Low | T1078 | Server 2.3.7.8, 2.3.13.1, 18.9.25.2 (L1) | S, DC | yes | Server setting differs from the CIS Windows Server baseline |
 | `terminal_services_server_gaps` | Low | T1563.002 | Server 18.10.57.3.2.1 (L2), 18.10.57.3.11.2 (L1) | S, DC | no | Remote Desktop session settings differ from the CIS Windows Server baseline |
 | `explorer_motw_bypass` | Medium | T1553.005 | Server 18.10.29.2 (L1) | S, DC | no | Mark of the Web is not applied to files copied from insecure sources |
 | `app_installer_policy_gaps` | Low | T1059 | Server 18.10.18.4, 18.10.18.6 (L1), 18.10.18.7 (L2) | S, DC | no | App Installer (winget) is not restricted per the CIS Windows Server baseline |
+| `brave_policy_gaps` | Medium | T1189 |  | W, S, DC | no | Brave policy weaker than the Chrome STIG |
+| `script_files_execute_on_open` | Medium | T1204.002 |  | W, S, DC | yes | Script files run when they are double-clicked |
+| `removable_media_execute_allowed` | Low | T1091 |  | W | no | Programs can run from removable disks |
 
 ## Software
 
@@ -180,6 +184,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `software_eol` | Medium | T1203 |  | W, S, DC | no | Installed software no longer supported by its vendor |
 | `software_cve` | Medium | T1203 |  | W, S, DC | no | Installed software version with known vulnerabilities |
 | `software_outdated` | Low | T1203 |  | W, S, DC | no | Installed software behind the latest release of its line |
+| `bloatware_installed` | Low | T1176 |  | W, S | no | Preinstalled games, consumer apps or antivirus trials |
 
 ## DISA STIG
 
@@ -197,6 +202,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `stig_chrome` | Medium | T1189 |  | W, S, DC | no | Google Chrome policy differs from the DISA STIG |
 | `stig_firefox` | Medium | T1189 |  | W, S, DC | no | Mozilla Firefox policy differs from the DISA STIG |
 | `stig_office` | Medium | T1204.002 |  | W, S, DC | no | Microsoft 365 Apps policy differs from the DISA STIG |
+| `stig_adobe` | Medium | T1204.002 |  | W, S, DC | no | Adobe Acrobat policy differs from the DISA STIG |
 
 ## DISA STIG rules read by the stig_* checks
 
@@ -204,6 +210,8 @@ The registry rules of the DISA STIGs (STIG content published by DISA). Each rule
 
 | Product | STIG release | Rules | CAT I | CAT II | CAT III |
 |---|---|---|---|---|---|
+| `stig_adobe` | Adobe Acrobat Reader DC Continuous V2R1 | 26 | 0 | 16 | 10 |
+| `stig_adobe` | Adobe Acrobat Pro DC Continuous V2R1 | 22 | 0 | 11 | 11 |
 | `stig_windows10` | Windows 10 V3R6 | 137 | 17 | 105 | 15 |
 | `stig_windows11` | Windows 11 V2R7 | 133 | 16 | 103 | 14 |
 | `stig_defender` | Microsoft Defender Antivirus V2R8 | 67 | 4 | 63 | 0 |

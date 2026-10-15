@@ -46,7 +46,7 @@ $null = $sb.AppendLine('The registry rules of the DISA STIGs (STIG content publi
 $null = $sb.AppendLine()
 $null = $sb.AppendLine('| Product | STIG release | Rules | CAT I | CAT II | CAT III |')
 $null = $sb.AppendLine('|---|---|---|---|---|---|')
-$rel = [ordered]@{ win10 = 'Windows 10 V3R6'; win11 = 'Windows 11 V2R7'; defender = 'Microsoft Defender Antivirus V2R8'; firewall = 'Windows Defender Firewall V2R2'; edge = 'Microsoft Edge V2R5'; chrome = 'Google Chrome V2R11'; firefox = 'Mozilla Firefox V6R7'; office = 'Microsoft Office 365 ProPlus V3R5' }
+$rel = [ordered]@{ adobereader = 'Adobe Acrobat Reader DC Continuous V2R1'; adobepro = 'Adobe Acrobat Pro DC Continuous V2R1'; win10 = 'Windows 10 V3R6'; win11 = 'Windows 11 V2R7'; defender = 'Microsoft Defender Antivirus V2R8'; firewall = 'Windows Defender Firewall V2R2'; edge = 'Microsoft Edge V2R5'; chrome = 'Google Chrome V2R11'; firefox = 'Mozilla Firefox V6R7'; office = 'Microsoft Office 365 ProPlus V3R5' }
 foreach ($p in $rel.Keys) {
     $e = @($stig | Where-Object { $_.p -eq $p })
     $null = $sb.AppendLine("| ``$($script:StigProductType[$p])`` | $($rel[$p]) | $($e.Count) | $(@($e | Where-Object { $_.s -eq 'H' }).Count) | $(@($e | Where-Object { $_.s -eq 'M' }).Count) | $(@($e | Where-Object { $_.s -eq 'L' }).Count) |")

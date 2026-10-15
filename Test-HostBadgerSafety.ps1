@@ -37,7 +37,14 @@
         never touch the network. Gemini is called only after -SendToAI, from
         HostBadger.ps1, once names have been replaced by tokens;
       - Start-Sleep outside lib\AI.ps1, or Read-Host outside the two entry
-        points (HostBadger.ps1 and Start-HostBadger.ps1).
+        points (HostBadger.ps1 and Start-HostBadger.ps1);
+      - the commands of the guided menu's "Remediate this machine" (System
+        Restore point, removing preinstalled Store apps) anywhere but
+        Start-HostBadger.ps1. That menu option is the only part of HostBadger
+        that changes the machine: it runs the fix script HostBadger generated
+        for this host, after showing it and asking for YES, and that script
+        records every previous value in a rollback file. The collector and the
+        analyzer stay read-only.
 
     It also prints the SHA-256 of every script, so you can compare them with a
     release.
@@ -63,6 +70,7 @@ $allowed = [ordered]@{
     'Environment' = @('Add-Type', 'Get-Date')
     'Console' = @('Write-Host', 'Write-Warning', 'Out-Null', 'Out-Host')
     'Optional AI step only (lib\AI.ps1 waits between retries; the entry points ask questions)' = @('Start-Sleep', 'Read-Host')
+    'Guided menu only, "Remediate this machine" after YES (Start-HostBadger.ps1): restore point, preinstalled apps' = @('Checkpoint-Computer', 'Get-AppxPackage', 'Get-AppxProvisionedPackage', 'Remove-AppxPackage', 'Remove-AppxProvisionedPackage')
     'Data handling' = @('ConvertTo-Json', 'ConvertFrom-Json', 'Select-Object', 'Where-Object', 'ForEach-Object', 'Sort-Object', 'Group-Object', 'Measure-Object', 'New-Object', 'Add-Member')
 }
 $allowedSet = @{}; foreach ($k in $allowed.Keys) { foreach ($c in $allowed[$k]) { $allowedSet[$c.ToLower()] = $k } }
@@ -72,6 +80,7 @@ $changeVerbs = '^(Set|New|Remove|Add|Enable|Disable|Clear|Start|Stop|Restart|Sus
 $ownFileCommands = @('new-item', 'remove-item', 'set-content', 'new-object', 'add-member', 'add-type')
 # Commands that exist only for the optional AI step, and the one file each of them may appear in.
 $restrictedCommands = @{ 'start-sleep' = @('lib/AI.ps1'); 'read-host' = @('HostBadger.ps1', 'Start-HostBadger.ps1') }
+foreach ($c in 'checkpoint-computer', 'get-appxpackage', 'get-appxprovisionedpackage', 'remove-appxpackage', 'remove-appxprovisionedpackage') { $restrictedCommands[$c] = @('Start-HostBadger.ps1') }
 $bannedCommands = @('Invoke-Expression', 'iex', 'Start-Process', 'Invoke-WebRequest', 'Invoke-RestMethod', 'iwr', 'irm', 'curl', 'wget', 'Start-Job',
     'Invoke-CimMethod', 'Invoke-WmiMethod', 'Set-ItemProperty', 'New-ItemProperty', 'Remove-ItemProperty', 'Set-MpPreference', 'Add-MpPreference',
     'reg', 'reg.exe', 'net', 'net.exe', 'sc', 'sc.exe', 'schtasks', 'schtasks.exe', 'Enter-PSSession', 'Invoke-Command', 'New-PSSession')
@@ -192,5 +201,5 @@ if ($problems.Count) {
     foreach ($p in $problems) { Write-Host "  $p" -ForegroundColor Red }
     exit 1
 }
-Write-Host 'PASSED: read-only commands only, no system change, no hidden code; network only in lib/AI.ps1 (Gemini, after -SendToAI).' -ForegroundColor Green
+Write-Host 'PASSED: the collector and the analyzer use read-only commands only, no hidden code; network only in lib/AI.ps1 (Gemini and the opt-in catalogs). The guided menu changes this machine only in "Remediate this machine", after YES, with a rollback file.' -ForegroundColor Green
 exit 0

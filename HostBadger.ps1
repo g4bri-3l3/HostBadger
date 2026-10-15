@@ -210,7 +210,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:HostBadgerVersion = '1.2'
+$script:HostBadgerVersion = '1.3'
 . (Join-Path $PSScriptRoot 'lib\Common.ps1')
 . (Join-Path $PSScriptRoot 'lib\Checks.ps1')
 . (Join-Path $PSScriptRoot 'lib\AI.ps1')
@@ -220,7 +220,7 @@ $script:HostBadgerVersion = '1.2'
 Write-Host @'
      _.--""--._
    .'  |    |  '.
-  /    |    |    \      HostBadger v1.2
+  /    |    |    \      HostBadger v1.3
  |  (o)|    |(o)  |     Windows host hardening
  |     |    |     |     read-only snapshots, offline analysis
   \    '.__.'    /
@@ -454,6 +454,8 @@ foreach ($name in ($latest.Keys | Sort-Object)) {
             EdrKnown     = (@($s.services | Where-Object { $_ }).Count -gt 0)
             Findings     = @($r.Findings)
             StigEvaluated = $(if ($SkipStig) { 0 } else { [int]$r.StigEvaluated })
+            StigByType   = $(if ($SkipStig) { @{} } else { $r.StigByType })
+            OptionalOff  = @($r.Off)
             Software     = @($s.software | Where-Object { $_ })
             AccountMix   = Get-LocalAccountMix $s
             UpdatesSource = $(if ($s.updatesPending) { "$($s.updatesPending.source)" } else { '' })

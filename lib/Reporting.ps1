@@ -198,6 +198,127 @@ function Get-ComplianceStats {
     return [PSCustomObject]@{ StigEvaluated = $stigEval; StigFailed = $stigFail; CisApplicable = $cisApplicable; CisFailed = $cisFail }
 }
 
+function Get-RingSvg {
+    # A score ring: the share of the circle that is done, the big number and a small label under it.
+    param([double]$Percent, [string]$Big, [string]$Small = '', [int]$Size = 120)
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    $pct = [Math]::Max(0, [Math]::Min(100, $Percent))
+    $color = if ($pct -ge 80) { '#6E8B5F' } elseif ($pct -ge 50) { '#F2B632' } else { '#E2372A' }
+    $sw = [Math]::Round($Size * 0.11, 1); $r = ($Size / 2) - ($sw / 2) - 2; $c = $Size / 2
+    $circ = 2 * [Math]::PI * $r; $dash = $circ * $pct / 100
+    return "<svg class='ring' viewBox='0 0 $Size $Size' width='$Size' height='$Size' role='img' aria-label='$(ConvertTo-HtmlSafe "$Big $Small")'>" +
+    "<circle cx='$c' cy='$c' r='$($r.ToString($inv))' fill='none' stroke='#E7E3D8' stroke-width='$($sw.ToString($inv))'/>" +
+    "<circle cx='$c' cy='$c' r='$($r.ToString($inv))' fill='none' stroke='$color' stroke-width='$($sw.ToString($inv))' stroke-linecap='round' stroke-dasharray='$($dash.ToString('0.##', $inv)) $($circ.ToString('0.##', $inv))' transform='rotate(-90 $c $c)'/>" +
+    "<text x='$c' y='$($c + 2)' text-anchor='middle' font-size='$([int]($Size * 0.24))' font-weight='800' fill='#161513' font-family='Bahnschrift, Segoe UI, sans-serif'>$(ConvertTo-HtmlSafe $Big)</text>" +
+    "<text x='$c' y='$($c + [int]($Size * 0.19))' text-anchor='middle' font-size='$([int]($Size * 0.09))' fill='#5F5A51' font-family='Cascadia Mono, Consolas, monospace'>$(ConvertTo-HtmlSafe $Small)</text></svg>"
+}
+
+function Get-DashBar {
+    # A bar for a share done, coloured like the rings.
+    param([double]$Percent)
+    $cls = if ($Percent -ge 80) { '' } elseif ($Percent -ge 50) { ' class=''mid''' } else { ' class=''low''' }
+    return "<span$cls style='width:$([int][Math]::Max(1, $Percent))%'></span>"
+}
+
+function Get-DashboardHtml {
+    # One dashboard for a set of hosts (the fleet, or one host): the score, DISA STIG compliance by
+    # product, CIS-based compliance, the Essential Eight strategies, the categories and the top risks.
+    # $All: every active finding of these hosts (compliance counts hidden ones too); $Shown: what the
+    # report lists.
+    param($Hosts, $All, $Shown, [string]$Title)
+    $H = { param($t) ConvertTo-HtmlSafe "$t" }
+    $sb = New-Object System.Text.StringBuilder
+    $w = { param($t) [void]$sb.AppendLine($t) }
+    $hostsArr = @($Hosts)
+    $scores = @($hostsArr | ForEach-Object { [int]$_.Score.Score })
+    $avg = if ($scores.Count) { [int][Math]::Round(($scores | Measure-Object -Average).Average) } else { 0 }
+    $grade = if ($hostsArr.Count -eq 1) { "$($hostsArr[0].Score.Grade)" } else { '' }
+    $sev = @('Critical', 'High', 'Medium', 'Low'); $cnt = @{}; foreach ($s in $sev) { $cnt[$s] = @($Shown | Where-Object { $_.Severity -eq $s }).Count }
+    $fixable = @($All | Where-Object { $script:FixTypes -and $script:FixTypes.ContainsKey("$($_.Type)") }).Count
+    $comp = Get-ComplianceStats -Hosts $hostsArr -Findings $All
+    $fired = @{}; foreach ($f in @($All)) { $fired["$($f.Host)|$($f.Type)"] = $true }
+    $verdict = if ($avg -ge 80) { 'Good protection' } elseif ($avg -ge 50) { 'Partial protection' } else { 'Weak protection' }
+
+    # Score panel.
+    & $w "<div class='dash-hero'>$(Get-RingSvg -Percent $avg -Big "$avg" -Small '/ 100' -Size 150)<div class='dash-hero-text'>"
+    & $w "<div class='dash-kicker'>$(& $H $Title)</div><div class='dash-big'>Hardening score$(if ($grade) { " &middot; grade $(& $H $grade)" })</div>"
+    & $w "<div class='dash-verdict v$([int]($avg -ge 80) + [int]($avg -ge 50))'>$verdict</div>"
+    & $w "<div class='dash-sevs'>$(($sev | ForEach-Object { "<span class='sev-pill sev-pill-$($_.ToLower())'>$($cnt[$_]) $_</span>" }) -join ' ')</div>"
+    & $w "<div class='meta'>$(@($Shown).Count) finding(s) on $($hostsArr.Count) host(s) &middot; $fixable with a reversible fix script &middot; <a href='#' onclick=""hbTab('details'); return false;"">open the details</a></div>"
+    & $w '</div></div>'
+
+    & $w "<div class='dash-grid'>"
+    # DISA STIG by product.
+    $stigTypes = @($script:StigTypeLabel.Keys | Where-Object { $t = $_; ($hostsArr | ForEach-Object { [int]$_.StigByType[$t] } | Measure-Object -Sum).Sum -gt 0 })
+    if ($comp.StigEvaluated -gt 0) {
+        $okS = $comp.StigEvaluated - $comp.StigFailed; $pS = 100 * $okS / $comp.StigEvaluated
+        & $w "<div class='dash-panel'><div class='dash-panel-head'>$(Get-RingSvg -Percent $pS -Big "$([int][Math]::Round($pS))%" -Small 'compliant')<div><div class='dash-panel-title'>DISA STIG</div><div class='meta'>$okS of $($comp.StigEvaluated) registry rules met</div></div></div><table class='dash-table'>"
+        foreach ($t in $stigTypes) {
+            $ev = ($hostsArr | ForEach-Object { [int]$_.StigByType[$t] } | Measure-Object -Sum).Sum
+            $bad = [Math]::Min($ev, @($All | Where-Object { $_.Type -eq $t }).Count)
+            & $w "<tr><td>$(& $H $script:StigTypeLabel[$t])</td><td class='num'>$($ev - $bad)/$ev</td><td class='bar'>$(Get-DashBar (100 * ($ev - $bad) / [Math]::Max(1, $ev)))</td></tr>"
+        }
+        & $w '</table></div>'
+    }
+    else { & $w "<div class='dash-panel'><div class='dash-panel-title'>DISA STIG</div><p class='meta'>Not judged (no STIG rules on these hosts, or -SkipStig).</p></div>" }
+    # CIS.
+    if ($comp.CisApplicable -gt 0) {
+        $okC = $comp.CisApplicable - $comp.CisFailed; $pC = 100 * $okC / $comp.CisApplicable
+        $benches = @($All | Where-Object { $_.CisBenchmark } | ForEach-Object { "$($_.CisBenchmark)" -replace '^CIS Microsoft ', '' -replace ' Benchmark', '' } | Select-Object -Unique)
+        & $w "<div class='dash-panel'><div class='dash-panel-head'>$(Get-RingSvg -Percent $pC -Big "$([int][Math]::Round($pC))%" -Small 'clean')<div><div class='dash-panel-title'>CIS benchmarks</div><div class='meta'>$okC of $($comp.CisApplicable) CIS-based checks clean</div></div></div>"
+        if ($benches.Count) { & $w "<p class='meta'>Rules quoted from: $(& $H ($benches -join '; '))</p>" }
+        & $w '</div>'
+    }
+    # Essential Eight: related checks that were judged on each host, and how many are clean.
+    $e8Rows = @(); $e8Ok = 0; $e8All = 0
+    foreach ($k in $script:E8Strategies.Keys) {
+        $st = $script:E8Strategies[$k]; $ok = 0; $n = 0
+        foreach ($hx in $hostsArr) {
+            $ne = @{}; foreach ($x in @($hx.NotEvaluated | Where-Object { $_ })) { $ne["$($x.Type)"] = $true }
+            foreach ($t in @($st.Checks)) {
+                $m = $script:CheckCatalog[$t]
+                if (-not $m -or $ne.ContainsKey($t) -or @($hx.OptionalOff) -contains $t) { continue }
+                if ("$($hx.Role)" -ne 'unknown' -and $m.Roles -notcontains "$($hx.Role)") { continue }
+                if ($t -like 'stig_*' -and [int]$hx.StigByType[$t] -eq 0) { continue }
+                $n++
+                if (-not $fired.ContainsKey("$($hx.Name)|$t")) { $ok++ }
+            }
+        }
+        $e8Ok += $ok; $e8All += $n
+        $e8Rows += "<tr><td>$(& $H $st.Label)</td>" + $(if ($n -gt 0) { "<td class='num'>$ok/$n</td><td class='bar'>$(Get-DashBar (100 * $ok / $n))</td>" } else { "<td class='num' colspan='2'>$(& $H $(if ($st.Note) { $st.Note } else { 'nothing judged' }))</td>" }) + '</tr>'
+    }
+    if ($e8All -gt 0) {
+        $pE = 100 * $e8Ok / $e8All
+        & $w "<div class='dash-panel'><div class='dash-panel-head'>$(Get-RingSvg -Percent $pE -Big "$([int][Math]::Round($pE))%" -Small 'clean')<div><div class='dash-panel-title'>ACSC Essential Eight</div><div class='meta'>$e8Ok of $e8All related checks clean: coverage of settings, not a maturity assessment</div></div></div><table class='dash-table'>$($e8Rows -join '')</table></div>"
+    }
+    & $w '</div>'
+
+    # Categories.
+    & $w "<h3 class='dash-h'>Hardening categories</h3><div class='dash-cats'>"
+    foreach ($cat in @($script:CheckCatalog.Values | ForEach-Object { $_.Category } | Select-Object -Unique | Sort-Object)) {
+        $fs = @($Shown | Where-Object { $_.Category -eq $cat })
+        $worst = if ($fs.Count) { ($fs | Sort-Object { - $script:SeverityRank[$_.Severity] } | Select-Object -First 1).Severity } else { '' }
+        $checks = @($fs | ForEach-Object { $_.Type } | Select-Object -Unique).Count
+        & $w "<div class='dash-cat$(if (-not $fs.Count) { ' clean' })'><div class='dash-cat-name'>$(& $H $cat)</div><div class='dash-cat-num'>$($fs.Count)</div><div class='meta'>$(if ($fs.Count) { "$checks check(s) &middot; worst $(Get-SevPill $worst)" } else { 'clean' })</div></div>"
+    }
+    & $w '</div>'
+
+    # Top risks: the checks with the worst severity, then the most hosts.
+    $top = @($Shown | Group-Object Type | ForEach-Object {
+            $w0 = ($_.Group | Sort-Object { - $script:SeverityRank[$_.Severity] } | Select-Object -First 1).Severity
+            [PSCustomObject]@{ Type = $_.Name; Worst = $w0; Rank = $script:SeverityRank[$w0]; Hosts = @($_.Group | ForEach-Object { $_.Host } | Select-Object -Unique).Count; Count = $_.Count }
+        } | Sort-Object @{ Expression = 'Rank'; Descending = $true }, @{ Expression = 'Hosts'; Descending = $true }, @{ Expression = 'Count'; Descending = $true } | Select-Object -First 6)
+    if ($top.Count) {
+        & $w "<h3 class='dash-h'>Top risks</h3><div class='dash-risks'>"
+        foreach ($t in $top) {
+            $m = $script:CheckCatalog[$t.Type]
+            & $w "<div class='dash-risk'><div>$(Get-SevPill $t.Worst) <span class='check-title'>$(& $H $m.Title)</span></div><div class='dash-risk-attack'>$(& $H $m.Attacks)</div><div class='meta'>$($t.Count) finding(s) on $($t.Hosts) host(s)$(if ($script:FixTypes -and $script:FixTypes.ContainsKey($t.Type)) { ' &middot; fix script available' })</div></div>"
+        }
+        & $w '</div>'
+    }
+    return $sb.ToString()
+}
+
 function ConvertTo-ReportHtml {
     param($Hosts, $Split, $Comparison, [hashtable]$Config, [string]$ToolVersion, [string]$ElapsedText, $AiResult = $null, $Remediation = $null, [switch]$HideCis, [switch]$HideStig, [switch]$KevLoaded)
     $H = { param($t) ConvertTo-HtmlSafe "$t" }
@@ -369,8 +490,43 @@ function ConvertTo-ReportHtml {
   .fix-code { background: var(--ink); color: #ECE7DC; border: var(--line); border-radius: 12px; padding: 10px 12px; font-family: var(--mono); font-size: 12px; white-space: pre; overflow-x: auto; margin: 0; }
   .fix-box .copy { position: absolute; top: 8px; right: 8px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; padding: 3px 9px; border: 2px solid var(--surface); border-radius: 8px; background: var(--red); color: var(--surface); cursor: pointer; }
 
+  /* Tabs and dashboard. */
+  .tabs { display: flex; gap: 12px; margin: 22px 0 6px; flex-wrap: wrap; align-items: center; }
+  .tab-btn { font-family: var(--mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; border: var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-xs); padding: 8px 16px; cursor: pointer; color: var(--ink); }
+  .tab-btn.active { background: var(--ink); color: var(--paper); box-shadow: 3px 3px 0 var(--red); }
+  .tabs select { font-family: var(--mono); font-size: 12px; border: var(--line); border-radius: 12px; background: var(--surface); padding: 7px 10px; margin-left: auto; }
+  .dash-hero { display: flex; align-items: center; gap: 26px; flex-wrap: wrap; border: var(--line); border-radius: 22px; background: var(--surface); box-shadow: var(--shadow); padding: 20px 26px; margin: 18px 0 24px; }
+  .dash-hero-text { flex: 1; min-width: 240px; }
+  .dash-kicker { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .dash-big { font-family: var(--display); font-weight: 800; font-size: 1.9rem; letter-spacing: -0.03em; }
+  .dash-verdict { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; display: inline-block; border: 2px solid var(--ink); border-radius: 8px; padding: 2px 10px; margin: 6px 0 10px; background: var(--red); color: var(--surface); }
+  .dash-verdict.v1 { background: var(--amber); color: var(--ink); } .dash-verdict.v2 { background: #6E8B5F; color: var(--surface); }
+  .dash-sevs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 22px; }
+  .dash-panel { border: var(--line); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow-sm); padding: 16px 18px; min-width: 0; }
+  .dash-panel-head { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
+  svg.ring { flex-shrink: 0; }
+  .dash-table td.bar span.mid { background: var(--amber); } .dash-table td.bar span.low { background: var(--red); }
+  .dash-panel-title { font-family: var(--display); font-weight: 800; font-size: 1.25rem; letter-spacing: -0.02em; }
+  .dash-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .dash-table td { border-top: 1.5px solid var(--tint); padding: 5px 4px; }
+  .dash-table td.num { font-family: var(--mono); white-space: nowrap; text-align: right; width: 1%; }
+  .dash-table td.bar { width: 34%; }
+  .dash-table td.bar span { display: block; height: 9px; border: 1.5px solid var(--ink); border-radius: 6px; background: #6E8B5F; min-width: 2px; }
+  .dash-h { margin: 30px 0 12px; font-size: 1.3rem; }
+  .dash-cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+  .dash-cat { border: var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-xs); padding: 10px 14px; }
+  .dash-cat.clean { background: var(--tint); box-shadow: none; }
+  .dash-cat-name { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .dash-cat-num { font-family: var(--display); font-weight: 800; font-size: 1.9rem; line-height: 1.1; }
+  .dash-risks { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 14px; }
+  .dash-risk { border: var(--line); border-left-width: 9px; border-left-color: var(--red); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-xs); padding: 10px 14px; }
+  .dash-risk-attack { font-size: 13px; margin: 6px 0; }
+
   @media print {
     body { background: #fff; max-width: none; }
+    [data-tab], .dash-scope { display: block !important; }
+    .tabs { display: none; }
     h1, .card, details.check, .table-wrap, .chart-row > div, blockquote, .ai-section { box-shadow: none; }
     .card:hover, details.check:hover { transform: none; }
   }
@@ -382,6 +538,14 @@ function copyFix(btn) {
   if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(done, function () {}); return; }
   var ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
   try { document.execCommand('copy'); done(); } catch (e) {} document.body.removeChild(ta);
+}
+function hbTab(name) {
+  Array.prototype.forEach.call(document.querySelectorAll('[data-tab]'), function (e) { e.hidden = e.getAttribute('data-tab') !== name; });
+  Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function (b) { b.classList.toggle('active', b.getAttribute('data-for') === name); });
+  var sel = document.getElementById('dash-host'); if (sel) { sel.style.display = name === 'dashboard' ? '' : 'none'; }
+}
+function hbScope(sel) {
+  Array.prototype.forEach.call(document.querySelectorAll('.dash-scope'), function (d) { d.hidden = d.id !== sel.value; });
 }
 function filterBadgerTable(input) {
   var table = input.closest('table');
@@ -409,6 +573,30 @@ function filterBadgerTable(input) {
         $what = @(); if ($HideCis) { $what += "$hiddenCis CIS-based" }; if ($HideStig) { $what += "$hiddenStig DISA STIG" }
         & $w "<blockquote>Hidden from this report: $($what -join ' and ') finding(s) (the compliance charts below still count them; the CSV and JSON Lines keep them).</blockquote>"
     }
+
+    # ---------------- Dashboard tab (the fleet, and one view per host with a selector) ----------------
+    $tabSel = ''
+    if (-not $single) {
+        $opts = @("<option value='dash-fleet'>Fleet ($(@($Hosts).Count) hosts)</option>") + @($Hosts | Sort-Object { $_.Score.Score } | ForEach-Object { $i = [array]::IndexOf(@($Hosts), $_); "<option value='dash-host-$i'>$(& $H $_.Name) ($($_.Score.Grade) &middot; $($_.Score.Score))</option>" })
+        $tabSel = "<select id='dash-host' onchange='hbScope(this)' aria-label='Dashboard scope'>$($opts -join '')</select>"
+    }
+    & $w "<nav class='tabs'><button class='tab-btn active' data-for='dashboard' onclick=""hbTab('dashboard')"">Dashboard</button><button class='tab-btn' data-for='details' onclick=""hbTab('details')"">Details</button>$tabSel</nav>"
+    & $w '<div data-tab="dashboard">'
+    if ($single) { & $w "<div class='dash-scope' id='dash-fleet'>$(Get-DashboardHtml -Hosts $Hosts -All @($Split.Active) -Shown $findings -Title $Hosts[0].Name)</div>" }
+    else {
+        & $w "<div class='dash-scope' id='dash-fleet'>$(Get-DashboardHtml -Hosts $Hosts -All @($Split.Active) -Shown $findings -Title "Fleet of $(@($Hosts).Count) hosts")</div>"
+        $actByHost = @{}; foreach ($f in @($Split.Active)) { $k = "$($f.Host)"; if (-not $actByHost.ContainsKey($k)) { $actByHost[$k] = New-Object System.Collections.Generic.List[object] }; $actByHost[$k].Add($f) }
+        $shownByHost = @{}; foreach ($f in @($findings)) { $k = "$($f.Host)"; if (-not $shownByHost.ContainsKey($k)) { $shownByHost[$k] = New-Object System.Collections.Generic.List[object] }; $shownByHost[$k].Add($f) }
+        $i = 0
+        foreach ($hx in @($Hosts)) {
+            $hAll = if ($actByHost.ContainsKey($hx.Name)) { $actByHost[$hx.Name].ToArray() } else { @() }
+            $hShown = if ($shownByHost.ContainsKey($hx.Name)) { $shownByHost[$hx.Name].ToArray() } else { @() }
+            & $w "<div class='dash-scope' id='dash-host-$i' hidden>$(Get-DashboardHtml -Hosts @($hx) -All $hAll -Shown $hShown -Title "$($hx.Name) ($($hx.Role))")</div>"
+            $i++
+        }
+    }
+    & $w '</div>'
+    & $w '<div data-tab="details" hidden>'
 
     # ---------------- Cards ----------------
     & $w '<div class="cards">'
@@ -651,6 +839,7 @@ function filterBadgerTable(input) {
     & $w "</table></div><div class=`"filter-status`">$($findings.Count) rows</div></details>"
 
     & $w "<p class=`"meta`" style=`"margin-top:32px`">Thresholds: updates $($Config.MaxPatchAgeDays) days, Defender signatures $($Config.MaxSignatureAgeDays) days, cached logons $($Config.MaxCachedLogonsWorkstation) (workstations) / $($Config.MaxCachedLogonsServer) (servers), Security log $($Config.MinSecurityLogKB) KB, support warning $($Config.SupportWarningDays) days.</p>"
+    & $w '</div>'
     & $w '<p class="meta">Generated by HostBadger from read-only snapshots. The report contains host configuration details: handle as confidential.</p>'
     & $w '</body></html>'
     return $sb.ToString()

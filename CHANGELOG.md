@@ -6,6 +6,78 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
+## [1.3] - 2026-10-15
+### Added
+- Guided menu: "Remediate this machine" (option 6, as administrator) and
+  "Restore a remediation backup" (option 7). The first collects and analyzes
+  this machine into `output\remediation\<time>`, shows what its fix script
+  would change, and applies it only after you type YES, with a System Restore
+  point first where Windows has one; the script writes every previous value to
+  a rollback file, which option 7 previews and puts back after YES. Preinstalled
+  Store apps from the bloatware list can be removed there, one group at a time
+  on an explicit yes (not reversible: they come back from the Store). This is
+  the only part of HostBadger that changes a machine: the collector and the
+  analyzer stay read-only, and `Test-HostBadgerSafety.ps1` allows the commands
+  it needs in `Start-HostBadger.ps1` only and says so in its verdict.
+- Dashboard tab, the first thing the HTML report shows (the full report moves
+  to a Details tab): the hardening score and findings by severity, DISA STIG
+  compliance by product with its release (rules met / judged), CIS-based
+  compliance, the ACSC Essential Eight strategies with the related checks
+  judged and clean (coverage of settings, not a maturity assessment: MFA and
+  backups are not visible from a host), the hardening categories and the top
+  risks with the attacks they enable. A fleet report has a selector for the
+  fleet or one host. Print shows both tabs.
+- Three checks from a gap analysis against AtlantHarden, with new read-only
+  collector fields in `hardening`: `script_files_execute_on_open` (.js, .jse,
+  .vbs, .vbe, .wsf, .wsh, .hta run on a double click instead of opening as
+  text; Medium on workstations, with a fix that sets the extension to
+  `txtfile`; the Windows Script Host types are not judged when WSH is
+  disabled), `lolbin_outbound_not_blocked` (no outbound firewall block rule for
+  certutil, mshta, wscript, cscript, regsvr32, wmic, bitsadmin, read from the
+  local and Group Policy rule stores; no fix, an organizational choice) and
+  `removable_media_execute_allowed` (Removable Disks: Deny execute access not
+  set; workstations, no fix). A snapshot from before these fields is not
+  judged on them.
+- `brave_policy_gaps`: Brave is judged on the machine rules of the DISA Chrome
+  STIG read under its own policy key (Brave reads the Chromium policies), and
+  on three Brave policies of its own (TorDisabled Medium, BraveWalletDisabled
+  and BraveRewardsDisabled Low). An adaptation, not a DISA STIG: it does not
+  count in the STIG compliance figures. The collector reads those values and
+  detects Brave (`stig.products.brave`).
+- DISA STIG for Adobe Acrobat Reader DC Continuous V2R1 (26 registry rules) and
+  Acrobat Pro DC Continuous V2R1 (22), from the PowerSTIG processed files, as
+  one check type `stig_adobe` (ARDC / AADC rule IDs); judged only where the
+  product is installed (new `stig.products.adobereader` / `adobepro`). 1,475
+  STIG rules in 14 products.- `bloatware_installed` (Low): preinstalled games, consumer apps and antivirus
+  trials from a curated list (OEM driver and firmware tools left out), from a
+  new read-only collector section `appx` (the AppxAllUserStore registry key:
+  package names, provisioned or not, and how many profiles have each; no user
+  SIDs) and the Programs and Features list. A snapshot without the section is
+  "not evaluated" for it.
+- ASR: the two newer rules (block rebooting into Safe Mode, block copied or
+  impersonated system tools) join the "other rules", and the web shell rule is
+  judged where Exchange Server is installed (Microsoft's ASR reference).
+- Remediation engine and fix snippets handle a key's default value
+  (`(default)`), backed up and restored like any other value.
+- Guided menu: asks whether to write one remediation script per host
+  (`-OutRemediation`), in a folder next to the report, and says what they are
+  (text files HostBadger never runs, previewing until `-Apply`, with a rollback).
+- CIS Windows Server services: `service_should_be_disabled` now also judges
+  member servers, where the server benchmarks list one service, Print Spooler
+  (rule 5.2, Level 2, Low; a print server needs it). Domain controllers stay
+  with `spooler_on_dc`.
+- `tools\New-ReportGif.ps1`: turns a report into the README GIF (Windows
+  PowerShell 5.1 and Edge or Chrome, headless), one captioned slide per section,
+  with one check opened; each slide is a window-sized screenshot, since a single
+  screenshot of a long report comes out partly blank.
+
+### Changed
+- README: the "When to use something else" list under the comparison table is gone.
+- `examples/demo_report.gif` rebuilt from the 1.2 demo report: version, "Attacks
+  it enables", an opened check with its fix script and found/required values,
+  the installed software and all findings (no AI section), starting with the
+  dashboard.
+
 ## [1.2] - 2026-10-15
 ### Added
 - "Attacks it enables" for every check: what an attacker can do with the

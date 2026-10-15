@@ -50,13 +50,13 @@ $lap = Invoke-One (Join-Path $fleet 'hostsnapshot_laptop.json')
 $dc = Invoke-One (Join-Path $fleet 'hostsnapshot_dc.json')
 $part = Invoke-One (Join-Path $fleet 'hostsnapshot_partial.json')
 
-Assert-Equal @($weak.Findings).Count 189 'weak: total findings'
+Assert-Equal @($weak.Findings).Count 195 'weak: total findings'
 Assert-Equal @($hard.Findings).Count 3 'hardened: total findings'
 Assert-Equal @($lap.Findings).Count 8 'laptop: total findings'
 Assert-Equal @($dc.Findings).Count 28 'dc: total findings'
 Assert-Equal @($part.Findings).Count 2 'partial: total findings'
 $all = @($weak.Findings) + @($hard.Findings) + @($lap.Findings) + @($dc.Findings) + @($part.Findings)
-Assert-Equal ((@('Critical', 'High', 'Medium', 'Low') | ForEach-Object { $s = $_; @($all | Where-Object { $_.Severity -eq $s }).Count }) -join '/') '1/41/108/80' 'fleet: severity split'
+Assert-Equal ((@('Critical', 'High', 'Medium', 'Low') | ForEach-Object { $s = $_; @($all | Where-Object { $_.Severity -eq $s }).Count }) -join '/') '1/41/111/83' 'fleet: severity split'
 Assert-True (Has $weak 'webclient_webdav_enabled' 'service: WebClient') 'host: the WebClient (WebDAV) service enabled is a coercion/relay finding'
 Assert-True (Has $weak 'wpad_not_disabled' 'WPAD auto-discovery') 'host: WPAD not disabled is an NTLM-capture finding'
 # edr_expected_missing only exists when the operator names the EDR every host should run.
@@ -75,6 +75,31 @@ $srv2025 = Invoke-One (Join-Path $extra 'hostsnapshot_srv2025.json')
 $allWithConfig = @($allWithConfig) + @($dc2016.Findings) + @($srv2025.Findings)
 Assert-True (@($dc2016.Findings | Where-Object { $_.Type -eq 'stig_server2016' -and $_.Object -match '^WN16-DC V-' }).Count -eq 2) 'STIG: a Server 2016 domain controller gets the 2016 DC rules'
 Assert-True (@($srv2025.Findings | Where-Object { $_.Type -eq 'stig_server2025' -and $_.Object -match '^WN25-MS V-' }).Count -eq 2) 'STIG: a Server 2025 member server gets the 2025 MS rules'
+# Script file types, download tools blocked outbound, programs from USB (AtlantHarden gap analysis).
+Assert-Equal ((@($weak.Findings | Where-Object { $_.Type -eq 'script_files_execute_on_open' }) | ForEach-Object { "$($_.Object)|$($_.Severity)|$($_.Found)" }) -join ';') 'file type: .js|Medium|JSFile;file type: .vbs|Medium|VBSFile;file type: .hta|Medium|htafile' 'script types: .js, .vbs and .hta run on a double click (.ps1 opens in Notepad and is not listed)'
+Assert-True (@($weak.Findings | Where-Object { $_.Type -eq 'lolbin_outbound_not_blocked' -and $_.Detail -match '^7 of 7 tools have no outbound block rule' }).Count -eq 1 -and @($weak.Findings | Where-Object { $_.Type -eq 'removable_media_execute_allowed' -and $_.Found -eq 'not configured' }).Count -eq 1 -and @($hard.Findings | Where-Object { $_.Type -in 'script_files_execute_on_open', 'lolbin_outbound_not_blocked', 'removable_media_execute_allowed' }).Count -eq 0) 'LOLBins and removable media: flagged on the weak host, clean on the hardened one'
+$wshOff = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_weak.json'); $wshOff.hardening.scriptHostEnabled = 0
+Assert-Equal ((@((Invoke-HostChecks -Snapshot $wshOff -Config $config).Findings | Where-Object { $_.Type -eq 'script_files_execute_on_open' }) | ForEach-Object { $_.Object }) -join ',') 'file type: .hta' 'script types: with Windows Script Host disabled only .hta (mshta) is left'
+$oldSnap = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_weak.json'); foreach ($f in 'fileAssociations', 'lolbinOutboundBlocks', 'removableStorage') { $oldSnap.hardening.PSObject.Properties.Remove($f) }
+Assert-Equal @((Invoke-HostChecks -Snapshot $oldSnap -Config $config).Findings | Where-Object { $_.Type -in 'script_files_execute_on_open', 'lolbin_outbound_not_blocked', 'removable_media_execute_allowed' }).Count 0 'a snapshot from before these fields is not judged on them'
+$jsFix = @(Get-RemediationActions -Finding @($weak.Findings | Where-Object { $_.Object -eq 'file type: .js' })[0] -Role 'workstation' -Config $config)
+Assert-True ($jsFix.Count -eq 1 -and $jsFix[0].Path -eq 'HKLM:\SOFTWARE\Classes\.js' -and $jsFix[0].Name -eq '(default)' -and $jsFix[0].Value -eq 'txtfile') 'script types: the fix opens the extension as text (default value txtfile)'
+# Bloatware: Store apps installed or provisioned, and antivirus trials, from a curated list.
+Assert-True (@($weak.Findings | Where-Object { $_.Type -eq 'bloatware_installed' -and $_.Detail -eq 'King games (Candy Crush...) (installed); Microsoft Solitaire Collection (provisioned for new users).' -and $_.Severity -eq 'Low' }).Count -eq 1 -and @($hard.Findings | Where-Object { $_.Type -eq 'bloatware_installed' }).Count -eq 0) 'bloatware: listed with where it is (installed, provisioned), Calculator and Photos left alone'
+$noAppx = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_weak.json'); $noAppx.meta.sectionsCollected = @($noAppx.meta.sectionsCollected | Where-Object { $_ -ne 'appx' })
+Assert-True (@((Invoke-HostChecks -Snapshot $noAppx -Config $config).NotEvaluated | Where-Object { $_.Type -eq 'bloatware_installed' -and $_.Reason -match "section 'appx' not in the snapshot" }).Count -eq 1) 'bloatware: a snapshot without the Store app list says so (not evaluated), never clean'
+# Adobe Acrobat Reader DC STIG (V2R1): two rules not configured on the Server 2025 host, which has Reader.
+Assert-Equal ((@($srv2025.Findings | Where-Object { $_.Type -eq 'stig_adobe' }) | ForEach-Object { $_.Object }) -join ';') 'ARDC V-213168: bEnhancedSecurityStandalone;ARDC V-213169: bEnhancedSecurityInBrowser' 'STIG Adobe: an installed Acrobat Reader is judged on its STIG, hosts without it are not'
+# Brave: the Chrome STIG rules read under Brave's policy key and Brave's own policies (not a DISA STIG).
+Assert-Equal ((@($srv2025.Findings | Where-Object { $_.Type -eq 'brave_policy_gaps' }) | ForEach-Object { "$($_.Object)|$($_.Severity)|$($_.Found)|$($_.Expected)" }) -join ';') 'Brave (DTBC V-221558): RemoteAccessHostFirewallTraversal|Medium|not configured|0;Brave: TorDisabled|Medium|not configured|1' 'Brave: a Chrome STIG policy missing under the Brave key and Tor not disabled; wallet and Rewards off are fine'
+Assert-Equal @($all | Where-Object { $_.Type -eq 'brave_policy_gaps' }).Count 0 'Brave: hosts without Brave are not judged on it'
+# CIS server services: Print Spooler on a member server (Server 2022 5.2, L2); a domain controller is
+# left to spooler_on_dc, a disabled Spooler gives nothing.
+$spoolSrv = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_hardened.json')
+foreach ($sv in @($spoolSrv.services | Where-Object { $_.name -eq 'Spooler' })) { $sv.startMode = 'Auto' }
+$spoolRes = @((Invoke-HostChecks -Snapshot $spoolSrv -Config $config).Findings | Where-Object { $_.Type -eq 'service_should_be_disabled' })
+Assert-Equal (($spoolRes | ForEach-Object { "$($_.Object)|$($_.Severity)|$($_.Cis)|$($_.Found)|$($_.Expected)" }) -join ';') 'service: Spooler|Low|5.2 (L2)|Stopped, start mode Auto|disabled unless this is a print server' 'CIS server services: Print Spooler on a member server quotes the server rule 5.2 (L2)'
+Assert-True ($spoolRes[0].Detail -match '\(CIS Server 2022 5\.2 expects disabled' -and @($hard.Findings | Where-Object { $_.Type -eq 'service_should_be_disabled' }).Count -eq 0 -and @($dc.Findings | Where-Object { $_.Type -eq 'service_should_be_disabled' }).Count -eq 0) 'CIS server services: the detail names the server benchmark; disabled on the hardened server and left to spooler_on_dc on a DC'
 Assert-True (@($dc2016.Findings | Where-Object { $_.Type -in 'stig_server2019', 'stig_server2022', 'stig_server2025' }).Count -eq 0 -and @($srv2025.Findings | Where-Object { $_.Type -in 'stig_server2016', 'stig_server2019', 'stig_server2022' }).Count -eq 0) 'STIG: each server version gets only its own STIG'
 # kev_software_match needs a KEV catalog and software_outdated endoflife.date data; both are exercised
 # with sample data further down.
@@ -250,14 +275,14 @@ Compress-Archive -LiteralPath (Join-Path $fleet 'hostsnapshot_laptop.json') -Des
 $mainArgs = @{ Snapshot = @($fleet, $zipDir); OutHtml = (Join-Path $out 'r.html'); OutJsonl = (Join-Path $out 'r.jsonl'); OutRemediation = (Join-Path $out 'rem') }
 & (Join-Path $root 'HostBadger.ps1') @mainArgs *>&1 | Out-Null
 $csv = @(Import-Csv (Join-Path $out 'r.csv'))
-Assert-Equal $csv.Count 230 'end to end: findings CSV (zip read, older duplicate ignored)'
+Assert-Equal $csv.Count 236 'end to end: findings CSV (zip read, older duplicate ignored)'
 Assert-Equal @($csv | Where-Object { $_.Host -eq 'LT-SALES-112' -and $_.Type -eq 'os_support_ending' } | ForEach-Object { $_.Detail -match '39 days' }).Count 1 'newest snapshot of a host used'
 $html = [System.IO.File]::ReadAllText((Join-Path $out 'r.html'))
 Assert-True ($html -match 'Incomplete coverage' -and $html -match 'WKS-HR-004') 'report lists not evaluated checks with the host'
 Assert-True ($html -match '5 hosts' -and $html -match 'Weakest: WKS-ACCT-017') 'fleet cards'
 Assert-True ($html -notmatch 'https?://(?!attack\.mitre\.org)') 'report has no external links except MITRE'
 $lines = @(Get-Content (Join-Path $out 'r.jsonl'))
-Assert-Equal $lines.Count 235 'JSON Lines: 230 findings + 5 host summaries'
+Assert-Equal $lines.Count 241 'JSON Lines: 236 findings + 5 host summaries'
 $parsed = @($lines | ForEach-Object { $_ | ConvertFrom-Json })
 Assert-Equal @($parsed | Where-Object { $_.event_type -eq 'host_summary' -and $_.host -eq 'WKS-HR-004' -and $_.not_evaluated -eq 30 }).Count 1 'host summary carries the not evaluated count'
 $id1 = @($parsed | Where-Object { $_.check -eq 'uac_disabled' })[0].finding_id
@@ -279,8 +304,8 @@ New-Item -ItemType Directory -Path $out2 -Force | Out-Null
 $args2 = @{ Snapshot = @($fixed); OutHtml = (Join-Path $out2 'r.html'); OutJsonl = (Join-Path $out2 'r.jsonl'); CompareTo = (Join-Path $out 'r.csv'); ExceptionsFile = $exc }
 & (Join-Path $root 'HostBadger.ps1') @args2 *>&1 | Out-Null
 $csv2 = @(Import-Csv (Join-Path $out2 'r.csv'))
-# 230 - 2 (partial host not collected) - 1 (UAC fixed) - 1 (SMBv1 accepted) - 2 (NetBIOS accepted) = 224
-Assert-Equal $csv2.Count 224 'second run: fixed, accepted and missing-host findings gone'
+# 236 - 2 (partial host not collected) - 1 (UAC fixed) - 1 (SMBv1 accepted) - 2 (NetBIOS accepted) = 230
+Assert-Equal $csv2.Count 230 'second run: fixed, accepted and missing-host findings gone'
 Assert-True (@($csv2 | Where-Object { $_.Type -eq 'guest_enabled' }).Count -eq 1) 'expired exception ignored'
 $j2 = @(Get-Content (Join-Path $out2 'r.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })
 $resolved = @($j2 | Where-Object { $_.event_type -eq 'resolved' })
@@ -296,7 +321,7 @@ $remFiles = @(Get-ChildItem (Join-Path $out 'rem') -Filter 'remediate_*.ps1' -Er
 Assert-Equal ($remFiles.Name -join ',') 'remediate_DC01.ps1,remediate_WKS-ACCT-017.ps1' 'remediation: a script only for hosts with a fixable finding'
 $remWeak = New-RemediationScript -HostName 'WKS-ACCT-017' -Role 'workstation' -Findings $all -Config $config -CollectedUtc '2026-10-01 08:00' -ToolVersion 'test'
 $remDc = New-RemediationScript -HostName 'DC01' -Role 'dc' -Findings $all -Config $config -CollectedUtc '2026-10-01 08:00' -ToolVersion 'test'
-Assert-Equal "$($remWeak.ActionCount)/$($remWeak.FixableFindings)/$($remWeak.TotalFindings)" '83/82/189' 'remediation: weak host settings / findings with a script / findings'
+Assert-Equal "$($remWeak.ActionCount)/$($remWeak.FixableFindings)/$($remWeak.TotalFindings)" '86/85/195' 'remediation: weak host settings / findings with a script / findings'
 Assert-Equal "$($remDc.ActionCount)/$($remDc.FixableFindings)/$($remDc.TotalFindings)" '5/5/28' 'remediation: domain controller settings / findings with a script / findings'
 Assert-Equal @(New-RemediationScript -HostName 'SRV-APP-02' -Role 'server' -Findings $all -Config $config -CollectedUtc 'x' -ToolVersion 'test').ActionCount 0 'remediation: hardened server has nothing to fix'
 # Every check type that promises a script must produce one for at least one finding of the fleet. A
@@ -329,6 +354,11 @@ Assert-True (@($jl | Where-Object { $_.cis -and $_.check -notin 'audit_policy_ga
 Assert-True (@($jl | Where-Object { $_.check -eq 'audit_policy_gaps' -and $null -eq $_.found -and $null -eq $_.expected }).Count -ge 1) 'found/expected: an aggregate finding leaves both null in JSON Lines'
 $csvFe = @(Import-Csv (Join-Path $out 'r.csv') | Where-Object { $_.Type -eq 'wdigest_cleartext' })
 Assert-True ($csvFe.Count -eq 1 -and $csvFe[0].Found -eq '1' -and $csvFe[0].Expected -eq '0') 'found/expected: CSV columns'
+# Dashboard tab: the fleet and one view per host, STIG by product with its release, CIS, Essential Eight.
+Assert-True ($remHtml -match "<button class='tab-btn active' data-for='dashboard'" -and $remHtml -match '<div data-tab="details" hidden>' -and [regex]::Matches($remHtml, "class='dash-scope' id='dash-").Count -eq 6 -and $remHtml -match "<option value='dash-host-\d'>WKS-ACCT-017 \(F") 'dashboard: opens first, with the fleet and one view per host in a selector; the full report is the Details tab'
+Assert-True ($remHtml -match 'Windows 11 V2R7</td><td class=''num''>\d+/\d+</td>' -and $remHtml -match 'ACSC Essential Eight' -and $remHtml -match 'not a maturity assessment' -and $remHtml -match 'Multi-factor authentication</td><td class=''num'' colspan=''2''>not visible from a host') 'dashboard: STIG compliance by product with its release, Essential Eight coverage that says what it is not'
+Assert-Equal (@($script:E8Strategies.Values | ForEach-Object { $_.Checks } | Where-Object { $_ -and -not $script:CheckCatalog.Contains($_) }) -join ',') '' 'Essential Eight: every mapped check exists'
+Assert-Equal (@($script:CheckCatalog.Keys | Where-Object { $_ -like 'stig_*' -and -not $script:StigTypeLabel.Contains($_) }) -join ',') '' 'dashboard: every STIG check type has its release label'
 # Attacks it enables: every check says what an attacker can do with it, in the report, CSV and JSON Lines.
 Assert-Equal ((@($script:CheckCatalog.Keys | Where-Object { -not "$($script:CheckCatalog[$_].Attacks)".Trim() }) + @($script:CheckAttacks.Keys | Where-Object { -not $script:CheckCatalog.Contains($_) })) -join ',') '' 'attacks: every check has its "Attacks it enables" text, and every text belongs to a check'
 Assert-True (@($jl | Where-Object { -not $_.attacks }).Count -eq 0 -and @($jl | Where-Object { $_.check -eq 'wdigest_cleartext' })[0].attacks -match 'mimikatz' -and $csvFe[0].Attacks -match '^Clear-text password theft') 'attacks: in every JSON Lines finding and in the CSV'
@@ -488,9 +518,12 @@ Assert-True ($aiHtml -notmatch 'HOST-99') 'unknown host tokens are dropped'
 $psExe = (Get-Process -Id $PID).Path
 $wizDir = Join-Path $work 'wizard'; New-Item -ItemType Directory -Path $wizDir -Force | Out-Null
 $launcher = Join-Path $root 'Start-HostBadger.ps1'
-$wizAnswers = { param($offer) (@('2', $fleet, (Join-Path $wizDir 'w.html'), '', '', '', '', '', 'n', '', '', '', '', '', '', '', '', $offer) + $(if ($offer -eq 'd') { @('', (Join-Path $wizDir 'w_prompt.txt')) } else { @() }) + @('q')) -join "`n" }
+# The remediation question follows JSON Lines: "y" and Enter on the folder (next to the report) when the
+# offer is "n", plain Enter (no) otherwise.
+$wizAnswers = { param($offer) (@('2', $fleet, (Join-Path $wizDir 'w.html'), '', '', '', '', '', 'n', '', '', '', '') + $(if ($offer -eq 'n') { @('y', '') } else { @('') }) + @('', '', '', '', $offer) + $(if ($offer -eq 'd') { @('', (Join-Path $wizDir 'w_prompt.txt')) } else { @() }) + @('q')) -join "`n" }
 $wizNo = (& $wizAnswers 'n') | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
 Assert-True ($wizNo -match 'Report ready:' -and -not (Test-Path (Join-Path $wizDir 'w_prompt.txt')) -and [regex]::Matches($wizNo, 'Hosts analyzed').Count -eq 1) 'launcher: after the report it offers the AI summary, and "n" does nothing more'
+Assert-True ($wizNo -match 'remediate_<host>\.ps1' -and @(Get-ChildItem (Join-Path $wizDir 'w_remediation') -Filter 'remediate_*.ps1' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name } | Sort-Object) -join ',' -eq 'remediate_DC01.ps1,remediate_WKS-ACCT-017.ps1') 'launcher: asks about per-host remediation scripts and writes them next to the report (the hosts with a fix)'
 $wizDry = (& $wizAnswers 'd') | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
 Assert-True ((Test-Path (Join-Path $wizDir 'w_prompt.txt')) -and $wizDry -match 'Nothing sent') 'launcher: "d" after the report writes the prompt and sends nothing'
 # The launcher looks for snapshots by itself: it lists what it finds in a "snapshots" folder, marks an older
@@ -501,8 +534,12 @@ Copy-Item (Join-Path $fleet 'hostsnapshot_weak.json') (Join-Path $scanDir 'snaps
 Copy-Item (Join-Path $fleet 'hostsnapshot_hardened.json') (Join-Path $scanDir 'snapshots\hostsnapshot_SRV-APP-02_20261001080000.json')
 Push-Location $scanDir
 try {
-    $scanAll = (@('2', '', '', '', '', '', '', '', 'n', '', '', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
-    $scanOne = (@('2', '2', '', '', '', '', '', 'n', '', '', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    $scanAll = (@('2', '', '', '', '', '', '', '', 'n', '', '', '', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    $scanOne = (@('2', '2', '', '', '', '', '', 'n', '', '', '', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    # Remediation: never applied in a test. Option 7 with no backup says so; option 6 stops for a
+    # standard user, or is declined at "Continue?" when the tests run elevated.
+    $rem7 = (@('7', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    $rem6 = (@('6', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
 }
 finally { Pop-Location }
 Assert-True ($scanAll -match 'Snapshots found in .*snapshots: 3 for 2 host\(s\)' -and $scanAll -match 'WKS-ACCT-017' -and $scanAll -match 'SRV-APP-02' -and $scanAll -match 'older: a folder run ignores it') 'launcher: it lists the snapshots it finds and marks the older one of a host'
@@ -510,6 +547,7 @@ Assert-True ($scanAll -match 'Hosts analyzed: 2') 'launcher: Enter takes the who
 Assert-True ($scanAll -match '2 hosts found: HostBadger can also write one report per host' -and $scanOne -notmatch 'one report per host') 'launcher: asks about per-host reports only for a folder with several hosts'
 Assert-True (@(Get-ChildItem $scanDir -Filter 'hostbadger_*_*-*.html' -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '_(WKS-ACCT-017|SRV-APP-02)\.html$' }).Count -eq 2) 'launcher: Enter on the per-host question writes one report per host (in .\output by default)'
 Assert-True ($scanOne -match 'Hosts analyzed: 1') 'launcher: a number picks one snapshot'
+Assert-True ($rem7 -match 'No remediation backup found' -and ($rem6 -match 'start an elevated PowerShell' -or $rem6 -match 'Nothing changes until you type YES') -and -not (Test-Path (Join-Path $scanDir 'output\remediation'))) 'launcher: remediation needs an administrator and a yes, and restore says when there is nothing to restore'
 $noKey = Join-Path $aiOut 'nokey'
 New-Item -ItemType Directory -Path $noKey -Force | Out-Null
 $savedKey = $env:GEMINI_API_KEY; $env:GEMINI_API_KEY = ''
@@ -618,10 +656,10 @@ Assert-True (@($part.NotEvaluated | Where-Object { $_.Type -eq 'stig_defender' -
 $noStig = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_hardened.json')
 $noStig.PSObject.Properties.Remove('stig'); $noStig.meta.sectionsCollected = @($noStig.meta.sectionsCollected | Where-Object { $_ -ne 'stig' })
 $noStigRes = Invoke-HostChecks -Snapshot $noStig -Config $config
-Assert-True (@($noStigRes.NotEvaluated | Where-Object { $_.Type -like 'stig_*' -and $_.Reason -match "section 'stig' not in the snapshot" }).Count -eq 10 -and @($noStigRes.Findings | Where-Object { $_.Type -like 'stig_*' }).Count -eq 0) 'STIG: a snapshot without the stig section lists the rules as not evaluated, never as clean'
+Assert-True (@($noStigRes.NotEvaluated | Where-Object { $_.Type -like 'stig_*' -and $_.Reason -match "section 'stig' not in the snapshot" }).Count -eq 11 -and @($noStigRes.Findings | Where-Object { $_.Type -like 'stig_*' }).Count -eq 0) 'STIG: a snapshot without the stig section lists the rules as not evaluated, never as clean'
 $skipOut = Join-Path $work 'skipstig'; New-Item -ItemType Directory -Path $skipOut -Force | Out-Null
 $skipRun = & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $skipOut 'r.html') -SkipStig *>&1 | Out-String
-Assert-True (@(Import-Csv (Join-Path $skipOut 'r.csv') | Where-Object { $_.Type -like 'stig_*' }).Count -eq 0 -and @(Import-Csv (Join-Path $skipOut 'r.csv')).Count -eq 203) 'STIG: -SkipStig leaves the STIG findings out and nothing else'
+Assert-True (@(Import-Csv (Join-Path $skipOut 'r.csv') | Where-Object { $_.Type -like 'stig_*' }).Count -eq 0 -and @(Import-Csv (Join-Path $skipOut 'r.csv')).Count -eq 209) 'STIG: -SkipStig leaves the STIG findings out and nothing else'
 # The progress cursor draws only on an interactive console, moves its frame, and clears its line.
 $script:SpinEnabled = $null; $script:SpinWidth = 0; Step-Spinner 'x' 6>&1 | Out-Null
 Assert-True ($script:SpinEnabled -eq $false -or [Console]::IsOutputRedirected -eq $false) 'spinner: off when output is redirected'
@@ -638,7 +676,7 @@ $showHtml = [System.IO.File]::ReadAllText((Join-Path $hideOut 'show.html')); $hi
 Assert-True ($showHtml -match 'DISA STIG compliance: \d+% of \d+ rules' -and $showHtml -match 'CIS-based compliance: \d+% of \d+ checks' -and $showHtml -match 'WN11 V-253260') 'report: compliance charts on top, STIG findings listed'
 Assert-True ($showHtml.IndexOf('Score per host') -lt $showHtml.IndexOf('DISA STIG compliance') -and $showHtml.IndexOf('DISA STIG compliance') -lt $showHtml.IndexOf('Findings by severity')) 'report: the compliance charts sit under the score'
 Assert-True ($hideHtml -match 'DISA STIG compliance' -and $hideHtml -match 'Hidden from this report: \d+ CIS-based and 27 DISA STIG' -and $hideHtml -notmatch 'WN11 V-253260' -and $hideHtml -notmatch 'CIS 18\.10\.7\.3' -and $hideHtml.Length -lt $showHtml.Length) 'report: -HideCis -HideStig leave the findings out and keep the charts'
-Assert-Equal @(Import-Csv (Join-Path $hideOut 'hide.csv')).Count 230 'report: hidden findings stay in the CSV'
+Assert-Equal @(Import-Csv (Join-Path $hideOut 'hide.csv')).Count 236 'report: hidden findings stay in the CSV'
 $aiNo = Join-Path $hideOut 'ai_no.txt'; $aiYes = Join-Path $hideOut 'ai_yes.txt'
 & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $hideOut 'a.html') -AiDryRun $aiNo *>&1 | Out-Null
 & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $hideOut 'b.html') -AiDryRun $aiYes -AiIncludeStig *>&1 | Out-Null
@@ -1006,7 +1044,7 @@ $zipBytes = [System.IO.File]::ReadAllBytes($weakZip); Remove-Item -LiteralPath $
 $pwSnap = Join-Path $encDir 'pw'; New-Item -ItemType Directory -Path $pwSnap -Force | Out-Null
 [System.IO.File]::WriteAllBytes((Join-Path $pwSnap 'hostsnapshot_WKS-ACCT-017_20261001080000.hbx'), (Protect-SnapshotBytes -Data $zipBytes -Password 'Corr3ct-h0rse'))
 $encPw = & (Join-Path $root 'HostBadger.ps1') -Snapshot $pwSnap -OutHtml (Join-Path $encDir 'pw.html') -SnapshotPassword (ConvertTo-SecureString 'Corr3ct-h0rse' -AsPlainText -Force) *>&1 | Out-String
-Assert-Equal @(Import-Csv (Join-Path $encDir 'pw.csv')).Count 189 'encryption: a password snapshot opens with -SnapshotPassword and gives the same findings'
+Assert-Equal @(Import-Csv (Join-Path $encDir 'pw.csv')).Count 195 'encryption: a password snapshot opens with -SnapshotPassword and gives the same findings'
 $encBad = & (Join-Path $root 'HostBadger.ps1') -Snapshot $pwSnap -OutHtml (Join-Path $encDir 'bad.html') -SnapshotPassword (ConvertTo-SecureString 'wrong' -AsPlainText -Force) *>&1 | Out-String
 Assert-True ($encBad -match 'wrong password, or the file is damaged' -and $encBad -match 'No readable snapshot') 'encryption: a wrong password is reported and the host is skipped'
 $hbxBytes = [System.IO.File]::ReadAllBytes((Join-Path $pwSnap 'hostsnapshot_WKS-ACCT-017_20261001080000.hbx'))
@@ -1021,7 +1059,7 @@ $pfxFile = Join-Path $encDir 't.pfx'; [System.IO.File]::WriteAllBytes($pfxFile, 
 $certSnap = Join-Path $encDir 'cert'; New-Item -ItemType Directory -Path $certSnap -Force | Out-Null
 [System.IO.File]::WriteAllBytes((Join-Path $certSnap 'hostsnapshot_WKS-ACCT-017_20261001080000.hbx'), (Protect-SnapshotBytes -Data $zipBytes -Certificate (Get-EncryptionCertificate $cerFile)))
 & (Join-Path $root 'HostBadger.ps1') -Snapshot $certSnap -OutHtml (Join-Path $encDir 'cert.html') -SnapshotPfx $pfxFile -SnapshotPfxPassword (ConvertTo-SecureString 'pfx-pw' -AsPlainText -Force) *>&1 | Out-Null
-Assert-Equal @(Import-Csv (Join-Path $encDir 'cert.csv')).Count 189 'encryption: a certificate snapshot opens with the private key in -SnapshotPfx'
+Assert-Equal @(Import-Csv (Join-Path $encDir 'cert.csv')).Count 195 'encryption: a certificate snapshot opens with the private key in -SnapshotPfx'
 $encNoKey = & (Join-Path $root 'HostBadger.ps1') -Snapshot $certSnap -OutHtml (Join-Path $encDir 'nokey.html') *>&1 | Out-String
 Assert-True ($encNoKey -match 'private key is not available here') 'encryption: without the private key the snapshot is not read, and says why'
 $noKevHtml = [System.IO.File]::ReadAllText((Join-Path $hideOut 'show.html'))

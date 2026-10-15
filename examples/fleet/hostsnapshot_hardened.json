@@ -33,6 +33,7 @@
       "hardening",
       "stig",
       "software",
+      "appx",
       "services",
       "drivers",
       "scheduledTasks",
@@ -150,6 +151,14 @@
       },
       {
         "id": "c1db55ab-c21a-4637-bb3f-a12568109d35",
+        "action": 1
+      },
+      {
+        "id": "33ddedf1-c6e0-47cb-833e-de6133960387",
+        "action": 1
+      },
+      {
+        "id": "c0033c00-d16d-4114-a5a0-dc9b3a7d2ceb",
         "action": 1
       }
     ],
@@ -810,6 +819,105 @@
     "wpadDisabled": 1,
     "noAutoUpdate": 0,
     "enableSmartScreen": 1,
+    "fileAssociations": [
+      {
+        "ext": ".js",
+        "progId": "txtfile",
+        "openCommand": "%SystemRoot%\\system32\\NOTEPAD.EXE %1"
+      },
+      {
+        "ext": ".jse",
+        "progId": "txtfile",
+        "openCommand": "%SystemRoot%\\system32\\NOTEPAD.EXE %1"
+      },
+      {
+        "ext": ".vbs",
+        "progId": "txtfile",
+        "openCommand": "%SystemRoot%\\system32\\NOTEPAD.EXE %1"
+      },
+      {
+        "ext": ".vbe",
+        "progId": "txtfile",
+        "openCommand": "%SystemRoot%\\system32\\NOTEPAD.EXE %1"
+      },
+      {
+        "ext": ".wsf",
+        "progId": "txtfile",
+        "openCommand": "%SystemRoot%\\system32\\NOTEPAD.EXE %1"
+      },
+      {
+        "ext": ".wsh",
+        "progId": "txtfile",
+        "openCommand": "%SystemRoot%\\system32\\NOTEPAD.EXE %1"
+      },
+      {
+        "ext": ".hta",
+        "progId": "txtfile",
+        "openCommand": "%SystemRoot%\\system32\\NOTEPAD.EXE %1"
+      },
+      {
+        "ext": ".scr",
+        "progId": "txtfile",
+        "openCommand": "%SystemRoot%\\system32\\NOTEPAD.EXE %1"
+      },
+      {
+        "ext": ".bat",
+        "progId": "txtfile",
+        "openCommand": "%SystemRoot%\\system32\\NOTEPAD.EXE %1"
+      },
+      {
+        "ext": ".cmd",
+        "progId": "txtfile",
+        "openCommand": "%SystemRoot%\\system32\\NOTEPAD.EXE %1"
+      },
+      {
+        "ext": ".ps1",
+        "progId": "txtfile",
+        "openCommand": "%SystemRoot%\\system32\\NOTEPAD.EXE %1"
+      },
+      {
+        "ext": ".reg",
+        "progId": "txtfile",
+        "openCommand": "%SystemRoot%\\system32\\NOTEPAD.EXE %1"
+      }
+    ],
+    "scriptHostEnabled": null,
+    "lolbinOutboundBlocks": [
+      {
+        "program": "certutil.exe",
+        "store": "gpo"
+      },
+      {
+        "program": "mshta.exe",
+        "store": "gpo"
+      },
+      {
+        "program": "wscript.exe",
+        "store": "gpo"
+      },
+      {
+        "program": "cscript.exe",
+        "store": "gpo"
+      },
+      {
+        "program": "regsvr32.exe",
+        "store": "gpo"
+      },
+      {
+        "program": "wmic.exe",
+        "store": "gpo"
+      },
+      {
+        "program": "bitsadmin.exe",
+        "store": "gpo"
+      }
+    ],
+    "removableStorage": {
+      "denyAll": null,
+      "disksDenyRead": null,
+      "disksDenyWrite": null,
+      "disksDenyExecute": 1
+    },
     "eventLogs": [
       {
         "name": "Application",
@@ -837,6 +945,216 @@
       "office": true
     },
     "machine": [
+      {
+        "k": "Software\\Policies\\Adobe\\Adobe Acrobat\\DC\\FeatureLockDown",
+        "n": "bEnhancedSecurityStandalone",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Adobe Acrobat\\DC\\FeatureLockDown",
+        "n": "bEnhancedSecurityInBrowser",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Adobe Acrobat\\DC\\FeatureLockDown",
+        "n": "iFileAttachmentPerms",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Adobe Acrobat\\DC\\FeatureLockDown\\cDefaultLaunchURLPerms\\",
+        "n": "iUnknownURLPerms",
+        "v": 3
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Adobe Acrobat\\DC\\FeatureLockDown\\cDefaultLaunchURLPerms\\",
+        "n": "iURLPerms",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Adobe Acrobat\\DC\\FeatureLockDown",
+        "n": "bEnableFlash",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Adobe Acrobat\\DC\\FeatureLockDown\\cCloud",
+        "n": "bAdobeSendPluginToggle",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Adobe Acrobat\\DC\\FeatureLockDown",
+        "n": "bDisableTrustedFolders",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Adobe Acrobat\\DC\\FeatureLockDown",
+        "n": "bProtectedMode",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Adobe Acrobat\\DC\\FeatureLockDown",
+        "n": "iProtectedView",
+        "v": 2
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Adobe Acrobat\\DC\\FeatureLockDown",
+        "n": "bDisablePDFHandlerSwitching",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Adobe Acrobat\\DC\\FeatureLockDown\\cCloud",
+        "n": "bDisableADCFileStore",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Adobe Acrobat\\DC\\FeatureLockDown\\cServices",
+        "n": "bTogglePrefsSync",
+        "v": 1
+      },
+      {
+        "k": "Software\\Adobe\\Adobe Acrobat\\DC\\Installer",
+        "n": "DisableMaintenance",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Adobe Acrobat\\DC\\FeatureLockDown\\cServices",
+        "n": "bToggleWebConnectors",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Adobe Acrobat\\DC\\FeatureLockDown\\cWebmailProfiles",
+        "n": "bDisableWebmail",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Adobe Acrobat\\DC\\FeatureLockDown\\cWelcomeScreen",
+        "n": "bShowWelcomeScreen",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Adobe Acrobat\\DC\\FeatureLockDown\\cSharePoint",
+        "n": "bDisableSharePointFeatures",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Adobe Acrobat\\DC\\FeatureLockDown",
+        "n": "bDisableTrustedSites",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown",
+        "n": "bEnhancedSecurityStandalone",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown",
+        "n": "bEnhancedSecurityInBrowser",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown",
+        "n": "bProtectedMode",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown",
+        "n": "iProtectedView",
+        "v": 2
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown\\cDefaultLaunchURLPerms",
+        "n": "iURLPerms",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown\\cDefaultLaunchURLPerms",
+        "n": "iUnknownURLPerms",
+        "v": 3
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown",
+        "n": "iFileAttachmentPerms",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown",
+        "n": "bEnableFlash",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown",
+        "n": "bDisablePDFHandlerSwitching",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown\\cCloud",
+        "n": "bAdobeSendPluginToggle",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown\\cServices",
+        "n": "bToggleAdobeDocumentServices",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown\\cServices",
+        "n": "bTogglePrefsSync",
+        "v": 1
+      },
+      {
+        "k": "Software\\Adobe\\Acrobat Reader\\DC\\Installer",
+        "n": "DisableMaintenance",
+        "v": 1
+      },
+      {
+        "k": "SOFTWARE\\Wow6432Node\\Adobe\\Acrobat Reader\\DC\\Installer",
+        "n": "DisableMaintenance",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown\\cServices",
+        "n": "bToggleWebConnectors",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown",
+        "n": "bAcroSuppressUpsell",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown\\cServices",
+        "n": "bToggleAdobeSign",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown\\cWebmailProfiles",
+        "n": "bDisableWebmail",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown\\cSharePoint",
+        "n": "bDisableSharePointFeatures",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown\\cWelcomeScreen",
+        "n": "bShowWelcomeScreen",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown\\cServices",
+        "n": "bUpdater",
+        "v": 0
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown",
+        "n": "bDisableTrustedFolders",
+        "v": 1
+      },
+      {
+        "k": "Software\\Policies\\Adobe\\Acrobat Reader\\DC\\FeatureLockDown",
+        "n": "bDisableTrustedSites",
+        "v": 1
+      },
       {
         "k": "Software\\Policies\\Google\\Chrome",
         "n": "RemoteAccessHostFirewallTraversal",
@@ -2543,6 +2861,36 @@
         "sid": "S-1-5-21-5000000001-5000000002-5000000003-1001",
         "values": [
           {
+            "k": "Software\\Adobe\\Adobe Acrobat\\DC\\Security\\cDigSig\\cEUTLDownload",
+            "n": "bLoadSettingsFromURL",
+            "v": 0
+          },
+          {
+            "k": "Software\\Adobe\\Adobe Acrobat\\DC\\Security\\cDigSig\\cAdobeDownload",
+            "n": "bLoadSettingsFromURL",
+            "v": 0
+          },
+          {
+            "k": "Software\\Adobe\\Adobe Acrobat\\DC\\AVGeneral",
+            "n": "bFIPSMode",
+            "v": 1
+          },
+          {
+            "k": "Software\\Adobe\\Acrobat Reader\\DC\\Security\\cDigSig\\cEUTLDownload",
+            "n": "bLoadSettingsFromURL",
+            "v": 0
+          },
+          {
+            "k": "Software\\Adobe\\Acrobat Reader\\DC\\Security\\cDigSig\\cAdobeDownload",
+            "n": "bLoadSettingsFromURL",
+            "v": 0
+          },
+          {
+            "k": "Software\\Adobe\\Acrobat Reader\\DC\\AVGeneral",
+            "n": "bFIPSMode",
+            "v": 1
+          },
+          {
             "k": "Software\\Policies\\Microsoft\\Office\\16.0\\access\\security",
             "n": "blockcontentexecutionfrominternet",
             "v": 1
@@ -3195,6 +3543,18 @@
       "sp": 0
     }
   ],
+  "appx": [
+    {
+      "name": "Microsoft.WindowsCalculator",
+      "provisioned": true,
+      "users": 1
+    },
+    {
+      "name": "Microsoft.Windows.Photos",
+      "provisioned": true,
+      "users": 1
+    }
+  ],
   "updatesPending": null,
   "services": [
     {
@@ -3222,7 +3582,7 @@
     {
       "name": "Spooler",
       "displayName": "Spooler",
-      "startMode": "Auto",
+      "startMode": "Disabled",
       "state": "Stopped",
       "account": "LocalSystem",
       "pathName": "C:\\Windows\\System32\\spoolsv.exe",

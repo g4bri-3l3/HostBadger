@@ -45,6 +45,8 @@ param(
         srv2022ms = 'WindowsServer-2022-MS-2.8.xml'
         srv2025dc = 'WindowsServer-2025-DC-1.1.xml'
         srv2025ms = 'WindowsServer-2025-MS-1.1.xml'
+        adobereader = 'Adobe-AcrobatReader-2.1.xml'
+        adobepro  = 'Adobe-AcrobatPro-2.1.xml'
     }
 )
 $ErrorActionPreference = 'Stop'

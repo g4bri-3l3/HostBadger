@@ -5,8 +5,9 @@
 # no list of allowed admins), and they don't depend on hardware or firewall rules. A generated
 # script changes nothing unless you set $Apply (the per-host file: run it with -Apply). The per-host
 # file also records the old value of every setting in a rollback file, which -Restore puts back, and
-# it refuses to run on a computer whose name is not the one in the snapshot. HostBadger never runs
-# any of this. We only write text. Fixes that need a decision (banner text, allowed administrators,
+# it refuses to run on a computer whose name is not the one in the snapshot. The analyzer never runs
+# any of this, it only writes text; the guided menu (Start-HostBadger.ps1, Remediate this machine)
+# runs this machine's own script after showing it and asking for YES. Fixes that need a decision (banner text, allowed administrators,
 # password policy, services to disable, BitLocker, Credential Guard, LAPS, user rights...) are left
 # out on purpose.
 
@@ -27,7 +28,7 @@ foreach ($k in @(
         'powershell_scriptblock_logging_off', 'powershell_transcription_off', 'cmdline_audit_off', 'sehop_disabled', 'safe_dll_search_off',
         'ip_stack_hardening_gaps', 'rdp_policy_gaps', 'rdp_nla_disabled', 'cached_logons_high', 'guest_enabled', 'defender_realtime_off',
         'defender_pua_off', 'defender_network_protection_off', 'firewall_profile_disabled', 'firewall_default_inbound_allow', 'firewall_drop_logging_off', 'firewall_notifications_on', 'dc_netlogon_policy_weak', 'server_baseline_gaps', 'driver_blocklist_off', 'mdns_enabled',
-        'powershell_v2_enabled', 'spooler_on_dc')) { $script:FixTypes[$k] = $true }
+        'powershell_v2_enabled', 'spooler_on_dc', 'script_files_execute_on_open')) { $script:FixTypes[$k] = $true }
 
 # The fixes for one finding, as data. Kind is reg, smb, mp, fw, feature, user or service. Two
 # renderings come from it: the lines of the per-host script (with rollback) and the plain PowerShell
@@ -190,6 +191,8 @@ function Get-RemediationActions {
         }
         'powershell_v2_enabled' { & $feat 'MicrosoftWindowsPowerShellV2Root' }
         'spooler_on_dc' { & $svc 'Spooler' }
+        # The extension opens as text (Notepad); scripts called explicitly still run.
+        'script_files_execute_on_open' { if ($o -match '^file type: (\.(js|jse|vbs|vbe|wsf|wsh|hta))$') { & $reg "HKLM:\SOFTWARE\Classes\$($Matches[1])" '(default)' 'txtfile' 'String' } }
     }
     return $out.ToArray()
 }
@@ -234,7 +237,8 @@ function ConvertTo-FixSnippet {
             '$changes = @(', ($rows -join "`n"), ')',
             'foreach ($c in $changes) {',
             '    $key = Get-Item -LiteralPath $c.Path -ErrorAction SilentlyContinue',
-            '    $old = if ($key -and ($key.GetValueNames() -contains $c.Name)) { $key.GetValue($c.Name) } else { ''(not set)'' }',
+            '    $vn = if ($c.Name -eq ''(default)'') { '''' } else { $c.Name }   # the default value is '''' to the registry API',
+            '    $old = if ($key -and ($key.GetValueNames() -contains $vn)) { $key.GetValue($vn) } else { ''(not set)'' }',
             '    ''{0}\{1}: {2} -> {3}'' -f $c.Path, $c.Name, $old, $(if ($c.Type -eq ''MultiString'') { ''(empty)'' } else { $c.Value })',
             '    if ($Apply) {',
             '        if (-not $key) { New-Item -Path $c.Path -Force | Out-Null }',
@@ -405,10 +409,12 @@ function Set-HbRegistry {
         $existed = $false; $old = $null; $oldKind = $null
         try {
             $item = Get-Item -LiteralPath $Path -ErrorAction Stop
-            if ($item.GetValueNames() -contains $Name) {
+            # The default value is '(default)' to Set-ItemProperty and '' to the registry API.
+            $vn = if ($Name -eq '(default)') { '' } else { $Name }
+            if ($item.GetValueNames() -contains $vn) {
                 $existed = $true
-                $old = $item.GetValue($Name, $null, 'DoNotExpandEnvironmentNames')
-                $oldKind = "$($item.GetValueKind($Name))"
+                $old = $item.GetValue($vn, $null, 'DoNotExpandEnvironmentNames')
+                $oldKind = "$($item.GetValueKind($vn))"
             }
         }
         catch { }

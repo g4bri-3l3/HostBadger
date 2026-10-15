@@ -358,9 +358,9 @@ $script:CheckCatalog = [ordered]@{
         Title = 'PowerShell transcription off'
         Description = 'EnableTranscripting is not 1, so there is no text record of what was typed and shown in PowerShell sessions (a CIS Level 2 control).'
         Remediation = 'Turn on PowerShell transcription to a protected, central folder, and keep script block logging on as well.' }
-    service_should_be_disabled = @{ Category = 'System Hardening'; Severity = 'Low'; Mitre = 'T1021'; Cis = '5.1 - 5.44, Level 1 services (L1)'; Needs = @('services'); Roles = @('workstation')
+    service_should_be_disabled = @{ Category = 'System Hardening'; Severity = 'Low'; Mitre = 'T1021'; Cis = '5.1 - 5.44, Level 1 services (L1)'; Needs = @('services'); Roles = @('workstation', 'server')
         Title = 'Service the baseline says to disable is running or automatic'
-        Description = 'A service the CIS workstation baseline wants disabled (Bluetooth Audio Gateway, Bluetooth Support, Computer Browser, IIS, FTP, SSH server, RPC Locator, Routing and Remote Access, SNMP-like Simple TCP/IP, SSDP, UPnP, Xbox services, WSL and others) is running or starts automatically. Network-facing ones are Medium. Bluetooth Audio Gateway (5.1) and Bluetooth Support (5.2) are Level 2 in the benchmark; the finding still quotes the (L1) tag that this check uses throughout, since each finding carries only its own rule number, not a per-rule level. Services that are stopped and set to Manual are not listed.'
+        Description = 'A service the CIS workstation baseline wants disabled (Bluetooth Audio Gateway, Bluetooth Support, Computer Browser, IIS, FTP, SSH server, RPC Locator, Routing and Remote Access, SNMP-like Simple TCP/IP, SSDP, UPnP, Xbox services, WSL and others) is running or starts automatically. Network-facing ones are Medium. Bluetooth Audio Gateway (5.1) and Bluetooth Support (5.2) are Level 2 in the benchmark; the finding still quotes the (L1) tag that this check uses throughout, since each finding carries only its own rule number, not a per-rule level. Services that are stopped and set to Manual are not listed. On a member server the CIS Windows Server benchmarks list one service, Print Spooler (rule 5.2, Level 2; on a domain controller spooler_on_dc judges it): Low, since a print server needs it.'
         Remediation = 'Disable the service (and uninstall the feature if it is not needed). On a server that legitimately runs the role, record an exception.' }
     defender_network_protection_off = @{ Category = 'Antivirus'; Severity = 'Medium'; Mitre = 'T1189'; Cis = '18.10.42.6.3.1 (L1)'; Needs = @('defender', 'defender.preferences'); Roles = $script:AllRoles
         Title = 'Defender Network Protection not enabled'
@@ -443,7 +443,7 @@ $script:CheckCatalog = [ordered]@{
     # ---------------- Further settings (Microsoft documentation, DISA STIG and ACSC guidance) ----------------
     asr_other_rules_not_blocking = @{ Category = 'Antivirus'; Severity = 'Low'; Mitre = 'T1204.002'; Needs = @('defender', 'defender.preferences'); Roles = $script:AllRoles
         Title = 'Other attack surface reduction rules not in block mode'
-        Description = 'Microsoft documents 13 more ASR rules beyond the standard three: Office child processes, code injection and executable content, obfuscated and downloaded scripts, executables from email or USB, PSExec/WMI process creation, Adobe Reader child processes and advanced ransomware protection. The finding lists the rules that are not set to Block.'
+        Description = 'Microsoft documents 16 more ASR rules beyond the standard three: Office child processes, code injection and executable content, obfuscated and downloaded scripts, executables from email or USB, PSExec/WMI process creation, Adobe Reader child processes, advanced ransomware protection, rebooting into Safe Mode, copied or impersonated system tools, and (judged only where Exchange Server is installed) web shell creation. The finding lists the rules that are not set to Block.'
         Remediation = 'Set the listed rules to Audit first, read the events (Microsoft-Windows-Windows Defender/Operational 1121/1122), then to Block through Intune, Group Policy or Set-MpPreference. The PSExec/WMI rule conflicts with Configuration Manager clients and the prevalence rule blocks unknown tools: judge those two separately.' }
     defender_protection_features_off = @{ Category = 'Antivirus'; Severity = 'Medium'; Mitre = 'T1562.001'; Cis = '18.10.42.5.2, 18.10.42.10.1, 18.10.42.10.4 (L1/L2)'; Needs = @('defender', 'defender.preferences'); Roles = $script:AllRoles
         Title = 'Defender protection feature turned off'
@@ -513,6 +513,26 @@ $script:CheckCatalog = [ordered]@{
         Title = 'WPAD auto-discovery is not disabled'
         Description = 'Web Proxy Auto-Discovery is not turned off: DisableWpad is not 1 and the WinHTTP Web Proxy Auto-Discovery service (WinHttpAutoProxySvc) is not disabled. Clients keep looking for a "wpad" host through DNS, LLMNR, mDNS and NBT-NS, and whoever answers becomes their proxy and can capture or relay NTLM authentication.'
         Remediation = 'Set HKLM\SYSTEM\CurrentControlSet\Services\WinHttp\Parameters\DisableWpad = 1 (or disable the WinHttpAutoProxySvc service) where proxy auto-discovery is not used, and keep "wpad" in the DNS global query block list.' }
+    bloatware_installed = @{ Category = 'Software'; Severity = 'Low'; Mitre = 'T1176'; Needs = @('appx', 'software'); Roles = @('workstation', 'server')
+        Title = 'Preinstalled games, consumer apps or antivirus trials'
+        Description = 'Store apps and programs that a managed business device rarely needs are installed or provisioned for new users: preinstalled games (Candy Crush, Solitaire, Xbox), consumer apps (TikTok, Spotify, Disney+, Netflix, Clipchamp, Bing News), and third-party antivirus trials (McAfee, Norton) that compete with Microsoft Defender and expire. Each is more code that updates on its own schedule, talks to the internet and can carry vulnerabilities; an expired antivirus trial can leave Defender in passive mode. The list is curated in lib\Checks.ps1 (OEM driver and firmware utilities are left out on purpose). Low.'
+        Remediation = 'Remove what the organization does not use, for the installed users and from the provisioned list so new profiles do not get it back (Remove-AppxPackage -AllUsers, Remove-AppxProvisionedPackage -Online, or the uninstaller of the program), and keep it out of the image. HostBadger''s guided menu offers the removal as an explicit choice.' }
+    brave_policy_gaps = @{ Category = 'System Hardening'; Severity = 'Medium'; Mitre = 'T1189'; Needs = @('stig'); Roles = $script:AllRoles
+        Title = 'Brave policy weaker than the Chrome STIG'
+        Description = 'Brave is installed and one of its policies is not set as the DISA Google Chrome STIG asks of Chrome: Brave is built on Chromium and reads the same policies under HKLM\SOFTWARE\Policies\BraveSoftware\Brave. This is HostBadger applying the Chrome STIG to Brave, not a DISA STIG; the finding quotes the Chrome rule and its category. Brave''s own policies are judged too: Tor windows (TorDisabled, Medium: they bypass the proxy and network monitoring), the crypto wallet (BraveWalletDisabled) and Brave Rewards (BraveRewardsDisabled), Low. A policy that is not configured counts.'
+        Remediation = 'Set the policy under HKLM\SOFTWARE\Policies\BraveSoftware\Brave through the Brave policy templates (Group Policy) or the registry, with the value the Chrome STIG rule asks for; disable Tor, the wallet and Rewards where they are not needed.' }
+    script_files_execute_on_open = @{ Category = 'System Hardening'; Severity = 'Medium'; Mitre = 'T1204.002'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'Script files run when they are double-clicked'
+        Description = 'A double click on a JScript, VBScript, Windows Script or HTML Application file (.js, .jse, .vbs, .vbe, .wsf, .wsh, .hta) runs it through Windows Script Host or mshta instead of opening it as text. These are the attachments and downloads that phishing uses to start malware. Read from the machine-wide association of each extension; a per-user choice is not seen. The Windows Script Host types are not judged when Windows Script Host is disabled (Settings\Enabled = 0). Medium on workstations, Low on servers.'
+        Remediation = 'Associate the script extensions with Notepad (txtfile), so a double click opens them as text; scripts still run when called explicitly (cscript, wscript, mshta, logon scripts). Use the fix script, or Group Policy (Preferences > Folder Options > Open With) for a fleet.' }
+    lolbin_outbound_not_blocked = @{ Category = 'Network Exposure'; Severity = 'Low'; Mitre = 'T1105'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'System tools used to download payloads can reach the network'
+        Description = 'No enabled Windows Firewall rule blocks outbound traffic for system tools that attackers use to download payloads or run remote scripts (certutil, mshta, wscript, cscript, regsvr32, wmic, bitsadmin). Rules in the local store and in Group Policy are read; rules pushed by Intune (MDM store) are not, and an outbound default of Block is not considered.'
+        Remediation = 'Add outbound block rules for the listed programs (System32 and SysWOW64) where nothing legitimate needs them online, through Group Policy, Intune or the fix script. Check first that management tools do not depend on them (bitsadmin and wmic in some deployment scripts).' }
+    removable_media_execute_allowed = @{ Category = 'System Hardening'; Severity = 'Low'; Mitre = 'T1091'; Needs = @('hardening'); Roles = @('workstation')
+        Title = 'Programs can run from removable disks'
+        Description = 'The Removable Storage Access policy does not deny execute access to removable disks ("Removable Disks: Deny execute access", Deny_Execute = 1) and does not deny all removable storage (Deny_All). Programs on a USB drive or SD card run like any other. Write and read access are an organizational choice and are only reported in the detail.'
+        Remediation = 'Set "Removable Disks: Deny execute access" (Computer Configuration > Administrative Templates > System > Removable Storage Access) where users have no need to run programs from USB, and keep the ASR rule that blocks untrusted processes from USB in Block mode.' }
     print_point_and_print_weak = @{ Category = 'Privilege Escalation'; Severity = 'Medium'; Mitre = 'T1068'; Cis = '18.7.8, 18.7.10, 18.7.11 (L1)'; Needs = @('hardening'); Roles = $script:AllRoles
         Title = 'Point and Print allows driver installation without elevation'
         Description = 'The Point and Print policy lets standard users install printer drivers (RestrictDriverInstallationToAdministrators = 0) or suppresses the elevation prompt (NoWarningNoElevationOnInstall / NoWarningNoElevationOnUpdate = 1). That is the PrintNightmare condition: a standard user gets code running as SYSTEM through a driver.'
@@ -567,6 +587,10 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Microsoft 365 Apps policy differs from the DISA STIG'
         Description = 'Office is installed and a per-user policy of the DISA Microsoft Office 365 ProPlus STIG (V3R5) is not set as required, in at least one of the user profiles that were loaded when the snapshot was taken (a SYSTEM collection sees only users who were signed in). A policy that is not configured counts.'
         Remediation = 'Set the Office policy in the finding through Group Policy (Office ADMX, User Configuration) or the Office cloud policy service.' }
+    stig_adobe = @{ Category = 'DISA STIG'; Severity = 'Medium'; Mitre = 'T1204.002'; Needs = @('stig'); Roles = $script:AllRoles
+        Title = 'Adobe Acrobat policy differs from the DISA STIG'
+        Description = 'Adobe Acrobat Reader DC or Acrobat Pro DC is installed and a registry policy of its DISA STIG (Adobe Acrobat Reader DC Continuous V2R1, Adobe Acrobat Pro DC Continuous V2R1) is not set as required: Protected Mode, Enhanced Security, JavaScript, attachments, internet access from PDFs, updates. Per-user policies are judged on the user profiles loaded at collection. A policy that is not configured counts.'
+        Remediation = 'Set the Acrobat policy in the finding through the Adobe Customization Wizard, the Acrobat Group Policy templates or the registry (HKLM\Software\Policies\Adobe\...\FeatureLockDown).' }
 }
 
 # What an attacker can do with each finding, shown as "Attacks it enables" in the report and written
@@ -683,6 +707,7 @@ $script:CheckAttacks = [ordered]@{
     stig_edge = 'Browser-based attacks: phishing, malicious downloads, risky extensions or weakened browser protections that the STIG policy would prevent.'
     stig_firefox = 'Browser-based attacks: phishing, malicious downloads, risky add-ons or weakened browser protections that the STIG policy would prevent.'
     stig_firewall = 'Remote exploitation and lateral movement: the firewall filters or logs less than the STIG requires, so exposed services and blocked attempts go unnoticed.'
+    stig_adobe = 'Malicious PDFs: without Protected Mode, Enhanced Security and the JavaScript, attachment and URL restrictions the STIG asks for, a crafted PDF can run code, launch attachments or reach attacker sites when it is opened.'
     stig_office = 'Document-borne attacks: macros, embedded content and legacy file formats that the STIG policy would block can deliver malware through Office files.'
     stig_server2016 = 'Depends on the rule: each DISA STIG setting closes a specific attack path (credential theft, relay, privilege escalation, logging gaps); the rule ID in the finding names it.'
     stig_server2019 = 'Depends on the rule: each DISA STIG setting closes a specific attack path (credential theft, relay, privilege escalation, logging gaps); the rule ID in the finding names it.'
@@ -702,6 +727,11 @@ $script:CheckAttacks = [ordered]@{
     wdigest_cleartext = 'Clear-text password theft: LSASS keeps the passwords of logged-on users in clear text, and mimikatz (sekurlsa::wdigest) reads them.'
     webclient_webdav_enabled = 'Authentication coercion and NTLM relay: an attacker makes the host authenticate over HTTP (WebDAV, PetitPotam) and relays it to LDAP or AD CS, which SMB signing does not stop.'
     winrm_insecure_auth = 'Credential capture and remote abuse: Basic or Digest authentication and unencrypted WinRM traffic expose credentials in the path, and RunAs credentials stored for plugins can be reused.'
+    bloatware_installed = 'Larger attack surface: preinstalled apps and trials update on their own schedule, reach the internet and carry their own vulnerabilities (games and adware have shipped remote code execution flaws), and an expired third-party antivirus can leave Defender in passive mode.'
+    brave_policy_gaps = 'Browser-based attacks: phishing, malicious downloads, risky extensions or weakened browser protections that the Chrome STIG policies would prevent, and Tor windows that reach the internet past the proxy and network monitoring.'
+    script_files_execute_on_open = 'Malware delivery by phishing: a .js, .vbs, .wsf or .hta attachment or download runs with the user''s rights as soon as it is double-clicked, typically to download and start ransomware or a loader.'
+    lolbin_outbound_not_blocked = 'Living-off-the-land downloads: an attacker uses signed Windows tools (certutil -urlcache, mshta or regsvr32 /i pointed at a remote URL, bitsadmin) to fetch payloads and run remote scripts past application allow lists.'
+    removable_media_execute_allowed = 'Removable-media infection and insider attacks: a program brought on a USB drive or SD card (a dropped "found" stick, a rubber-ducky payload, an unapproved tool) runs directly from the device.'
     wpad_not_disabled = 'Traffic interception and credential capture: an attacker answers WPAD discovery, becomes the host''s web proxy and collects NTLM authentications.'
     wu_auto_updates_disabled = 'Exploitation of known vulnerabilities: security updates are not installed on their own, so the host falls behind on fixes.'
 }
@@ -722,7 +752,11 @@ $script:OtherAsrRules = [ordered]@{
     'b2b3f03d-6a65-4f7b-a9c7-1c7ef74a9ba4' = 'Block untrusted and unsigned processes that run from USB'
     '92e97fa1-2edf-4476-bdd6-9dd0b4dddc7b' = 'Block Win32 API calls from Office macros'
     'c1db55ab-c21a-4637-bb3f-a12568109d35' = 'Use advanced protection against ransomware'
+    '33ddedf1-c6e0-47cb-833e-de6133960387' = 'Block rebooting machine in Safe Mode'
+    'c0033c00-d16d-4114-a5a0-dc9b3a7d2ceb' = 'Block use of copied or impersonated system tools'
 }
+# Judged only where Exchange Server is installed (the rule protects Exchange servers only).
+$script:ExchangeAsrRules = [ordered]@{ 'a8f5898e-1dc8-49a9-9878-85004b8a61e6' = 'Block Webshell creation for Servers' }
 $script:StandardAsrRules = [ordered]@{
     '9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2' = 'Block credential stealing from the Windows local security authority subsystem (lsass.exe)'
     '56a863a9-875e-4185-98a7-b882c64b5ce5' = 'Block abuse of exploited vulnerable signed drivers'
@@ -1739,9 +1773,9 @@ function Invoke-SoftwareChecks {
 # by DISA). Entry: id, p (product), s (H/M/L), h (M machine, U per user), k (key under the hive), n
 # (value name), t (D/S/M/N), e (P present, A absent), x (expected: eq, in, range, absent), d (why).
 $script:StigCatalog = $null
-$script:StigProductType = @{ win10 = 'stig_windows10'; win11 = 'stig_windows11'; defender = 'stig_defender'; firewall = 'stig_firewall'; edge = 'stig_edge'; chrome = 'stig_chrome'; firefox = 'stig_firefox'; office = 'stig_office'
+$script:StigProductType = @{ win10 = 'stig_windows10'; win11 = 'stig_windows11'; defender = 'stig_defender'; firewall = 'stig_firewall'; edge = 'stig_edge'; chrome = 'stig_chrome'; firefox = 'stig_firefox'; office = 'stig_office'; adobereader = 'stig_adobe'; adobepro = 'stig_adobe'
     srv2016dc = 'stig_server2016'; srv2016ms = 'stig_server2016'; srv2019dc = 'stig_server2019'; srv2019ms = 'stig_server2019'; srv2022dc = 'stig_server2022'; srv2022ms = 'stig_server2022'; srv2025dc = 'stig_server2025'; srv2025ms = 'stig_server2025' }
-$script:StigIdPrefix = @{ win10 = 'WN10'; win11 = 'WN11'; defender = 'MSDA'; firewall = 'WFW'; edge = 'EDGE'; chrome = 'CHRM'; firefox = 'FFOX'; office = 'O365'
+$script:StigIdPrefix = @{ win10 = 'WN10'; win11 = 'WN11'; defender = 'MSDA'; firewall = 'WFW'; edge = 'EDGE'; chrome = 'CHRM'; firefox = 'FFOX'; office = 'O365'; adobereader = 'ARDC'; adobepro = 'AADC'
     srv2016dc = 'WN16-DC'; srv2016ms = 'WN16-MS'; srv2019dc = 'WN19-DC'; srv2019ms = 'WN19-MS'; srv2022dc = 'WN22-DC'; srv2022ms = 'WN22-MS'; srv2025dc = 'WN25-DC'; srv2025ms = 'WN25-MS' }
 
 function Get-StigCatalog {
@@ -1908,6 +1942,7 @@ function Invoke-StigChecks {
     $installed = @{
         win10 = ($caption -match 'Windows 10'); win11 = ($caption -match 'Windows 11'); defender = $true; firewall = $true
         edge = ($st.products.edge -eq $true); chrome = ($st.products.chrome -eq $true); firefox = ($st.products.firefox -eq $true); office = ($st.products.office -eq $true)
+        adobereader = ($st.products.adobereader -eq $true); adobepro = ($st.products.adobepro -eq $true)
         srv2016dc = ($srvBench -eq 'srv2016' -and $dc); srv2016ms = ($srvBench -eq 'srv2016' -and $ms)
         srv2019dc = ($srvBench -eq 'srv2019' -and $dc); srv2019ms = ($srvBench -eq 'srv2019' -and $ms)
         srv2022dc = ($srvBench -eq 'srv2022' -and $dc); srv2022ms = ($srvBench -eq 'srv2022' -and $ms)
@@ -1922,13 +1957,13 @@ function Invoke-StigChecks {
         $obj = "$($script:StigIdPrefix["$($e.p)"]) $($e.id): $($e.n)"
         $loc = "$(if ($e.h -eq 'U') { 'HKCU' } else { 'HKLM' })\$($e.k)\$($e.n)"
         if ($e.h -eq 'M') {
-            $script:StigEvaluated++
+            $script:StigEvaluated++; $script:StigEvaluatedBy[$type] = 1 + [int]$script:StigEvaluatedBy[$type]
             $has = $machine.ContainsKey($id)
             $why = Test-StigValue -Entry $e -Present $has -Value $machine[$id]
             if ($why) { Add-Finding -Type $type -Object $obj -Severity $sev["$($e.s)"] -Found $(if ($has) { "$($machine[$id])" } else { 'not configured' }) -Expected (Get-StigExpectedText $e) -Detail "$loc $why. $($e.d)" }
         }
         elseif ($userMaps.Count -gt 0) {
-            $script:StigEvaluated++
+            $script:StigEvaluated++; $script:StigEvaluatedBy[$type] = 1 + [int]$script:StigEvaluatedBy[$type]
             $bad = 0; $first = ''; $firstFound = ''
             foreach ($map in $userMaps) {
                 $has = $map.ContainsKey($id)
@@ -1936,6 +1971,22 @@ function Invoke-StigChecks {
                 if ($why) { $bad++; if (-not $first) { $first = $why; $firstFound = $(if ($has) { "$($map[$id])" } else { 'not configured' }) } }
             }
             if ($bad -gt 0) { Add-Finding -Type $type -Object $obj -Severity $sev["$($e.s)"] -Found $firstFound -Expected (Get-StigExpectedText $e) -Detail "$loc $first (user policy; $bad of $($userMaps.Count) loaded user profile(s)). $($e.d)" }
+        }
+    }
+    # Brave: the Chrome STIG machine rules read under Brave's own policy key, and three policies of
+    # Brave itself. An adaptation, not a DISA STIG: not counted in the STIG compliance figures.
+    if ($st.products.brave -eq $true -and (& $can 'brave_policy_gaps')) {
+        $cp = 'Software\Policies\Google\Chrome'; $bp = 'Software\Policies\BraveSoftware\Brave'
+        foreach ($e in @(Get-StigCatalog | Where-Object { $_.p -eq 'chrome' -and $_.h -eq 'M' -and "$($_.k)".StartsWith($cp, [StringComparison]::OrdinalIgnoreCase) })) {
+            $bk = $bp + "$($e.k)".Substring($cp.Length)
+            $id = ("$bk|$($e.n)").ToLower()
+            $has = $machine.ContainsKey($id)
+            $why = Test-StigValue -Entry $e -Present $has -Value $machine[$id]
+            if ($why) { Add-Finding -Type 'brave_policy_gaps' -Object "Brave (DTBC $($e.id)): $($e.n)" -Severity $sev["$($e.s)"] -Found $(if ($has) { "$($machine[$id])" } else { 'not configured' }) -Expected (Get-StigExpectedText $e) -Detail "HKLM\$bk\$($e.n) $why (Chrome STIG rule $($e.id), applied to Brave). $($e.d)" }
+        }
+        foreach ($own in @(@('TorDisabled', 'Medium', 'Tor windows reach the internet past the proxy and network monitoring'), @('BraveWalletDisabled', 'Low', 'the built-in crypto wallet stays available'), @('BraveRewardsDisabled', 'Low', 'Brave Rewards (ads and payments) stays available'))) {
+            $id = ("$bp|$($own[0])").ToLower()
+            if ("$($machine[$id])" -ne '1') { Add-Finding -Type 'brave_policy_gaps' -Object "Brave: $($own[0])" -Severity $own[1] -Found $(if ($machine.ContainsKey($id)) { "$($machine[$id])" } else { 'not configured' }) -Expected '1' -Detail "HKLM\$bp\$($own[0]) is $(if ($machine.ContainsKey($id)) { $machine[$id] } else { 'not configured' }): $($own[2])." }
         }
     }
 }
@@ -1972,7 +2023,7 @@ function Invoke-HostChecks {
     # Returns @{ Findings; NotEvaluated } for one snapshot.
     param($Snapshot, [hashtable]$Config)
     $script:Findings = New-Object System.Collections.Generic.List[object]
-    $script:StigEvaluated = 0
+    $script:StigEvaluated = 0; $script:StigEvaluatedBy = @{}
     $script:CurrentHost = Get-SnapshotHostName $Snapshot
     $script:RefDate = ConvertTo-UtcDate $Snapshot.meta.collectedAtUtc
     if (-not $script:RefDate) { throw "$($Snapshot._path): meta.collectedAtUtc missing" }
@@ -2030,7 +2081,7 @@ function Invoke-HostChecks {
         try { & $groups[$g] }
         catch { Stop-Spinner; Write-Warning "${script:CurrentHost}: $g checks failed: $($_.Exception.Message)" }
     }
-    return [PSCustomObject]@{ Findings = $script:Findings.ToArray(); NotEvaluated = $ne; StigEvaluated = $script:StigEvaluated }
+    return [PSCustomObject]@{ Findings = $script:Findings.ToArray(); NotEvaluated = $ne; StigEvaluated = $script:StigEvaluated; StigByType = $script:StigEvaluatedBy; Off = @($optionalOff.Keys) }
 }
 
 function Invoke-CredentialChecks {
@@ -2113,11 +2164,14 @@ function Invoke-AntivirusChecks {
     if (& $can 'asr_other_rules_not_blocking') {
         $set = @{}
         foreach ($r in @($d.asrRules | Where-Object { $_ })) { $set["$($r.id)".ToLower()] = $r.action }
-        $missing = @($script:OtherAsrRules.Keys | Where-Object { "$($set[$_])" -ne '1' })
+        $rules = [ordered]@{}
+        foreach ($k in $script:OtherAsrRules.Keys) { $rules[$k] = $script:OtherAsrRules[$k] }
+        if (@($S.software | Where-Object { $_ -and "$($_.name)" -match '^Microsoft Exchange Server' }).Count -gt 0) { foreach ($k in $script:ExchangeAsrRules.Keys) { $rules[$k] = $script:ExchangeAsrRules[$k] } }
+        $missing = @($rules.Keys | Where-Object { "$($set[$_])" -ne '1' })
         if ($missing.Count -gt 0) {
             $audit = @($missing | Where-Object { "$($set[$_])" -in '2', '6' }).Count
-            $txt = ($missing | ForEach-Object { "$($script:OtherAsrRules[$_]) [$(if ($set.ContainsKey($_)) { "action $($set[$_])" } else { 'not set' })]" }) -join '; '
-            Add-Finding -Type 'asr_other_rules_not_blocking' -Object 'ASR (other rules)' -Detail "$($missing.Count) of $($script:OtherAsrRules.Count) not blocking$(if ($audit) { " ($audit in audit or warn mode)" }): $txt."
+            $txt = ($missing | ForEach-Object { "$($rules[$_]) [$(if ($set.ContainsKey($_)) { "action $($set[$_])" } else { 'not set' })]" }) -join '; '
+            Add-Finding -Type 'asr_other_rules_not_blocking' -Object 'ASR (other rules)' -Detail "$($missing.Count) of $($rules.Count) not blocking$(if ($audit) { " ($audit in audit or warn mode)" }): $txt."
         }
     }
     if (& $can 'defender_protection_features_off') {
@@ -2773,8 +2827,14 @@ function Invoke-BaselineChecks {
     if (& $can 'service_should_be_disabled') {
         foreach ($svc in @($S.services | Where-Object { $_ })) {
             $name = "$($svc.name)"
-            if (-not $script:CisDisableServices.Contains($name)) { continue }
             if ("$($svc.state)" -ne 'Running' -and "$($svc.startMode)" -ne 'Auto') { continue }
+            if ($role -eq 'server') {
+                # The server benchmarks list one service: Print Spooler on a member server (Windows 11
+                # 5.17, quoted as the server's own 5.2, L2). On a domain controller spooler_on_dc judges it.
+                if ($name -eq 'Spooler') { Add-Finding -Type 'service_should_be_disabled' -Object "service: $name" -Severity 'Low' -Detail "$($svc.state), start mode $($svc.startMode) (CIS 5.17 expects disabled unless this is a print server)." }
+                continue
+            }
+            if (-not $script:CisDisableServices.Contains($name)) { continue }
             $sev = if ($script:CisDisableServicesMedium -contains $name) { 'Medium' } else { 'Low' }
             Add-Finding -Type 'service_should_be_disabled' -Object "service: $name" -Severity $sev -Detail "$($svc.state), start mode $($svc.startMode) (CIS $($script:CisDisableServices[$name]) expects disabled)."
         }
@@ -2794,7 +2854,100 @@ function Invoke-BaselineChecks {
             Add-Finding -Type 'wpad_not_disabled' -Object 'WPAD auto-discovery' -Detail "DisableWpad = $(if ($null -eq $wpad) { 'not set' } else { $wpad }) and the WinHttpAutoProxySvc service is $(if ($svc) { "$($svc.startMode.ToLower())" } else { 'present' }): clients still resolve 'wpad', which an attacker can answer to capture NTLM."
         }
     }
+    if (& $can 'bloatware_installed') {
+        $hits = New-Object System.Collections.Generic.List[string]
+        foreach ($b in $script:BloatwareApps) {
+            $pk = @(if ($b.Appx) { @($S.appx | Where-Object { $_ -and "$($_.name)" -match $b.Appx }) })
+            $pg = @(if ($b.Program) { @($S.software | Where-Object { $_ -and "$($_.name)" -match $b.Program }) })
+            if ($pk.Count -eq 0 -and $pg.Count -eq 0) { continue }
+            $where = @()
+            if (@($pk | Where-Object { [int]$_.users -gt 0 }).Count) { $where += 'installed' }
+            if (@($pk | Where-Object { $_.provisioned -eq $true }).Count) { $where += 'provisioned for new users' }
+            if ($pg.Count) { $where += 'program' }
+            $hits.Add("$($b.Label) ($($where -join ', '))")
+        }
+        if ($hits.Count -gt 0) { Add-Finding -Type 'bloatware_installed' -Object 'preinstalled apps' -Found "$($hits.Count) found" -Expected 'none' -Detail "$($hits -join '; ')." }
+    }
+    # Fields added in 1.3: a snapshot that predates them is not judged on them.
+    if ((& $can 'script_files_execute_on_open') -and $h -and $null -ne $h.fileAssociations) {
+        $wshOff = "$($h.scriptHostEnabled)" -eq '0'
+        $runs = @()
+        foreach ($a in @($h.fileAssociations | Where-Object { $_ })) {
+            $ext = "$($a.ext)".ToLower()
+            if (-not $script:ScriptRunProgIds.Contains($ext)) { continue }
+            if ($wshOff -and $ext -ne '.hta') { continue }
+            # It runs when the ProgId is the script host's own, or the open command calls a script host.
+            if ("$($a.progId)" -eq $script:ScriptRunProgIds[$ext] -or "$($a.openCommand)" -match '(?i)\b(wscript|cscript|mshta)(\.exe)?\b') { $runs += $ext }
+        }
+        if ($runs.Count -gt 0) {
+            $sev = if ($role -eq 'workstation') { 'Medium' } else { 'Low' }
+            foreach ($ext in $runs) {
+                $a = @($h.fileAssociations | Where-Object { "$($_.ext)".ToLower() -eq $ext })[0]
+                Add-Finding -Type 'script_files_execute_on_open' -Object "file type: $ext" -Severity $sev -Found "$($a.progId)" -Expected 'txtfile (opens as text)' -Detail "$ext opens with $($a.progId)$(if ("$($a.openCommand)") { " ($($a.openCommand))" }): a double click runs the script."
+            }
+        }
+    }
+    if ((& $can 'lolbin_outbound_not_blocked') -and $h -and $null -ne $h.lolbinOutboundBlocks) {
+        $blocked = @($h.lolbinOutboundBlocks | Where-Object { $_ } | ForEach-Object { "$($_.program)".ToLower() } | Select-Object -Unique)
+        $open = @($script:Lolbins | Where-Object { $blocked -notcontains $_ })
+        if ($open.Count -gt 0) {
+            Add-Finding -Type 'lolbin_outbound_not_blocked' -Object 'outbound: system tools' -Found ($open -join ', ') -Expected 'blocked outbound' -Detail "$($open.Count) of $($script:Lolbins.Count) tools have no outbound block rule: $($open -join ', ')$(if ($blocked.Count -gt 0) { "; blocked: $($blocked -join ', ')" })."
+        }
+    }
+    if ((& $can 'removable_media_execute_allowed') -and $h -and $null -ne $h.removableStorage) {
+        $rs = $h.removableStorage
+        if ("$($rs.denyAll)" -ne '1' -and "$($rs.disksDenyExecute)" -ne '1') {
+            $other = @(); if ("$($rs.disksDenyWrite)" -eq '1') { $other += 'write denied' }; if ("$($rs.disksDenyRead)" -eq '1') { $other += 'read denied' }
+            Add-Finding -Type 'removable_media_execute_allowed' -Object 'Removable disks' -Found $(if ($null -eq $rs.disksDenyExecute) { 'not configured' } else { "Deny_Execute = $($rs.disksDenyExecute)" }) -Expected 'Deny_Execute = 1' -Detail "Removable Disks: Deny execute access is $(if ($null -eq $rs.disksDenyExecute) { 'not configured' } else { "set to $($rs.disksDenyExecute)" }) and Deny_All is not set$(if ($other.Count) { " ($($other -join ', '))" })."
+        }
+    }
 }
+# Store apps (package name) and programs (Programs and Features name) that a business device rarely
+# needs. OEM driver and firmware utilities are not listed: they often deliver BIOS and driver updates.
+$script:BloatwareApps = @(
+    @{ Label = 'King games (Candy Crush...)'; Appx = '^king\.com\.' }
+    @{ Label = 'Microsoft Solitaire Collection'; Appx = '^Microsoft\.MicrosoftSolitaireCollection$' }
+    @{ Label = 'Xbox apps'; Appx = '^Microsoft\.(XboxApp|XboxGamingOverlay|XboxGameOverlay|XboxSpeechToTextOverlay|Xbox\.TCUI|GamingApp)$' }
+    @{ Label = 'Bing News, Weather, Sports, Finance'; Appx = '^Microsoft\.(BingNews|BingWeather|BingSports|BingFinance)$' }
+    @{ Label = 'Groove Music, Movies & TV'; Appx = '^Microsoft\.(ZuneMusic|ZuneVideo)$' }
+    @{ Label = 'Mixed Reality Portal'; Appx = '^Microsoft\.MixedReality\.Portal$' }
+    @{ Label = 'Skype (Store app)'; Appx = '^Microsoft\.SkypeApp$' }
+    @{ Label = 'Get Started, Feedback Hub, Office Hub, Cortana'; Appx = '^Microsoft\.(Getstarted|WindowsFeedbackHub|MicrosoftOfficeHub|549981C3F5F10)$' }
+    @{ Label = 'Clipchamp'; Appx = '^Clipchamp\.Clipchamp$' }
+    @{ Label = 'Spotify'; Appx = '^SpotifyAB\.SpotifyMusic$' }
+    @{ Label = 'Disney+'; Appx = '^Disney\.' }
+    @{ Label = 'Facebook, Instagram'; Appx = '^Facebook\.' }
+    @{ Label = 'TikTok'; Appx = '^BytedancePte\.Ltd\.TikTok$' }
+    @{ Label = 'Prime Video'; Appx = '^AmazonVideo\.PrimeVideo$' }
+    @{ Label = 'Netflix'; Appx = '^4DF9E0F8\.Netflix$' }
+    @{ Label = 'McAfee (trial)'; Appx = '^5A894077\.McAfeeSecurity$'; Program = '^McAfee (LiveSafe|Total Protection|Security Scan|WebAdvisor|Safe Connect)\b' }
+    @{ Label = 'Norton (trial)'; Program = '^Norton (Security|360|Security Ultra|AntiVirus)\b' }
+    @{ Label = 'WildTangent Games'; Program = '^WildTangent\b' }
+)
+# The STIG release behind each check type, for the dashboard (keep in step with tools\New-CoverageDoc.ps1).
+$script:StigTypeLabel = [ordered]@{
+    stig_windows11 = 'Windows 11 V2R7'; stig_windows10 = 'Windows 10 V3R6'; stig_server2025 = 'Windows Server 2025 V1R1'; stig_server2022 = 'Windows Server 2022 V2R8'
+    stig_server2019 = 'Windows Server 2019 V3R8'; stig_server2016 = 'Windows Server 2016 V2R10'; stig_defender = 'Defender Antivirus V2R8'; stig_firewall = 'Windows Firewall V2R2'
+    stig_edge = 'Microsoft Edge V2R5'; stig_chrome = 'Google Chrome V2R11'; stig_firefox = 'Mozilla Firefox V6R7'; stig_office = 'Microsoft 365 Apps V3R5'; stig_adobe = 'Adobe Acrobat V2R1'
+}
+# ACSC Essential Eight: the HostBadger checks that bear on each mitigation strategy, from a host. This
+# is coverage of related settings, not an Essential Eight maturity assessment: multi-factor
+# authentication and backups cannot be seen from a host, and application control is only touched at
+# its edges (drivers, script hosts, removable media).
+$script:E8Strategies = [ordered]@{
+    patch_apps = @{ Label = 'Patch applications'; Checks = @('software_eol', 'software_outdated', 'software_cve', 'kev_software_match') }
+    patch_os   = @{ Label = 'Patch operating systems'; Checks = @('os_unsupported', 'os_support_ending', 'updates_stale', 'updates_pending', 'wu_auto_updates_disabled') }
+    mfa        = @{ Label = 'Multi-factor authentication'; Checks = @(); Note = 'not visible from a host' }
+    admin      = @{ Label = 'Restrict administrative privileges'; Checks = @('local_admin_member', 'builtin_admin_enabled', 'laps_not_configured', 'remote_uac_token_filter_off', 'uac_disabled', 'uac_admin_no_prompt', 'user_rights_excessive', 'deny_logon_rights_missing', 'credential_guard_off', 'lsa_not_protected', 'wdigest_cleartext', 'autologon_enabled') }
+    appcontrol = @{ Label = 'Application control'; Checks = @('driver_blocklist_off', 'vulnerable_driver_present', 'script_files_execute_on_open', 'removable_media_execute_allowed', 'lolbin_outbound_not_blocked', 'always_install_elevated') }
+    macros     = @{ Label = 'Restrict Microsoft Office macros'; Checks = @('stig_office', 'asr_other_rules_not_blocking') }
+    userapp    = @{ Label = 'User application hardening'; Checks = @('stig_edge', 'stig_chrome', 'stig_firefox', 'stig_adobe', 'powershell_v2_enabled', 'powershell_scriptblock_logging_off', 'powershell_module_logging_off', 'cmdline_audit_off', 'smartscreen_off') }
+    backups    = @{ Label = 'Regular backups'; Checks = @(); Note = 'not visible from a host' }
+}
+# Script extensions and the ProgId Windows gives them when they run on a double click.
+$script:ScriptRunProgIds = [ordered]@{ '.js' = 'JSFile'; '.jse' = 'JSEFile'; '.vbs' = 'VBSFile'; '.vbe' = 'VBEFile'; '.wsf' = 'WSFFile'; '.wsh' = 'WSHFile'; '.hta' = 'htafile' }
+# Tools the collector looks for in outbound block rules (keep in step with $lolbins in the collector).
+$script:Lolbins = @('certutil.exe', 'mshta.exe', 'wscript.exe', 'cscript.exe', 'regsvr32.exe', 'wmic.exe', 'bitsadmin.exe')
 # User rights (CIS 2.2.x, Level 1): who may hold each one. The expected principals are SIDs. Expect
 # is the Windows 11 workstation; Dc and Ms, when given, the domain controller and member server
 # variants of the CIS Windows Server 2022/2019 benchmarks (the rule number follows data\cis-map.json).

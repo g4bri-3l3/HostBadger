@@ -22,7 +22,7 @@ is weak. It works in two steps. A single PowerShell script takes a
 Lines for a SIEM. Hand it one snapshot or a folder with hundreds and you get
 the whole fleet in one report, or one report per host.
 
-- **132 checks** and about 1,548 settings: 120 hand-written checks plus 1427 DISA
+- **138 checks** and about 1,600 settings: 125 hand-written checks plus 1475 DISA
   STIG registry rules, with the CIS Windows 11 benchmark as the baseline, and
   the drivers matched against 2,198 known vulnerable or malicious driver files
   (LOLDrivers).
@@ -116,7 +116,7 @@ should.
 
 ### Compliance
 
-- **DISA STIG, 1427 registry rules** across twelve products, one finding per
+- **DISA STIG, 1475 registry rules** across fourteen products, one finding per
   rule that differs (a setting that is not configured counts, as the STIG
   asks):
 
@@ -134,10 +134,12 @@ should.
   | Google Chrome | V2R11 | 40 |
   | Mozilla Firefox | V6R7 | 43 |
   | Microsoft Office 365 ProPlus | V3R5 | 127 |
+  | Adobe Acrobat Reader DC Continuous | V2R1 | 26 |
+  | Adobe Acrobat Pro DC Continuous | V2R1 | 22 |
 
   Severity follows the STIG category (CAT I High, CAT II Medium, CAT III Low).
   A server gets the domain controller or the member server rules of its
-  version, by role. Browser and Office rules apply only when the product is installed, and
+  version, by role. Browser, Office and Acrobat rules apply only when the product is installed, and
   Office rules are per-user policies, judged on the user profiles loaded when
   the snapshot was taken. Rules that need an organization decision (a banner
   text, an approved URL list) are not judged. The data comes from the
@@ -159,6 +161,10 @@ should.
 
 ### Reporting and fixing
 
+- **Dashboard** first: score ring, DISA STIG compliance per product and
+  release, CIS-based compliance, ACSC Essential Eight coverage (the related
+  checks, judged and clean, per strategy; not a maturity assessment),
+  categories and top risks, for the fleet or one host picked in a selector.
 - **HTML report** with scores per host (A to F), pie charts (severity,
   category, grades, compliance, software, and local accounts: enabled
   administrators versus standard users and disabled accounts), findings grouped
@@ -175,7 +181,9 @@ should.
 - **Comparison with an earlier run** (new and resolved findings) and **accepted
   risks** with an owner and an expiry.
 - **Remediation scripts** (`-OutRemediation`): one setting, the expected value,
-  previewed by default, with a rollback file. HostBadger never runs them.
+  previewed by default, with a rollback file. The analyzer never runs them;
+  the guided menu can apply this machine's own script after showing it and
+  asking for YES (menu 6), and put the values back (menu 7).
 - **Optional AI summary** with Gemini: host names, accounts, paths and
   addresses are replaced by tokens first and a leak check refuses to send if
   one survives. You choose whether the STIG findings go too (there can be
@@ -195,36 +203,16 @@ own pages before relying on it, especially for licensing and editions.
 | License | MIT, free | MIT, free | Free | Free | Commercial (CIS SecureSuite) | Commercial | Commercial (Defender for Endpoint / add-on) |
 | Focus | Windows host hardening | Windows host hardening | GPO and local policy against Microsoft baselines | DISA STIG through SCAP | CIS benchmarks | Vulnerabilities and compliance, many platforms | Endpoint vulnerabilities and configuration |
 | CIS benchmarks | Yes: Windows 10/11 and Server 2016-2022 rule numbers | Yes: Windows 10/11, Server 2012 R2-2025 lists | No (Microsoft baselines) | No | Yes, full | Yes | Add-on |
-| DISA STIG | Registry rules only (1,427, twelve products) | Some lists (Windows 10, Server 2019, Defender, Firewall) | No | Yes, full SCAP content | Check with CIS | Yes | Add-on |
+| DISA STIG | Registry rules only (1,475, fourteen products) | Some lists (Windows 10, Server 2019, Defender, Firewall) | No | Yes, full SCAP content | Check with CIS | Yes | Add-on |
 | Microsoft security baselines | Partly, through CIS/STIG overlap | Yes | Yes | No | No | Yes | Yes |
 | Software and vulnerabilities | End of support, behind latest release, CVEs by installed version with CVSS, KEV and EPSS (about 20 mapped products), vulnerable drivers | No | No | No | No | Yes, full CVE scanning | Yes |
 | Collection | One read-only script, also through an EDR | Run on the host | Local or exported GPOs | Local or remote | Local or remote | Agent or credentialed scan | Defender sensor |
 | Offline analysis of saved snapshots | Yes | No | Yes (GPO backups) | No | No | No | No (cloud) |
 | Fleet report | HTML, CSV, JSON Lines | Per host (CSV) | Per comparison | Per host | Yes | Console | Console |
 | Value found next to value required | Yes | Yes | Yes | Yes | Yes | Yes | Partly |
-| Fixes | Reversible scripts with rollback, never run by the tool | Can apply the settings (HailMary), GPO export | No | No | No | No | Recommendations |
+| Fixes | Reversible scripts with rollback; applied only from the guided menu, on the local machine, after YES | Can apply the settings (HailMary), GPO export | No | No | No | No | Recommendations |
 | AI summary | Optional (Gemini), names tokenized and a leak check before anything is sent | No | No | No | No | Vendor cloud AI, licensed separately | Microsoft Security Copilot, licensed separately |
 | What the code can do, checked from the code | Yes (`Test-HostBadgerSafety.ps1`) | No | No | No | No | No | No |
-
-**When to use something else (or as well):**
-
-- **A vulnerability scanner** (Tenable, Qualys, Rapid7, Defender Vulnerability
-  Management) for CVEs by installed version, third-party patch status across
-  thousands of products and a central console. HostBadger judges CVEs, end of
-  support and missed releases only for the products it maps (about twenty
-  common programs plus the Windows and lifecycle checks).
-- **DISA SCC** when the STIG result is the deliverable (an ATO, an audit): it
-  runs the full SCAP content, including the rules that are not registry values.
-  HostBadger judges the registry rules only.
-- **CIS-CAT Pro** when you need the CIS assessment itself (certified results,
-  every benchmark section, other platforms).
-- **HardeningKitty** to apply a hardening list on a host or build a GPO from
-  it, or for the Microsoft security baselines and BSI lists. HostBadger never
-  changes a setting.
-- **Policy Analyzer** to compare Group Policy objects before they are deployed.
-  HostBadger reads what the host actually does, not what the GPO says.
-- **PingCastle** (or similar) for Active Directory itself. HostBadger looks at
-  each host, including domain controllers, not at the directory.
 
 ## The pieces
 
@@ -242,7 +230,13 @@ If you are not sure where to start, run `.\Start-HostBadger.ps1`. It is a
 small menu: collect this machine, analyze a file, a zip or a folder, add an AI
 summary, run the safety review. When you analyze, it looks for snapshots by
 itself (in a `snapshots` folder, then in the current folder) and lets you take
-them all or pick one by number.
+them all or pick one by number. It can also write one remediation script per
+host (previewing until `-Apply`, with a rollback), and, as administrator,
+remediate this machine: it collects and analyzes it, shows what the fix script
+would change, creates a System Restore point where Windows has one and applies
+it only after you type YES; another option puts the values back from the
+rollback file. Preinstalled apps (games, consumer apps, antivirus trials) can
+be removed there too, one group at a time on an explicit yes.
 
 ## Quick start
 
@@ -379,8 +373,10 @@ the same way as on a standalone machine, elevated or as SYSTEM. What to expect:
 CIS rule and whether the check comes with a fix script.
 
 Checks know the role of the host (workstation, server or domain controller).
-Credential Guard and cached logons don't apply to DCs, and the Print Spooler
-check applies only to them. SMB signing is High on a DC and Medium elsewhere.
+Credential Guard and cached logons don't apply to DCs. The Print Spooler is
+judged on DCs (`spooler_on_dc`) and, as the CIS server benchmarks' one service
+rule, on member servers (Level 2, Low: a print server needs it). SMB signing is
+High on a DC and Medium elsewhere.
 An unencrypted OS volume is High on a workstation and Medium on a server.
 
 ### EDR agents
@@ -653,8 +649,14 @@ computer name. That file:
   registry part for real in a private branch of `HKCU`: preview, apply, apply
   again, restore.
 
-HostBadger never runs any of these scripts. It only writes text, so the
-collector and the analyzer stay read-only.
+The collector and the analyzer never run these scripts: they only write text
+and stay read-only. The one exception is the guided menu's "Remediate this
+machine" (`Start-HostBadger.ps1`, option 6, as administrator): it runs this
+machine's own script, after showing what it would change and asking you to type
+YES, with a System Restore point first where Windows has one; option 7 puts the
+values back from the rollback file. `Test-HostBadgerSafety.ps1` allows the
+commands it needs (restore point, removing preinstalled Store apps) in that file
+only, and lists them.
 
 Some fixes are left out on purpose, and for those the report keeps the written
 remediation:

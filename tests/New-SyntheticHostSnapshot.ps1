@@ -110,7 +110,7 @@ function Get-StigSection($Machine, $User, $Products, [string]$Os = '') {
 $otherAsrIds = @('7674ba52-37eb-4a4f-a9a1-f0f9a1619a2c', 'd4f940ab-401b-4efc-aadc-ad5f3c50688a', 'be9ba2d9-53ea-4cdc-84e5-9b1eeee46550', '01443614-cd74-433a-b99e-2ecdc07bfc25',
     '5beb7efe-fd9a-4556-801d-275e5ffc04cc', 'd3e037e1-3eb8-44c8-a917-57927947596d', '3b576869-a4ec-4529-8536-b80a7769e899', '75668c1f-73b5-4cf0-bb93-3ecf5cb7cc84',
     '26190899-1602-49e8-8b27-eb1d0a1ce869', 'd1e49aac-8f56-4280-b9ba-993a6d77406c', 'b2b3f03d-6a65-4f7b-a9c7-1c7ef74a9ba4', '92e97fa1-2edf-4476-bdd6-9dd0b4dddc7b',
-    'c1db55ab-c21a-4637-bb3f-a12568109d35')
+    'c1db55ab-c21a-4637-bb3f-a12568109d35', '33ddedf1-c6e0-47cb-833e-de6133960387', 'c0033c00-d16d-4114-a5a0-dc9b3a7d2ceb')
 $allAsr = @($standardAsr) + @($otherAsrIds | ForEach-Object { [ordered]@{ id = $_; action = 1 } })
 $schannelClean = [ordered]@{
     protocols = @('SSL 2.0', 'SSL 3.0', 'TLS 1.0', 'TLS 1.1' | ForEach-Object { $p = $_; 'Server', 'Client' | ForEach-Object { [ordered]@{ name = $p; side = $_; enabled = $null } } })
@@ -152,7 +152,7 @@ $s = [ordered]@{
         tool = 'HostBadger'; kind = 'host'; computerName = $name; schemaVersion = 1; collectorVersion = '1.0'; synthetic = $true
         collectedAtUtc = $CollectedAtUtc; collectedBy = 'NT AUTHORITY\SYSTEM'; runningAsSystem = $true; runningAsAdmin = $true; psVersion = '5.1.20348.2849'
         options = [ordered]@{ skipAcl = $false; checkUpdates = $false }
-        sectionsCollected = @('host', 'patches', 'defender', 'bitlocker', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'audit', 'securityPolicy', 'hardening', 'stig', 'software', 'services', 'drivers', 'scheduledTasks', 'autoruns')
+        sectionsCollected = @('host', 'patches', 'defender', 'bitlocker', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'audit', 'securityPolicy', 'hardening', 'stig', 'software', 'appx', 'services', 'drivers', 'scheduledTasks', 'autoruns')
         collectionErrors = @()
     }
     host                 = [ordered]@{
@@ -209,6 +209,11 @@ $s = [ordered]@{
         interactiveLogon = [ordered]@{ inactivityTimeoutSecs = 900; legalNoticeTextSet = $true; legalNoticeCaptionSet = $true; dontDisplayLastUserName = 1; disableCad = 0 }
         uacExtra = [ordered]@{ enableInstallerDetection = 1; enableSecureUiaPaths = 1; promptOnSecureDesktop = 1; enableVirtualization = 1 }
         wpadDisabled = 1; noAutoUpdate = 0; enableSmartScreen = 1
+        # Script types open as text, the download tools are blocked outbound, programs don't run from USB.
+        fileAssociations = @(foreach ($e in '.js', '.jse', '.vbs', '.vbe', '.wsf', '.wsh', '.hta', '.scr', '.bat', '.cmd', '.ps1', '.reg') { [ordered]@{ ext = $e; progId = 'txtfile'; openCommand = '%SystemRoot%\system32\NOTEPAD.EXE %1' } })
+        scriptHostEnabled = $null
+        lolbinOutboundBlocks = @(foreach ($l in 'certutil.exe', 'mshta.exe', 'wscript.exe', 'cscript.exe', 'regsvr32.exe', 'wmic.exe', 'bitsadmin.exe') { [ordered]@{ program = $l; store = 'gpo' } })
+        removableStorage = [ordered]@{ denyAll = $null; disksDenyRead = $null; disksDenyWrite = $null; disksDenyExecute = 1 }
         eventLogs = @([ordered]@{ name = 'Application'; maxSizeBytes = 33554432 }, [ordered]@{ name = 'System'; maxSizeBytes = 33554432 })
         mrxsmb10Start = 4; disableExceptionChainValidation = 0; safeDllSearchMode = 1
         ipStack = [ordered]@{ disableIpSourceRoutingV4 = 2; disableIpSourceRoutingV6 = 2; enableIcmpRedirect = 0 }
@@ -220,6 +225,7 @@ $s = [ordered]@{
         [ordered]@{ name = 'CrowdStrike Windows Sensor'; version = '7.10.18605.0'; publisher = 'CrowdStrike, Inc.' },
         [ordered]@{ name = 'Notepad++ (64-bit x64)'; version = '8.6.2'; publisher = 'Notepad++ Team' })
     sqlServer            = @()
+    appx                 = @([ordered]@{ name = 'Microsoft.WindowsCalculator'; provisioned = $true; users = 1 }, [ordered]@{ name = 'Microsoft.Windows.Photos'; provisioned = $true; users = 1 })
     updatesPending       = $null
     services             = $baseServices
     drivers              = [ordered]@{ list = $baseDrivers; blocklistEnable = 1 }
@@ -233,6 +239,8 @@ switch ($Scenario) {
     'hardened' {
         # One Windows Server 2022 member server STIG rule not configured: even a hardened host drifts.
         $s.stig = Get-StigSection (Remove-StigValues $stigMachine 'srv2022ms' 1) $stigUser ([ordered]@{ edge = $true; chrome = $true; firefox = $true; office = $true }) 'srv2022ms'
+        # A member server that does not print: Print Spooler disabled (CIS Server 5.2).
+        foreach ($sv in @($s.services | Where-Object { $_.name -eq 'Spooler' })) { $sv.startMode = 'Disabled' }
         # SQL Server 2022 on its latest cumulative update (CU27, 2026-09-15).
         $s.software = @($s.software) + @([ordered]@{ name = 'Microsoft SQL Server 2022 (64-bit)'; version = ''; publisher = 'Microsoft Corporation' })
         $s.sqlServer = @([ordered]@{ name = 'MSSQLSERVER'; id = 'MSSQL16.MSSQLSERVER'; wow64 = $false; edition = 'Standard Edition'; fileVersion = '16.0.4295.3'; patchLevel = '16.0.4295.3'; version = '16.0.1000.6'; sp = 0 })
@@ -363,6 +371,15 @@ switch ($Scenario) {
         # A neglected host with no EDR on it at all.
         # WPAD left on and the WebClient (WebDAV) service enabled: two NTLM-capture / coercion vectors.
         $s.hardening.wpadDisabled = 0
+        # Out of the box: .js, .vbs and .hta run on a double click, no tool is blocked outbound, USB programs run.
+        $s.hardening.fileAssociations = @(
+            [ordered]@{ ext = '.js'; progId = 'JSFile'; openCommand = '' }, [ordered]@{ ext = '.vbs'; progId = 'VBSFile'; openCommand = '' },
+            [ordered]@{ ext = '.hta'; progId = 'htafile'; openCommand = 'C:\Windows\SysWOW64\mshta.exe "%1" {1E460BD7-F1C3-4B2E-88BF-4E770A288AF5}%U{1E460BD7-F1C3-4B2E-88BF-4E770A288AF5} %*' },
+            [ordered]@{ ext = '.ps1'; progId = 'Microsoft.PowerShellScript.1'; openCommand = '"C:\Windows\System32\notepad.exe" "%1"' })
+        $s.hardening.lolbinOutboundBlocks = @()
+        # A consumer image: Candy Crush installed, Solitaire provisioned for new users.
+        $s.appx = @($s.appx) + @([ordered]@{ name = 'king.com.CandyCrushSaga'; provisioned = $false; users = 2 }, [ordered]@{ name = 'Microsoft.MicrosoftSolitaireCollection'; provisioned = $true; users = 0 })
+        $s.hardening.removableStorage = [ordered]@{ denyAll = $null; disksDenyRead = $null; disksDenyWrite = $null; disksDenyExecute = $null }
         $s.services = @($baseServices | Where-Object { $_.name -ne 'CSFalconService' }) + @(
             (Svc 'WebClient' 'C:\Windows\system32\svchost.exe -k LocalService -p' 'C:\Windows\system32\svchost.exe' 'NT AUTHORITY\LocalService' 'Stopped'),
             (Svc 'SSDPSRV' 'C:\Windows\system32\svchost.exe -k LocalServiceAndNoImpersonation -p' 'C:\Windows\system32\svchost.exe' 'NT AUTHORITY\LocalService'),
@@ -423,12 +440,16 @@ switch ($Scenario) {
         # server product type disambiguates it.
         $s.host.os.caption = 'Microsoft Windows Server 2025 Standard'
         $s.host.os.version = '10.0.26100'; $s.host.os.build = 26100; $s.host.os.ubr = 1742; $s.host.os.displayVersion = '24H2'; $s.host.os.editionId = 'ServerStandard'; $s.host.os.productType = 3
-        $s.stig = Get-StigSection (Remove-StigValues $stigMachine 'srv2025ms' 2) $stigUser ([ordered]@{ edge = $false; chrome = $false; firefox = $false; office = $false }) 'srv2025ms'
+        # Brave installed: the Chrome STIG values under Brave's key but the first, wallet and Rewards off, Tor not set.
+        $braveVals = @($stigMachine | Where-Object { $_.p -eq 'chrome' } | Select-Object -Skip 1 | ForEach-Object { [ordered]@{ k = ($_.k -replace '^Software\\Policies\\Google\\Chrome', 'Software\Policies\BraveSoftware\Brave'); n = $_.n; v = $_.v; p = 'brave' } })
+        $braveVals += @([ordered]@{ k = 'Software\Policies\BraveSoftware\Brave'; n = 'BraveWalletDisabled'; v = 1; p = 'brave' }, [ordered]@{ k = 'Software\Policies\BraveSoftware\Brave'; n = 'BraveRewardsDisabled'; v = 1; p = 'brave' })
+        # Acrobat Reader installed too, with two of its STIG values not configured.
+        $s.stig = Get-StigSection (@(Remove-StigValues (Remove-StigValues $stigMachine 'srv2025ms' 2) 'adobereader' 2) + $braveVals) $stigUser ([ordered]@{ edge = $false; chrome = $false; firefox = $false; office = $false; brave = $true; adobereader = $true }) 'srv2025ms'
     }
     'partial' {
         $s.meta.collectedBy = 'CORP\jdoe'; $s.meta.runningAsSystem = $false; $s.meta.runningAsAdmin = $false
         $s.meta.options.skipAcl = $true
-        $s.meta.sectionsCollected = @('host', 'patches', 'defender', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'hardening', 'stig', 'software', 'services', 'scheduledTasks', 'autoruns')
+        $s.meta.sectionsCollected = @('host', 'patches', 'defender', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'hardening', 'stig', 'software', 'appx', 'services', 'scheduledTasks', 'autoruns')
         $s.meta.collectionErrors = @(
             [ordered]@{ section = 'defender.exclusions'; message = 'exclusions not readable (administrator or SYSTEM needed)' },
             [ordered]@{ section = 'bitlocker'; message = 'BitLocker status not readable: Access is denied' },

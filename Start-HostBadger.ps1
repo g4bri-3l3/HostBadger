@@ -10,9 +10,18 @@
       3  Collect and analyze this machine
       4  Add an AI summary               (Gemini; names replaced by tokens first)
       5  Safety review                   (Test-HostBadgerSafety.ps1: what the scripts can do)
+      6  Remediate this machine          (collect, analyze, preview the fixes, apply after YES)
+      7  Restore a remediation backup    (put back the values a remediation changed)
 
-    Nothing here changes the machine. The AI step sends nothing unless you
-    choose it, and shows you the exact text first when you ask for a dry run.
+    Options 1 to 5 change nothing on the machine. Option 6 is the only part of
+    HostBadger that changes settings, and only on this machine, as
+    administrator: it shows what the fix script would change, asks you to type
+    YES, creates a System Restore point where Windows has one, and the script
+    writes the previous value of every setting to a rollback file that option 7
+    puts back. Removing preinstalled apps is asked one group at a time and
+    cannot be rolled back (they come back from the Microsoft Store). The AI step
+    sends nothing unless you choose it, and shows you the exact text first when
+    you ask for a dry run.
 
     Double-click use: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-HostBadger.ps1
     (the policy is bypassed for that process only; a policy enforced by GPO still wins).
@@ -32,7 +41,7 @@ function Show-Banner {
         ''
         '    _.--""--._'
         '  .''  |    |  ''.'
-        ' /    |    |    \      HostBadger v1.2'
+        ' /    |    |    \      HostBadger v1.3'
         '|  (o)|    |(o)  |     Windows host hardening'
         '|     |    |     |     collect, analyze, optional AI summary'
         ' \    ''.__.''    /'
@@ -247,6 +256,8 @@ function Get-AnalysisParams {
     Write-Host "`nKnown vulnerabilities: the installed versions of Python, Node.js, .NET, Notepad++, PowerShell 7, VirtualBox, Wireshark, 7-Zip, VLC, Git, GIMP, WinSCP, PuTTY, FileZilla, KeePass, Audacity, Mullvad VPN and AnyDesk can be checked against their CVEs, with the EPSS probability of exploitation. Downloading connects to services.nvd.nist.gov (the CVEs of each product, never its version: the same list whatever the hosts have; about 2.5 minutes, faster with NVD_API_KEY) and epss.empiricalsecurity.com (one file of about 3 MB). Nothing is sent; a copy is kept next to the report." -ForegroundColor DarkGray
     if (Test-Yes 'Download CVEs from NVD and EPSS scores from FIRST? (y/N)') { $ap['CveOnline'] = $true }
     if (Test-Yes "Also write JSON Lines for a SIEM? (y/N)") { $ap['OutJsonl'] = Read-Path "JSON Lines path" ($ap['OutHtml'] -replace '\.html?$', '.jsonl') }
+    Write-Host "`nRemediation scripts: the report already shows a fix script under each check whose fix is one safe setting. HostBadger can also write one remediate_<host>.ps1 per host with all of that host's fixes in one file, for a scripted rollout. They are text files: HostBadger never runs them, they only preview until run with -Apply, and they write a rollback file. Read them and test on a pilot host first." -ForegroundColor DarkGray
+    if (Test-Yes 'Write one remediation script per host? (y/N)') { $ap['OutRemediation'] = Read-Path "Folder for the remediation scripts" ($ap['OutHtml'] -replace '\.html?$', '_remediation') }
     $prev = Read-Path "Findings CSV of an earlier run, to show new and resolved (optional, Enter to skip)"
     if ($prev) { if (Test-Path -LiteralPath $prev) { $ap['CompareTo'] = $prev } else { Write-Host "Not found, comparison skipped: $prev" -ForegroundColor Yellow } }
     $exc = Read-Path "Exceptions file (accepted risks, optional, Enter to skip)"
@@ -324,6 +335,101 @@ function Invoke-AiOffer {
     Invoke-Sub 'HostBadger.ps1' $again
 }
 
+# ---------------- Remediation of this machine: the only part of HostBadger that changes anything.
+# Each run gets a folder with its snapshot, report, fix script and rollback file.
+$script:RemediationRoot = Join-Path (Join-Path $PWD.Path 'output') 'remediation'
+
+function New-HbRestorePoint {
+    # A System Restore point before the changes, where Windows has one (not on servers, not in
+    # PowerShell 7, and Windows makes at most one a day).
+    try {
+        Checkpoint-Computer -Description 'HostBadger: before remediation' -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop
+        Write-Host 'System Restore point created (Windows skips it if one was made in the last 24 hours).' -ForegroundColor Green
+        return $true
+    }
+    catch {
+        Write-Host "No System Restore point: $($_.Exception.Message)" -ForegroundColor Yellow
+        return (Test-Yes 'Go on without it? The rollback file still records every value changed (y/N)')
+    }
+}
+
+function Invoke-BloatwareStep {
+    # Preinstalled apps from the curated list in lib\Checks.ps1, removed only on an explicit yes, one
+    # group at a time, for every user and from the provisioned list (new profiles).
+    param([string]$Run)
+    . (Join-Path $root 'lib\Common.ps1'); . (Join-Path $root 'lib\Checks.ps1')
+    $installed = @(Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue)
+    $provisioned = @(Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue)
+    $removed = @()
+    foreach ($b in @($script:BloatwareApps | Where-Object { $_.Appx })) {
+        $names = @(@($installed | ForEach-Object { "$($_.Name)" }) + @($provisioned | ForEach-Object { "$($_.DisplayName)" }) | Where-Object { $_ -match $b.Appx } | Sort-Object -Unique)
+        if ($names.Count -eq 0) { continue }
+        if (-not (Test-Yes "Remove $($b.Label) ($($names -join ', ')) for every user and from new profiles? It comes back only from the Microsoft Store (y/N)")) { continue }
+        foreach ($n in $names) {
+            try {
+                $installed | Where-Object { "$($_.Name)" -eq $n } | Remove-AppxPackage -AllUsers -ErrorAction Stop
+                $provisioned | Where-Object { "$($_.DisplayName)" -eq $n } | Remove-AppxProvisionedPackage -Online -ErrorAction Stop | Out-Null
+                Write-Host "  removed $n" -ForegroundColor Green
+                $removed += $n
+            }
+            catch { Write-Host "  $n not removed: $($_.Exception.Message)" -ForegroundColor Red }
+        }
+    }
+    foreach ($b in @($script:BloatwareApps | Where-Object { $_.Program })) {
+        $progs = @(Get-ChildItem -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue | ForEach-Object { "$((Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue).DisplayName)" } | Where-Object { $_ -match $b.Program } | Sort-Object -Unique)
+        if ($progs.Count) { Write-Host "$($b.Label): $($progs -join ', '). Uninstall it from Settings > Apps (its own uninstaller)." -ForegroundColor Yellow }
+    }
+    if ($removed.Count) { [System.IO.File]::WriteAllText((Join-Path $Run 'removed_apps.json'), (ConvertTo-Json -InputObject @($removed)), (New-Object System.Text.UTF8Encoding($false))) }
+}
+
+function Invoke-RemediateStep {
+    if (-not (Test-IsAdmin)) { Write-Host 'Remediation changes system settings: start an elevated PowerShell (Run as administrator) and choose it again.' -ForegroundColor Yellow; return }
+    Write-Host "`nRemediate this machine: HostBadger collects and analyzes this machine, then shows what its fix script would change. Only settings with a safe, reversible fix are in it (one value, the one the baseline expects, no organizational choice). Nothing changes until you type YES; a System Restore point comes first where Windows has one, and the script writes every previous value to a rollback file (menu 7 puts them back). Group Policy or Intune may set a value back on managed machines." -ForegroundColor DarkGray
+    if (-not (Test-Yes 'Continue? (y/N)')) { return }
+    $run = Join-Path $script:RemediationRoot (Ts)
+    New-Item -ItemType Directory -Path $run -Force | Out-Null
+    Invoke-Sub 'Collect-HostSnapshot.ps1' @{ OutDir = $run }
+    $snap = @(Get-ChildItem -LiteralPath $run -Filter 'hostsnapshot_*.zip' -ErrorAction SilentlyContinue | Select-Object -First 1)
+    if ($snap.Count -eq 0) { Write-Host 'No snapshot produced; nothing changed.' -ForegroundColor Red; return }
+    Invoke-Sub 'HostBadger.ps1' @{ Snapshot = $snap[0].FullName; OutHtml = (Join-Path $run 'report.html'); OutRemediation = $run }
+    $fix = @(Get-ChildItem -LiteralPath $run -Filter 'remediate_*.ps1' -ErrorAction SilentlyContinue | Select-Object -First 1)
+    if ($fix.Count -eq 0) { Write-Host 'No setting on this machine has a safe fix script.' -ForegroundColor Green }
+    else {
+        Write-Host "`nWhat the fix script would change (nothing changed yet):" -ForegroundColor Cyan
+        try { & $fix[0].FullName | Out-Host } catch { Write-Host "Preview failed: $($_.Exception.Message)" -ForegroundColor Red; return }
+        if ((Read-Host 'Apply these changes to this machine? Type YES to apply') -cne 'YES') { Write-Host 'Nothing changed.' -ForegroundColor Yellow }
+        elseif (New-HbRestorePoint) {
+            $rb = Join-Path $run 'rollback.json'
+            try { & $fix[0].FullName -Apply -RollbackFile $rb | Out-Host } catch { Write-Host "The fix script stopped: $($_.Exception.Message)" -ForegroundColor Red }
+            if (Test-Path -LiteralPath $rb) { Write-Host "Previous values saved in $rb. Menu 7 puts them back." -ForegroundColor Green }
+        }
+    }
+    Write-Host "`nPreinstalled apps: games, consumer apps and trials from HostBadger's list. Each group is asked separately." -ForegroundColor DarkGray
+    if (Test-Yes 'Look for preinstalled apps to remove? (y/N)') { Invoke-BloatwareStep -Run $run }
+    Write-Host "Report of this run: $(Join-Path $run 'report.html')" -ForegroundColor Green
+}
+
+function Invoke-RestoreStep {
+    $runs = @(Get-ChildItem -LiteralPath $script:RemediationRoot -Directory -ErrorAction SilentlyContinue | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'rollback.json') } | Sort-Object Name -Descending)
+    if ($runs.Count -eq 0) { Write-Host "No remediation backup found in $($script:RemediationRoot)." -ForegroundColor Yellow; return }
+    for ($i = 0; $i -lt $runs.Count; $i++) {
+        $n = @(Get-Content -LiteralPath (Join-Path $runs[$i].FullName 'rollback.json') -Raw | ConvertFrom-Json | ForEach-Object { $_ }).Count
+        Write-Host ("  [{0}] {1}  ({2} value(s) changed)" -f ($i + 1), $runs[$i].Name, $n)
+    }
+    $pick = "$(Read-Host 'Which run to undo? (Enter = the newest)')".Trim()
+    $idx = if ($pick -match '^\d+$') { [int]$pick - 1 } else { 0 }
+    if ($idx -lt 0 -or $idx -ge $runs.Count) { Write-Host 'No such run.' -ForegroundColor Yellow; return }
+    $run = $runs[$idx].FullName; $rb = Join-Path $run 'rollback.json'
+    $fix = @(Get-ChildItem -LiteralPath $run -Filter 'remediate_*.ps1' -ErrorAction SilentlyContinue | Select-Object -First 1)
+    if ($fix.Count -eq 0) { Write-Host "The fix script of that run is missing from $run." -ForegroundColor Red; return }
+    Write-Host "`nWhat the restore would put back (nothing changed yet):" -ForegroundColor Cyan
+    try { & $fix[0].FullName -Restore $rb | Out-Host } catch { Write-Host "Preview failed: $($_.Exception.Message)" -ForegroundColor Red; return }
+    if (Test-Path -LiteralPath (Join-Path $run 'removed_apps.json')) { Write-Host 'Apps removed in that run are not reinstalled: get them back from the Microsoft Store.' -ForegroundColor Yellow }
+    if (-not (Test-IsAdmin)) { Write-Host 'Restoring changes system settings: start an elevated PowerShell and choose it again.' -ForegroundColor Yellow; return }
+    if ((Read-Host 'Put these values back? Type YES to restore') -cne 'YES') { Write-Host 'Nothing changed.' -ForegroundColor Yellow; return }
+    try { & $fix[0].FullName -Restore $rb -Apply | Out-Host } catch { Write-Host "The restore stopped: $($_.Exception.Message)" -ForegroundColor Red }
+}
+
 Show-Banner
 while ($true) {
     Write-Host ""
@@ -332,6 +438,8 @@ while ($true) {
     Write-Host "  [3] Collect and analyze this machine" -ForegroundColor White
     Write-Host "  [4] Add an AI summary           (Gemini, names tokenized, dry run available)" -ForegroundColor White
     Write-Host "  [5] Safety review               (what the scripts can and cannot do)" -ForegroundColor White
+    Write-Host "  [6] Remediate this machine      (preview, apply after YES, restore point and rollback; administrator)" -ForegroundColor White
+    Write-Host "  [7] Restore a remediation backup" -ForegroundColor White
     Write-Host "  [Q] Quit" -ForegroundColor White
     $choice = (Read-Host "`nChoice").Trim().ToUpper()
     switch ($choice) {
@@ -345,8 +453,10 @@ while ($true) {
         }
         '4' { $ap = Get-AnalysisParams -WithAi $true; if ($ap) { Invoke-Sub 'HostBadger.ps1' $ap } }
         '5' { Invoke-Sub 'Test-HostBadgerSafety.ps1' }
+        '6' { Invoke-RemediateStep }
+        '7' { Invoke-RestoreStep }
         'Q' { break }
-        default { Write-Host "Pick 1-5 or Q." -ForegroundColor Yellow }
+        default { Write-Host "Pick 1-7 or Q." -ForegroundColor Yellow }
     }
     if ($choice -eq 'Q') { break }
 }
