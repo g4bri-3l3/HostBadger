@@ -6,6 +6,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
+## [1.4] - 2026-10-15
+### Added
+- Guided menu: after the last question of an analysis it lists every answer,
+  numbered, and lets you change any of them before the run (a yes/no flips, a
+  path or a list is typed again, "-" clears it); Enter runs, Q cancels.
+- Guided menu: at the end of an analysis it offers to open the report with the
+  default program for .html (the browser), only at an interactive console
+  (`Invoke-Item`, allowed by the safety review in `Start-HostBadger.ps1` only).
+- Guided menu: saved progress. The answers of a run are written after every
+  answer to `output\hostbadger-wizard-state.json`, so a run stopped halfway
+  (Ctrl+C, a closed window) is offered at the next start and resumes with the
+  answers it had, asking only the rest; a run that stopped during the analysis
+  runs it again, and "collect and analyze" resumes after a finished collection.
+  Never saved: passwords, the Gemini key, the menu choice and the YES of a
+  remediation. An interrupted remediation is never resumed: the next start says
+  whether it had begun applying and offers the restore. The file goes when a
+  run finishes; `HOSTBADGER_NO_RESUME` turns the feature off (the tests do).
+
+### Changed
+- Guided menu: a snapshot is no longer encrypted by default; the question reads
+  (p/c/N) and a password or a certificate has to be chosen.
+- Dashboard: the CIS panel gives the number of findings that quote each benchmark,
+  and says why a workstation can show Windows Server 2022: a check that follows
+  a rule only the server benchmarks have (mDNS, 18.6.4.1) quotes the server rule.
+
 ## [1.3] - 2026-10-15
 ### Added
 - Guided menu: "Remediate this machine" (option 6, as administrator) and

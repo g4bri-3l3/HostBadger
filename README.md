@@ -236,7 +236,12 @@ remediate this machine: it collects and analyzes it, shows what the fix script
 would change, creates a System Restore point where Windows has one and applies
 it only after you type YES; another option puts the values back from the
 rollback file. Preinstalled apps (games, consumer apps, antivirus trials) can
-be removed there too, one group at a time on an explicit yes.
+be removed there too, one group at a time on an explicit yes. When an
+analysis is done it offers to open the report in your default browser. If you
+stop it halfway (Ctrl+C, a closed window), the next start offers to resume
+with the answers already given; passwords and keys are asked again, and a
+remediation is never resumed (it says whether anything changed and offers the
+restore).
 
 ## Quick start
 
@@ -293,7 +298,7 @@ the password (or takes `-SnapshotPassword`, a SecureString), and opens a
 certificate snapshot with the private key from the certificate store or from
 `-SnapshotPfx` (its password is asked for, or `-SnapshotPfxPassword`). A wrong
 password or a changed file is reported and that snapshot is skipped. The guided
-menu asks for encryption when it collects, a password by default. Deriving the
+menu asks for encryption when it collects (no encryption unless you choose it). Deriving the
 key takes about 3 seconds per snapshot on Windows PowerShell 5.1 (well under one
 on PowerShell 7).
 

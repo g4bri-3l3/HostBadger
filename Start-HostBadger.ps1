@@ -23,6 +23,11 @@
     sends nothing unless you choose it, and shows you the exact text first when
     you ask for a dry run.
 
+    The answers of a run are saved as you give them (output\hostbadger-wizard-
+    state.json, never passwords or keys), so a run stopped halfway can be
+    resumed at the next start; a finished run removes the file. At the end of
+    an analysis the menu offers to open the report in the default browser.
+
     Double-click use: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-HostBadger.ps1
     (the policy is bypassed for that process only; a policy enforced by GPO still wins).
 
@@ -41,7 +46,7 @@ function Show-Banner {
         ''
         '    _.--""--._'
         '  .''  |    |  ''.'
-        ' /    |    |    \      HostBadger v1.3'
+        ' /    |    |    \      HostBadger v1.4'
         '|  (o)|    |(o)  |     Windows host hardening'
         '|     |    |     |     collect, analyze, optional AI summary'
         ' \    ''.__.''    /'
@@ -67,8 +72,54 @@ function Invoke-Sub {
     catch { Write-Host "$Script stopped: $($_.Exception.Message)" -ForegroundColor Red }
 }
 
+# ---------------- Saved progress: the answers of an unfinished run, written after every answer (so a
+# Ctrl+C or a closed window keeps them) and offered at the next start. Never saved: passwords, the
+# Gemini key, the menu choice and the YES of a remediation. HOSTBADGER_NO_RESUME turns it off (tests).
+$script:StatePath = Join-Path (Join-Path $PWD.Path 'output') 'hostbadger-wizard-state.json'
+$script:State = $null
+$script:Resume = @{}
+$script:ResumeChoice = ''
+function Test-ResumeEnabled { return -not $env:HOSTBADGER_NO_RESUME }
+function Save-WizardState {
+    if (-not $script:State -or -not (Test-ResumeEnabled)) { return }
+    try {
+        $dir = Split-Path -Parent $script:StatePath
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        $script:State['savedUtc'] = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm') + ' UTC'
+        [System.IO.File]::WriteAllText($script:StatePath, (ConvertTo-Json -InputObject $script:State -Depth 5), (New-Object System.Text.UTF8Encoding($false)))
+    }
+    catch { }
+}
+function Start-WizardState {
+    param([string]$Flow)
+    $script:State = [ordered]@{ version = 1; flow = $Flow; stage = 'questions'; savedUtc = ''; answers = [ordered]@{} }
+    Save-WizardState
+}
+function Set-WizardStage { param([string]$Stage) if ($script:State) { $script:State['stage'] = $Stage; Save-WizardState } }
+function Set-WizardValue { param([string]$Key, $Value) if ($script:State) { $script:State['answers'][$Key] = $Value; Save-WizardState } }
+function Clear-WizardState {
+    $script:State = $null; $script:Resume = @{}
+    if (Test-Path -LiteralPath $script:StatePath) { Remove-Item -LiteralPath $script:StatePath -Force -ErrorAction SilentlyContinue }
+}
+# One answer: the saved one when resuming (keyed by the question), else asked; then saved.
+function Get-Answer {
+    param([string]$Key, [scriptblock]$Ask)
+    if ($script:Resume.ContainsKey($Key)) {
+        $v = $script:Resume[$Key]; $script:Resume.Remove($Key)
+        Write-Host "$Key -> $(if ("$v") { $v } else { '(Enter)' })   (resumed)" -ForegroundColor DarkGray
+    }
+    else { $v = & $Ask }
+    Set-WizardValue $Key "$v"
+    return "$v"
+}
+function Read-Line { param([string]$Prompt) return (Get-Answer $Prompt { Read-Host $Prompt }) }
+
 # Path prompt with Tab completion; falls back to Read-Host when redirected.
 function Read-Path {
+    param([string]$Prompt, [string]$Default = "")
+    return (Get-Answer $Prompt { Read-PathRaw -Prompt $Prompt -Default $Default })
+}
+function Read-PathRaw {
     param([string]$Prompt, [string]$Default = "")
     $label = "$Prompt" + $(if ($Default) { " [$Default]" } else { "" })
     $redirected = $true; try { $redirected = [Console]::IsInputRedirected } catch { }
@@ -90,7 +141,16 @@ function Read-Path {
     }
 }
 function Ts { Get-Date -Format 'yyyyMMdd_HHmmss' }
-function Test-Yes { param([string]$Prompt) return ((Read-Host $Prompt) -match '^[YySs]') }
+function Test-Yes { param([string]$Prompt) return ((Read-Line $Prompt) -match '^[YySs]') }
+
+# At the end of an analysis: open the report with the program Windows uses for .html (the default
+# browser). Asked only at an interactive console.
+function Open-Report {
+    param([string]$Path)
+    $redirected = $true; try { $redirected = [Console]::IsInputRedirected } catch { }
+    if ($redirected -or -not $Path -or -not (Test-Path -LiteralPath $Path)) { return }
+    if ("$(Read-Host 'Open the report in your browser? (Y/n)')".Trim() -notmatch '^[Nn]') { Invoke-Item -LiteralPath $Path }
+}
 
 function Test-IsAdmin {
     try { return ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) }
@@ -119,12 +179,12 @@ function Invoke-CollectStep {
     # Encryption of the snapshot (.hbx): nothing is written in clear. The password goes to the collector
     # in this process, never on a command line.
     Write-Host "`nThe snapshot describes this machine in detail. Encrypt it: with a password (asked again when you analyze it), or to a certificate (a .cer file or a thumbprint; only the holder of the private key can read it)." -ForegroundColor DarkGray
-    $encAns = "$(Read-Host 'Encrypt the snapshot? [P]assword, [C]ertificate, [N]o (P/c/n)')".Trim().ToUpper()
+    $encAns = "$(Read-Line 'Encrypt the snapshot? [P]assword, [C]ertificate, [N]o (p/c/N)')".Trim().ToUpper()
     if ($encAns -eq 'C') {
         $cert = Read-Path 'Certificate (.cer file or thumbprint)'
         if ($cert) { $p['EncryptCertificate'] = $cert } else { Write-Host 'No certificate given: the snapshot is not encrypted.' -ForegroundColor Yellow }
     }
-    elseif ($encAns -ne 'N') {
+    elseif ($encAns -eq 'P') {
         $pw1 = Read-Host 'Password' -AsSecureString
         $pw2 = Read-Host 'Password again' -AsSecureString
         $b1 = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($pw1); $b2 = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($pw2)
@@ -209,7 +269,8 @@ function Select-Snapshot {
 function Get-AnalysisParams {
     param([string]$Snapshot = '', [bool]$WithAi = $false)
     $ap = @{}
-    if (-not $Snapshot) { $Snapshot = Select-Snapshot }
+    # The snapshot is saved as the path it resolved to, not as the number picked in the list.
+    if (-not $Snapshot) { $Snapshot = Get-Answer 'Snapshot' { Select-Snapshot } }
     if (-not $Snapshot -or -not (Test-Path -LiteralPath $Snapshot)) { Write-Host "Snapshot not found." -ForegroundColor Red; return $null }
     $ap['Snapshot'] = $Snapshot
     # Encrypted snapshots: the password is asked once here, so the AI re-run does not ask again.
@@ -227,21 +288,21 @@ function Get-AnalysisParams {
         $hostCount = @(Get-SnapshotList -Dir $Snapshot -Recurse | ForEach-Object { $_.Host.ToLower() } | Sort-Object -Unique).Count
         if ($hostCount -gt 1) {
             Write-Host "`n$hostCount hosts found: HostBadger can also write one report per host, next to the fleet report." -ForegroundColor DarkGray
-            $ans = "$(Read-Host 'One report per host? (Y/n)')".Trim()
+            $ans = "$(Read-Line 'One report per host? (Y/n)')".Trim()
             if ($ans -notmatch '^[Nn]') { $ap['PerHost'] = $true }
         }
     }
     Write-Host "`nThe report also judges about 500 DISA STIG registry rules (Windows 11, Defender, Firewall, Edge, Chrome, Firefox, Office). A host that is not managed against the STIG shows hundreds of 'not configured' findings." -ForegroundColor DarkGray
-    $stigAns = "$(Read-Host 'Include the DISA STIG rules? (Y/n)')".Trim()
+    $stigAns = "$(Read-Line 'Include the DISA STIG rules? (Y/n)')".Trim()
     if ($stigAns -match '^[Nn]') { $ap['SkipStig'] = $true }
-    $cisAns = "$(Read-Host 'Show the CIS-based findings in the report? (Y/n)')".Trim()
+    $cisAns = "$(Read-Line 'Show the CIS-based findings in the report? (Y/n)')".Trim()
     if ($cisAns -match '^[Nn]') { $ap['HideCis'] = $true }
     if (-not $ap.ContainsKey('SkipStig')) {
-        $stigShow = "$(Read-Host 'Show the DISA STIG findings in the report? (Y/n)')".Trim()
+        $stigShow = "$(Read-Line 'Show the DISA STIG findings in the report? (Y/n)')".Trim()
         if ($stigShow -match '^[Nn]') { $ap['HideStig'] = $true }
     }
     Write-Host "`nCISA KEV: installed software can be compared with the catalog of vulnerabilities known to be exploited. The match is by vendor and product name only (the catalog has no version ranges), so it is a lead to verify. Downloading connects to www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json (one HTTPS GET, nothing is sent); a copy is kept next to the report." -ForegroundColor DarkGray
-    $kevAns = "$(Read-Host 'CISA KEV catalog: [N]one, [O]nline download, or a [F]ile you already have (N/o/f)')".Trim().ToUpper()
+    $kevAns = "$(Read-Line 'CISA KEV catalog: [N]one, [O]nline download, or a [F]ile you already have (N/o/f)')".Trim().ToUpper()
     if ($kevAns -eq 'O') { $ap['KevOnline'] = $true }
     elseif ($kevAns -eq 'F') {
         $kevPath = Read-Path 'Path of known_exploited_vulnerabilities.json'
@@ -264,21 +325,128 @@ function Get-AnalysisParams {
     if ($exc) { if (Test-Path -LiteralPath $exc) { $ap['ExceptionsFile'] = $exc } else { Write-Host "Not found, exceptions skipped: $exc" -ForegroundColor Yellow } }
     Write-Host "`nLocal administrators: HostBadger reports every member of the local Administrators group that it doesn't expect (Domain Admins and the built-in Administrator are always expected)." -ForegroundColor DarkGray
     Write-Host "If some belong there (for example an IT group), list them as DOMAIN/Name or by SID, comma separated, and they won't be reported." -ForegroundColor DarkGray
-    $adm = Read-Host "Allowed local administrators, e.g. CORP/Workstation Admins, CORP/helpdesk (Enter = none)"
+    $adm = Read-Line "Allowed local administrators, e.g. CORP/Workstation Admins, CORP/helpdesk (Enter = none)"
     if ($adm.Trim()) { $ap['AllowedAdmins'] = @($adm -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
     Write-Host "`nEDR: HostBadger shows which known EDR agent each host runs (CrowdStrike, SentinelOne, Defender for Endpoint, Carbon Black, Cortex XDR, Sophos, Trend Micro and others) and flags one that is stopped. Name the one every host should have and a host without it is flagged too." -ForegroundColor DarkGray
-    $edr = Read-Host "EDR every host should run, e.g. CrowdStrike or SentinelOne, comma separated (Enter = none)"
+    $edr = Read-Line "EDR every host should run, e.g. CrowdStrike or SentinelOne, comma separated (Enter = none)"
     if ($edr.Trim()) { $ap['ExpectedEdr'] = @($edr -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+    # Everything asked: show it, and let any answer be changed before the run.
+    $ap = Edit-AnalysisParams $ap
+    if (-not $ap) { Write-Host 'Cancelled: nothing was run.' -ForegroundColor Yellow; return $null }
     # Option 4 asks about the AI step up front. Options 2 and 3 offer it once the report is written.
     if ($WithAi) { Add-AiParams -Params $ap -Mode (Read-AiMode 'AI summary (Gemini): [D]ry run (write the prompt, send nothing), [S]end, [C]onfirm first after reading the prompt (D/s/c)' -Default 'D') }
     return $ap
+}
+
+# The answers of an analysis, numbered, before it runs: Enter runs it, a number changes that answer (a
+# yes/no flips, a path or a list is typed again, "-" clears it), Q cancels. A change also updates the
+# saved answer under its question, so a resumed run gets it.
+function Edit-AnalysisParams {
+    param([hashtable]$Ap)
+    $q = @{
+        PerHost = 'One report per host? (Y/n)'; Stig = 'Include the DISA STIG rules? (Y/n)'; Cis = 'Show the CIS-based findings in the report? (Y/n)'
+        StigShow = 'Show the DISA STIG findings in the report? (Y/n)'; Kev = 'CISA KEV catalog: [N]one, [O]nline download, or a [F]ile you already have (N/o/f)'
+        KevFile = 'Path of known_exploited_vulnerabilities.json'; Drivers = 'Download a fresh LOLDrivers catalog from www.loldrivers.io? (y/N)'
+        Eol = 'Download software lifecycle data from endoflife.date? (y/N)'; Choco = 'Download program versions from community.chocolatey.org? (y/N)'
+        Cve = 'Download CVEs from NVD and EPSS scores from FIRST? (y/N)'; Jsonl = 'Also write JSON Lines for a SIEM? (y/N)'; JsonlPath = 'JSON Lines path'
+        Rem = 'Write one remediation script per host? (y/N)'; RemPath = 'Folder for the remediation scripts'
+        Compare = 'Findings CSV of an earlier run, to show new and resolved (optional, Enter to skip)'; Exceptions = 'Exceptions file (accepted risks, optional, Enter to skip)'
+        Admins = 'Allowed local administrators, e.g. CORP/Workstation Admins, CORP/helpdesk (Enter = none)'
+        Edr = 'EDR every host should run, e.g. CrowdStrike or SentinelOne, comma separated (Enter = none)'
+    }
+    $flag = { param($k, $on, [string]$Key, [string]$OnText, [string]$OffText) if ($on) { $Ap[$k] = $true } else { $Ap.Remove($k) }; Set-WizardValue $Key $(if ($on) { $OnText } else { $OffText }) }
+    $yn = { param($b) if ($b) { 'yes' } else { 'no' } }
+    while ($true) {
+        $isDir = (Test-Path -LiteralPath $Ap['Snapshot']) -and (Get-Item -LiteralPath $Ap['Snapshot']).PSIsContainer
+        $multi = $isDir -and @(Get-SnapshotList -Dir $Ap['Snapshot'] -Recurse | ForEach-Object { $_.Host.ToLower() } | Sort-Object -Unique).Count -gt 1
+        $items = New-Object System.Collections.Generic.List[object]
+        $items.Add(@('Snapshot', 'Snapshot', $Ap['Snapshot'])); $items.Add(@('OutHtml', 'Report', $Ap['OutHtml']))
+        if ($multi) { $items.Add(@('PerHost', 'One report per host', (& $yn $Ap['PerHost']))) }
+        $items.Add(@('Stig', 'DISA STIG rules', (& $yn (-not $Ap['SkipStig']))))
+        $items.Add(@('Cis', 'Show CIS-based findings', (& $yn (-not $Ap['HideCis']))))
+        if (-not $Ap['SkipStig']) { $items.Add(@('StigShow', 'Show DISA STIG findings', (& $yn (-not $Ap['HideStig'])))) }
+        $items.Add(@('Kev', 'CISA KEV catalog', $(if ($Ap['KevOnline']) { 'download (www.cisa.gov)' } elseif ($Ap['KevFile']) { "file $($Ap['KevFile'])" } else { 'none' })))
+        $items.Add(@('Drivers', 'LOLDrivers catalog', $(if ($Ap['DriversOnline']) { 'download (www.loldrivers.io)' } else { 'the copy HostBadger ships' })))
+        $items.Add(@('Eol', 'Software lifecycle', $(if ($Ap['EolOnline']) { 'download (endoflife.date)' } else { 'the table HostBadger ships' })))
+        $items.Add(@('Choco', 'Program versions', $(if ($Ap['ChocoOnline']) { 'download (community.chocolatey.org)' } else { 'no' })))
+        $items.Add(@('Cve', 'CVEs and EPSS', $(if ($Ap['CveOnline']) { 'download (services.nvd.nist.gov, epss.empiricalsecurity.com)' } else { 'no' })))
+        $items.Add(@('Jsonl', 'JSON Lines', $(if ($Ap['OutJsonl']) { $Ap['OutJsonl'] } else { 'no' })))
+        $items.Add(@('Rem', 'Remediation scripts', $(if ($Ap['OutRemediation']) { $Ap['OutRemediation'] } else { 'no' })))
+        $items.Add(@('Compare', 'Compare with', $(if ($Ap['CompareTo']) { $Ap['CompareTo'] } else { 'no' })))
+        $items.Add(@('Exceptions', 'Exceptions file', $(if ($Ap['ExceptionsFile']) { $Ap['ExceptionsFile'] } else { 'no' })))
+        $items.Add(@('Admins', 'Allowed administrators', $(if ($Ap['AllowedAdmins']) { @($Ap['AllowedAdmins']) -join ', ' } else { 'none' })))
+        $items.Add(@('Edr', 'Expected EDR', $(if ($Ap['ExpectedEdr']) { @($Ap['ExpectedEdr']) -join ', ' } else { 'none' })))
+        Write-Host "`nSettings for this run:" -ForegroundColor Cyan
+        for ($i = 0; $i -lt $items.Count; $i++) { Write-Host ("  [{0,2}] {1,-24} {2}" -f ($i + 1), $items[$i][1], $items[$i][2]) }
+        $pick = "$(Read-Host 'Run with these settings? Enter = run, a number = change it, Q = cancel')".Trim()
+        if (-not $pick) { return $Ap }
+        if ($pick -match '^[Qq]') { return $null }
+        if ($pick -notmatch '^\d+$' -or [int]$pick -lt 1 -or [int]$pick -gt $items.Count) { Write-Host "Pick 1-$($items.Count), Enter or Q." -ForegroundColor Yellow; continue }
+        switch ($items[[int]$pick - 1][0]) {
+            'Snapshot' {
+                $v = Read-PathRaw 'Snapshot file, zip or folder' $Ap['Snapshot']
+                if ($v -and (Test-Path -LiteralPath $v)) {
+                    $Ap['Snapshot'] = $v; Set-WizardValue 'Snapshot' $v
+                    $hbx = if ((Get-Item -LiteralPath $v).PSIsContainer) { @(Get-ChildItem -LiteralPath $v -Recurse -File -Filter 'hostsnapshot_*.hbx' -ErrorAction SilentlyContinue) } else { @(Get-Item -LiteralPath $v | Where-Object { $_.Extension -eq '.hbx' }) }
+                    if ($hbx.Count -gt 0 -and -not $Ap['SnapshotPassword']) {
+                        $pw = Read-Host "Password of the $($hbx.Count) encrypted snapshot(s) (Enter if they are encrypted to a certificate)" -AsSecureString
+                        if ($pw.Length -gt 0) { $Ap['SnapshotPassword'] = $pw }
+                    }
+                }
+                else { Write-Host "Not found, unchanged: $v" -ForegroundColor Yellow }
+            }
+            'OutHtml' { $v = Read-PathRaw 'Report HTML path' $Ap['OutHtml']; if ($v) { $Ap['OutHtml'] = $v; Set-WizardValue 'Report HTML path' $v } }
+            'PerHost' { & $flag 'PerHost' (-not $Ap['PerHost']) $q.PerHost '' 'n' }
+            'Stig' { $skip = -not $Ap['SkipStig']; & $flag 'SkipStig' $skip $q.Stig 'n' ''; if ($skip) { $Ap.Remove('HideStig') } }
+            'Cis' { & $flag 'HideCis' (-not $Ap['HideCis']) $q.Cis 'n' '' }
+            'StigShow' { & $flag 'HideStig' (-not $Ap['HideStig']) $q.StigShow 'n' '' }
+            'Kev' {
+                $Ap.Remove('KevOnline'); $Ap.Remove('KevFile')
+                $k = "$(Read-Host 'CISA KEV catalog: [N]one, [O]nline download, or a [F]ile you already have (N/o/f)')".Trim().ToUpper()
+                Set-WizardValue $q.Kev $k
+                if ($k -eq 'O') { $Ap['KevOnline'] = $true }
+                elseif ($k -eq 'F') {
+                    $kp = Read-PathRaw $q.KevFile ''
+                    if ($kp -and (Test-Path -LiteralPath $kp)) { $Ap['KevFile'] = $kp; Set-WizardValue $q.KevFile $kp } else { Write-Host "Not found, KEV skipped: $kp" -ForegroundColor Yellow }
+                }
+            }
+            'Drivers' { & $flag 'DriversOnline' (-not $Ap['DriversOnline']) $q.Drivers 'y' '' }
+            'Eol' { & $flag 'EolOnline' (-not $Ap['EolOnline']) $q.Eol 'y' '' }
+            'Choco' { & $flag 'ChocoOnline' (-not $Ap['ChocoOnline']) $q.Choco 'y' '' }
+            'Cve' { & $flag 'CveOnline' (-not $Ap['CveOnline']) $q.Cve 'y' '' }
+            'Jsonl' {
+                $v = Read-PathRaw 'JSON Lines path ("-" for none)' $(if ($Ap['OutJsonl']) { $Ap['OutJsonl'] } else { $Ap['OutHtml'] -replace '\.html?$', '.jsonl' })
+                if ($v -eq '-') { $Ap.Remove('OutJsonl'); Set-WizardValue $q.Jsonl '' } else { $Ap['OutJsonl'] = $v; Set-WizardValue $q.Jsonl 'y'; Set-WizardValue $q.JsonlPath $v }
+            }
+            'Rem' {
+                $v = Read-PathRaw 'Folder for the remediation scripts ("-" for none)' $(if ($Ap['OutRemediation']) { $Ap['OutRemediation'] } else { $Ap['OutHtml'] -replace '\.html?$', '_remediation' })
+                if ($v -eq '-') { $Ap.Remove('OutRemediation'); Set-WizardValue $q.Rem '' } else { $Ap['OutRemediation'] = $v; Set-WizardValue $q.Rem 'y'; Set-WizardValue $q.RemPath $v }
+            }
+            'Compare' {
+                $v = Read-PathRaw 'Findings CSV of an earlier run ("-" for none)' $Ap['CompareTo']
+                if ($v -eq '-' -or -not $v) { $Ap.Remove('CompareTo'); Set-WizardValue $q.Compare '' } elseif (Test-Path -LiteralPath $v) { $Ap['CompareTo'] = $v; Set-WizardValue $q.Compare $v } else { Write-Host "Not found, unchanged: $v" -ForegroundColor Yellow }
+            }
+            'Exceptions' {
+                $v = Read-PathRaw 'Exceptions file ("-" for none)' $Ap['ExceptionsFile']
+                if ($v -eq '-' -or -not $v) { $Ap.Remove('ExceptionsFile'); Set-WizardValue $q.Exceptions '' } elseif (Test-Path -LiteralPath $v) { $Ap['ExceptionsFile'] = $v; Set-WizardValue $q.Exceptions $v } else { Write-Host "Not found, unchanged: $v" -ForegroundColor Yellow }
+            }
+            'Admins' {
+                $v = "$(Read-Host 'Allowed local administrators, comma separated ("-" for none)')".Trim()
+                if ($v -eq '-') { $Ap.Remove('AllowedAdmins'); Set-WizardValue $q.Admins '' } elseif ($v) { $Ap['AllowedAdmins'] = @($v -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }); Set-WizardValue $q.Admins $v }
+            }
+            'Edr' {
+                $v = "$(Read-Host 'EDR every host should run, comma separated ("-" for none)')".Trim()
+                if ($v -eq '-') { $Ap.Remove('ExpectedEdr'); Set-WizardValue $q.Edr '' } elseif ($v) { $Ap['ExpectedEdr'] = @($v -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }); Set-WizardValue $q.Edr $v }
+            }
+        }
+    }
 }
 
 # Ask which AI mode to use. Returns D, S, C, or N for none.
 function Read-AiMode {
     param([string]$Prompt, [string]$Default = 'N')
     Write-Host "`nAI step (Gemini): host names, domains, accounts, groups, SIDs, paths, service/task names and addresses become tokens first; a leak check refuses to send if one survives. The exact text is saved next to the report." -ForegroundColor Cyan
-    $m = (Read-Host $Prompt).Trim().ToUpper()
+    $m = (Read-Line $Prompt).Trim().ToUpper()
     if (-not $m) { return $Default }
     if ($m -in 'N', 'D', 'S', 'C') { return $m }
     return $Default
@@ -291,7 +459,7 @@ function Add-AiParams {
     if ($Mode -eq 'N') { return }
     if (-not $Params.ContainsKey('SkipStig')) {
         Write-Host "`nThe DISA STIG findings can be hundreds per host. Sending them makes the prompt very large and Gemini may time out." -ForegroundColor Yellow
-        $sendStig = "$(Read-Host 'Also send the DISA STIG findings to Gemini? (y/N)')".Trim()
+        $sendStig = "$(Read-Line 'Also send the DISA STIG findings to Gemini? (y/N)')".Trim()
         if ($sendStig -match '^[YySs]') { $Params['AiIncludeStig'] = $true }
     }
     if ($Mode -eq 'S' -or $Mode -eq 'C') {
@@ -302,9 +470,9 @@ function Add-AiParams {
         if ($env:GEMINI_API_KEY) {
             $Params['SendToAI'] = $true
             if ($Mode -eq 'C') { $Params['AiConfirm'] = $true }
-            $m = Read-Host "Gemini model [gemini-3.8-flash]"
+            $m = Read-Line "Gemini model [gemini-3.8-flash]"
             if ($m.Trim()) { $Params['Model'] = $m.Trim() }
-            $r = Read-Host "Gemini attempts on timeout / busy server, 0 = keep trying [3]"
+            $r = Read-Line "Gemini attempts on timeout / busy server, 0 = keep trying [3]"
             if ($r -match '^\d+$') { $Params['AiMaxAttempts'] = [int]$r }
             return
         }
@@ -388,6 +556,8 @@ function Invoke-RemediateStep {
     if (-not (Test-Yes 'Continue? (y/N)')) { return }
     $run = Join-Path $script:RemediationRoot (Ts)
     New-Item -ItemType Directory -Path $run -Force | Out-Null
+    # Never resumed: an interrupted run is only explained at the next start (and option 7 offered).
+    Start-WizardState 'remediate'; Set-WizardValue 'run' $run
     Invoke-Sub 'Collect-HostSnapshot.ps1' @{ OutDir = $run }
     $snap = @(Get-ChildItem -LiteralPath $run -Filter 'hostsnapshot_*.zip' -ErrorAction SilentlyContinue | Select-Object -First 1)
     if ($snap.Count -eq 0) { Write-Host 'No snapshot produced; nothing changed.' -ForegroundColor Red; return }
@@ -400,6 +570,7 @@ function Invoke-RemediateStep {
         if ((Read-Host 'Apply these changes to this machine? Type YES to apply') -cne 'YES') { Write-Host 'Nothing changed.' -ForegroundColor Yellow }
         elseif (New-HbRestorePoint) {
             $rb = Join-Path $run 'rollback.json'
+            Set-WizardStage 'applying'
             try { & $fix[0].FullName -Apply -RollbackFile $rb | Out-Host } catch { Write-Host "The fix script stopped: $($_.Exception.Message)" -ForegroundColor Red }
             if (Test-Path -LiteralPath $rb) { Write-Host "Previous values saved in $rb. Menu 7 puts them back." -ForegroundColor Green }
         }
@@ -431,6 +602,28 @@ function Invoke-RestoreStep {
 }
 
 Show-Banner
+# An unfinished run from last time: offered again (a remediation is only explained, never resumed).
+if ((Test-ResumeEnabled) -and (Test-Path -LiteralPath $script:StatePath)) {
+    $st = $null; try { $st = Get-Content -LiteralPath $script:StatePath -Raw | ConvertFrom-Json } catch { }
+    $flowNames = @{ collect = 'Collect this machine'; analyze = 'Analyze snapshots'; 'collect-analyze' = 'Collect and analyze this machine'; ai = 'Add an AI summary'; remediate = 'Remediate this machine' }
+    $flowChoice = @{ collect = '1'; analyze = '2'; 'collect-analyze' = '3'; ai = '4' }
+    if ($st -and $flowNames.ContainsKey("$($st.flow)")) {
+        Write-Host "`nUnfinished run, saved $($st.savedUtc): $($flowNames["$($st.flow)"])" -ForegroundColor Cyan
+        if ("$($st.flow)" -eq 'remediate') {
+            if ("$($st.stage)" -eq 'applying') { Write-Host "It stopped while applying fixes: some settings may have changed. The previous values are in $($st.answers.run)\rollback.json; option 7 puts them back." -ForegroundColor Yellow }
+            else { Write-Host 'It stopped before anything was applied: nothing changed. Choose 6 to start again.' -ForegroundColor Yellow }
+            Clear-WizardState
+        }
+        else {
+            $saved = @{}; foreach ($pp in @($st.answers.PSObject.Properties)) { $saved[$pp.Name] = "$($pp.Value)" }
+            foreach ($k in @('Snapshot', 'Report HTML path', 'Snapshot folder', 'collectedDir')) { if ($saved.ContainsKey($k) -and $saved[$k]) { Write-Host "  $k`: $($saved[$k])" -ForegroundColor DarkGray } }
+            Write-Host "  $($saved.Count) answer(s) saved$(if ("$($st.stage)" -eq 'running') { '; it stopped while the analysis was running' }). Passwords and keys are asked again." -ForegroundColor DarkGray
+            if ("$(Read-Host 'Resume it? (Y/n)')".Trim() -notmatch '^[Nn]') { $script:Resume = $saved; $script:ResumeChoice = $flowChoice["$($st.flow)"] }
+            else { Clear-WizardState }
+        }
+    }
+    else { Clear-WizardState }
+}
 while ($true) {
     Write-Host ""
     Write-Host "  [1] Collect this machine        (read-only snapshot, as administrator for full coverage)" -ForegroundColor White
@@ -441,19 +634,50 @@ while ($true) {
     Write-Host "  [6] Remediate this machine      (preview, apply after YES, restore point and rollback; administrator)" -ForegroundColor White
     Write-Host "  [7] Restore a remediation backup" -ForegroundColor White
     Write-Host "  [Q] Quit" -ForegroundColor White
-    $choice = (Read-Host "`nChoice").Trim().ToUpper()
+    if ($script:ResumeChoice) { $choice = $script:ResumeChoice; $script:ResumeChoice = ''; Write-Host "`nChoice: $choice   (resumed)" -ForegroundColor DarkGray }
+    else { $choice = (Read-Host "`nChoice").Trim().ToUpper() }
     switch ($choice) {
-        '1' { [void](Invoke-CollectStep) }
-        '2' { $ap = Get-AnalysisParams; if ($ap) { Invoke-Sub 'HostBadger.ps1' $ap; Invoke-AiOffer $ap } }
+        '1' { Start-WizardState 'collect'; [void](Invoke-CollectStep); Clear-WizardState }
+        '2' {
+            Start-WizardState 'analyze'
+            $ap = Get-AnalysisParams
+            if ($ap) {
+                Set-WizardStage 'running'
+                Invoke-Sub 'HostBadger.ps1' $ap
+                # Kept when the report did not come out, so the same answers can be tried again.
+                if (Test-Path -LiteralPath $ap['OutHtml']) { Clear-WizardState }
+                Invoke-AiOffer $ap; Open-Report $ap['OutHtml']
+            }
+            else { Clear-WizardState }
+        }
         '3' {
-            $dir = [string](@(Invoke-CollectStep) | Select-Object -Last 1)
+            Start-WizardState 'collect-analyze'
+            # A run that stopped after the collection resumes with the analysis.
+            $dir = Get-Answer 'collectedDir' { [string](@(Invoke-CollectStep) | Select-Object -Last 1) }
             # The password just typed for the collection opens the snapshot without asking again
             # (Get-AnalysisParams passes $script:CollectPassword on).
-            if ($dir) { $ap = Get-AnalysisParams -Snapshot $dir; if ($ap) { Invoke-Sub 'HostBadger.ps1' $ap; Invoke-AiOffer $ap } }
+            $ap = if ($dir) { Get-AnalysisParams -Snapshot $dir } else { $null }
+            if ($ap) {
+                Set-WizardStage 'running'
+                Invoke-Sub 'HostBadger.ps1' $ap
+                if (Test-Path -LiteralPath $ap['OutHtml']) { Clear-WizardState }
+                Invoke-AiOffer $ap; Open-Report $ap['OutHtml']
+            }
+            else { Clear-WizardState }
         }
-        '4' { $ap = Get-AnalysisParams -WithAi $true; if ($ap) { Invoke-Sub 'HostBadger.ps1' $ap } }
+        '4' {
+            Start-WizardState 'ai'
+            $ap = Get-AnalysisParams -WithAi $true
+            if ($ap) {
+                Set-WizardStage 'running'
+                Invoke-Sub 'HostBadger.ps1' $ap
+                if (Test-Path -LiteralPath $ap['OutHtml']) { Clear-WizardState }
+                Open-Report $ap['OutHtml']
+            }
+            else { Clear-WizardState }
+        }
         '5' { Invoke-Sub 'Test-HostBadgerSafety.ps1' }
-        '6' { Invoke-RemediateStep }
+        '6' { Invoke-RemediateStep; Clear-WizardState }
         '7' { Invoke-RestoreStep }
         'Q' { break }
         default { Write-Host "Pick 1-7 or Q." -ForegroundColor Yellow }

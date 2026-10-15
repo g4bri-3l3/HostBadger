@@ -71,6 +71,7 @@ $allowed = [ordered]@{
     'Console' = @('Write-Host', 'Write-Warning', 'Out-Null', 'Out-Host')
     'Optional AI step only (lib\AI.ps1 waits between retries; the entry points ask questions)' = @('Start-Sleep', 'Read-Host')
     'Guided menu only, "Remediate this machine" after YES (Start-HostBadger.ps1): restore point, preinstalled apps' = @('Checkpoint-Computer', 'Get-AppxPackage', 'Get-AppxProvisionedPackage', 'Remove-AppxPackage', 'Remove-AppxProvisionedPackage')
+    'Guided menu only: open the finished report with the default program for .html, after asking' = @('Invoke-Item')
     'Data handling' = @('ConvertTo-Json', 'ConvertFrom-Json', 'Select-Object', 'Where-Object', 'ForEach-Object', 'Sort-Object', 'Group-Object', 'Measure-Object', 'New-Object', 'Add-Member')
 }
 $allowedSet = @{}; foreach ($k in $allowed.Keys) { foreach ($c in $allowed[$k]) { $allowedSet[$c.ToLower()] = $k } }
@@ -80,7 +81,7 @@ $changeVerbs = '^(Set|New|Remove|Add|Enable|Disable|Clear|Start|Stop|Restart|Sus
 $ownFileCommands = @('new-item', 'remove-item', 'set-content', 'new-object', 'add-member', 'add-type')
 # Commands that exist only for the optional AI step, and the one file each of them may appear in.
 $restrictedCommands = @{ 'start-sleep' = @('lib/AI.ps1'); 'read-host' = @('HostBadger.ps1', 'Start-HostBadger.ps1') }
-foreach ($c in 'checkpoint-computer', 'get-appxpackage', 'get-appxprovisionedpackage', 'remove-appxpackage', 'remove-appxprovisionedpackage') { $restrictedCommands[$c] = @('Start-HostBadger.ps1') }
+foreach ($c in 'checkpoint-computer', 'get-appxpackage', 'get-appxprovisionedpackage', 'remove-appxpackage', 'remove-appxprovisionedpackage', 'invoke-item') { $restrictedCommands[$c] = @('Start-HostBadger.ps1') }
 $bannedCommands = @('Invoke-Expression', 'iex', 'Start-Process', 'Invoke-WebRequest', 'Invoke-RestMethod', 'iwr', 'irm', 'curl', 'wget', 'Start-Job',
     'Invoke-CimMethod', 'Invoke-WmiMethod', 'Set-ItemProperty', 'New-ItemProperty', 'Remove-ItemProperty', 'Set-MpPreference', 'Add-MpPreference',
     'reg', 'reg.exe', 'net', 'net.exe', 'sc', 'sc.exe', 'schtasks', 'schtasks.exe', 'Enter-PSSession', 'Invoke-Command', 'New-PSSession')

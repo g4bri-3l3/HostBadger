@@ -264,9 +264,14 @@ function Get-DashboardHtml {
     # CIS.
     if ($comp.CisApplicable -gt 0) {
         $okC = $comp.CisApplicable - $comp.CisFailed; $pC = 100 * $okC / $comp.CisApplicable
-        $benches = @($All | Where-Object { $_.CisBenchmark } | ForEach-Object { "$($_.CisBenchmark)" -replace '^CIS Microsoft ', '' -replace ' Benchmark', '' } | Select-Object -Unique)
+        # Each benchmark with how many findings quote it. A check that follows a rule only the Windows
+        # Server benchmarks have (mDNS, 18.6.4.1) quotes Server 2022 on a workstation too: say so.
+        $roleOf = @{}; foreach ($hx in $hostsArr) { $roleOf["$($hx.Name)"] = "$($hx.Role)" }
+        $benches = @($All | Where-Object { $_.CisBenchmark } | Group-Object CisBenchmark | Sort-Object Count -Descending | ForEach-Object { "$("$($_.Name)" -replace '^CIS Microsoft ', '' -replace ' Benchmark', '') ($($_.Count))" })
+        $srvOnWks = @($All | Where-Object { "$($_.CisBenchmark)" -match 'Windows Server' -and $roleOf["$($_.Host)"] -eq 'workstation' } | ForEach-Object { $_.Type } | Select-Object -Unique)
+        if ($srvOnWks.Count) { $benches += "on workstations, $($srvOnWks -join ', ') follow$(if ($srvOnWks.Count -eq 1) { 's' }) a rule that only the Windows Server benchmarks have, so the Server rule number is quoted" }
         & $w "<div class='dash-panel'><div class='dash-panel-head'>$(Get-RingSvg -Percent $pC -Big "$([int][Math]::Round($pC))%" -Small 'clean')<div><div class='dash-panel-title'>CIS benchmarks</div><div class='meta'>$okC of $($comp.CisApplicable) CIS-based checks clean</div></div></div>"
-        if ($benches.Count) { & $w "<p class='meta'>Rules quoted from: $(& $H ($benches -join '; '))</p>" }
+        if ($benches.Count) { & $w "<p class='meta'>Rules quoted from (findings): $(& $H ($benches -join '; '))</p>" }
         & $w '</div>'
     }
     # Essential Eight: related checks that were judged on each host, and how many are clean.

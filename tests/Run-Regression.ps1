@@ -26,6 +26,9 @@ function Assert-Equal($Actual, $Expected, [string]$What) {
 # on a local port where nothing listens. The tests that use the mock endpoint put this back after.
 $savedGeminiKey = $env:GEMINI_API_KEY; $savedGeminiBase = $env:HOSTBADGER_GEMINI_BASEURL
 $env:GEMINI_API_KEY = 'regression-fake-key'
+# The guided menu's saved progress is off in every test but the one that checks it: a test that stopped
+# halfway must not leave a "resume?" question that shifts the typed answers of the next one.
+$env:HOSTBADGER_NO_RESUME = '1'
 $script:NoGemini = 'http://127.0.0.1:9'
 $env:HOSTBADGER_GEMINI_BASEURL = $script:NoGemini
 # Every test writes under $work: the project folder must not gain a report or an AI file.
@@ -520,11 +523,14 @@ $wizDir = Join-Path $work 'wizard'; New-Item -ItemType Directory -Path $wizDir -
 $launcher = Join-Path $root 'Start-HostBadger.ps1'
 # The remediation question follows JSON Lines: "y" and Enter on the folder (next to the report) when the
 # offer is "n", plain Enter (no) otherwise.
-$wizAnswers = { param($offer) (@('2', $fleet, (Join-Path $wizDir 'w.html'), '', '', '', '', '', 'n', '', '', '', '') + $(if ($offer -eq 'n') { @('y', '') } else { @('') }) + @('', '', '', '', $offer) + $(if ($offer -eq 'd') { @('', (Join-Path $wizDir 'w_prompt.txt')) } else { @() }) + @('q')) -join "`n" }
+$wizAnswers = { param($offer) (@('2', $fleet, (Join-Path $wizDir 'w.html'), '', '', '', '', '', 'n', '', '', '', '') + $(if ($offer -eq 'n') { @('y', '') } else { @('') }) + @('', '', '', '', '', $offer) + $(if ($offer -eq 'd') { @('', (Join-Path $wizDir 'w_prompt.txt')) } else { @() }) + @('q')) -join "`n" }
 $wizNo = (& $wizAnswers 'n') | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
 Assert-True ($wizNo -match 'Report ready:' -and -not (Test-Path (Join-Path $wizDir 'w_prompt.txt')) -and [regex]::Matches($wizNo, 'Hosts analyzed').Count -eq 1) 'launcher: after the report it offers the AI summary, and "n" does nothing more'
 Assert-True ($wizNo -match 'remediate_<host>\.ps1' -and @(Get-ChildItem (Join-Path $wizDir 'w_remediation') -Filter 'remediate_*.ps1' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name } | Sort-Object) -join ',' -eq 'remediate_DC01.ps1,remediate_WKS-ACCT-017.ps1') 'launcher: asks about per-host remediation scripts and writes them next to the report (the hosts with a fix)'
 $wizDry = (& $wizAnswers 'd') | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+# Before the run every answer is listed and can be changed: 4 flips "DISA STIG rules", Enter runs.
+$wizEdit = (@('2', $fleet, (Join-Path $wizDir 'e.html'), '', '', '', '', '', 'n', '', '', '', '', '', '', '', '', '', '4', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+Assert-True ($wizEdit -match 'Settings for this run:' -and $wizEdit -match '\[ 4\] DISA STIG rules\s+no' -and (Test-Path (Join-Path $wizDir 'e.csv')) -and @(Import-Csv (Join-Path $wizDir 'e.csv') | Where-Object { $_.Type -like 'stig_*' }).Count -eq 0 -and @(Import-Csv (Join-Path $wizDir 'e.csv')).Count -gt 0) 'launcher: the answers are listed before the run and one can be changed (DISA STIG turned off)'
 Assert-True ((Test-Path (Join-Path $wizDir 'w_prompt.txt')) -and $wizDry -match 'Nothing sent') 'launcher: "d" after the report writes the prompt and sends nothing'
 # The launcher looks for snapshots by itself: it lists what it finds in a "snapshots" folder, marks an older
 # snapshot of the same host, takes the whole folder on Enter, or just the one you pick by number.
@@ -534,8 +540,8 @@ Copy-Item (Join-Path $fleet 'hostsnapshot_weak.json') (Join-Path $scanDir 'snaps
 Copy-Item (Join-Path $fleet 'hostsnapshot_hardened.json') (Join-Path $scanDir 'snapshots\hostsnapshot_SRV-APP-02_20261001080000.json')
 Push-Location $scanDir
 try {
-    $scanAll = (@('2', '', '', '', '', '', '', '', 'n', '', '', '', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
-    $scanOne = (@('2', '2', '', '', '', '', '', 'n', '', '', '', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    $scanAll = (@('2', '', '', '', '', '', '', '', 'n', '', '', '', '', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    $scanOne = (@('2', '2', '', '', '', '', '', 'n', '', '', '', '', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
     # Remediation: never applied in a test. Option 7 with no backup says so; option 6 stops for a
     # standard user, or is declined at "Continue?" when the tests run elevated.
     $rem7 = (@('7', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
@@ -547,6 +553,22 @@ Assert-True ($scanAll -match 'Hosts analyzed: 2') 'launcher: Enter takes the who
 Assert-True ($scanAll -match '2 hosts found: HostBadger can also write one report per host' -and $scanOne -notmatch 'one report per host') 'launcher: asks about per-host reports only for a folder with several hosts'
 Assert-True (@(Get-ChildItem $scanDir -Filter 'hostbadger_*_*-*.html' -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '_(WKS-ACCT-017|SRV-APP-02)\.html$' }).Count -eq 2) 'launcher: Enter on the per-host question writes one report per host (in .\output by default)'
 Assert-True ($scanOne -match 'Hosts analyzed: 1') 'launcher: a number picks one snapshot'
+# Saved progress: an analysis that stopped halfway is offered at the next start and resumes with the
+# answers it had (the rest is asked); a remediation that stopped is explained, never resumed.
+$resDir = Join-Path $work 'resume'; New-Item -ItemType Directory -Path (Join-Path $resDir 'output') -Force | Out-Null
+$resState = Join-Path $resDir 'output\hostbadger-wizard-state.json'; $resHtml = Join-Path $resDir 'r.html'
+$writeState = { param($o) [System.IO.File]::WriteAllText($resState, ($o | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding($false))) }
+& $writeState ([ordered]@{ version = 1; flow = 'analyze'; stage = 'running'; savedUtc = '2026-10-15 10:00 UTC'; answers = [ordered]@{ 'Snapshot' = $fleet; 'Report HTML path' = $resHtml; 'One report per host? (Y/n)' = 'n'; 'Include the DISA STIG rules? (Y/n)' = ''; 'Show the CIS-based findings in the report? (Y/n)' = ''; 'Show the DISA STIG findings in the report? (Y/n)' = ''; 'CISA KEV catalog: [N]one, [O]nline download, or a [F]ile you already have (N/o/f)' = 'N' } })
+Push-Location $resDir; $env:HOSTBADGER_NO_RESUME = ''
+try {
+    $resOut = (@('y', '', '', '', '', '', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    $resOk = (Test-Path $resHtml) -and -not (Test-Path $resState)
+    & $writeState ([ordered]@{ version = 1; flow = 'remediate'; stage = 'applying'; savedUtc = '2026-10-15 10:00 UTC'; answers = [ordered]@{ run = 'C:\x\output\remediation\20261015_100000' } })
+    $resRem = (@('q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+}
+finally { $env:HOSTBADGER_NO_RESUME = '1'; Pop-Location }
+Assert-True ($resOut -match 'Unfinished run, saved 2026-10-15 10:00 UTC: Analyze snapshots' -and $resOut -match 'Report HTML path -> .*\(resumed\)' -and $resOut -match 'Hosts analyzed: 5' -and $resOk) 'launcher: an interrupted analysis resumes with its saved answers, finishes, and forgets the saved state'
+Assert-True ($resRem -match 'stopped while applying fixes' -and $resRem -match 'option 7 puts them back' -and -not (Test-Path $resState)) 'launcher: an interrupted remediation is explained (restore offered), never resumed'
 Assert-True ($rem7 -match 'No remediation backup found' -and ($rem6 -match 'start an elevated PowerShell' -or $rem6 -match 'Nothing changes until you type YES') -and -not (Test-Path (Join-Path $scanDir 'output\remediation'))) 'launcher: remediation needs an administrator and a yes, and restore says when there is nothing to restore'
 $noKey = Join-Path $aiOut 'nokey'
 New-Item -ItemType Directory -Path $noKey -Force | Out-Null
