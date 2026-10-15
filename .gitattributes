@@ -1,0 +1,14 @@
+# Line endings: LF in the repository, CRLF in the working copy, whatever core.autocrlf
+# says. A tool that rewrites a file with LF (Git Bash sed -i) then changes nothing in git.
+* text=auto eol=crlf
+
+# Binary files: never converted.
+*.gif binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.zip binary
+*.gz binary
+*.hbx binary
+*.pfx binary
+*.cer binary
