@@ -28,16 +28,23 @@ $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 
 function Show-Banner {
-    Write-Host @'
-     _.--""--._
-   .'  |    |  '.
-  /    |    |    \      HostBadger 1.1
- |  (o)|    |(o)  |     Windows host hardening
- |     |    |     |     collect, analyze, optional AI summary
-  \    '.__.'    /
-   '._   \/   _.'
-      '--..--'
-'@ -ForegroundColor DarkYellow
+    $art = @(
+        ''
+        '    _.--""--._'
+        '  .''  |    |  ''.'
+        ' /    |    |    \      HostBadger v1.2'
+        '|  (o)|    |(o)  |     Windows host hardening'
+        '|     |    |     |     collect, analyze, optional AI summary'
+        ' \    ''.__.''    /'
+        '  ''._   \/   _.'''
+        '     ''--..--''          github.com/g4bri-3l3/HostBadger'
+        ''
+    )
+    $width = ($art | Measure-Object -Property Length -Maximum).Maximum + 4
+    $edge = ' ' + ('#' * ($width + 2))
+    Write-Host $edge -ForegroundColor DarkYellow
+    foreach ($line in $art) { Write-Host (' #  ' + $line.PadRight($width - 2) + '#') -ForegroundColor DarkYellow }
+    Write-Host $edge -ForegroundColor DarkYellow
 }
 
 function Invoke-Sub {

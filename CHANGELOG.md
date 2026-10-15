@@ -7,7 +7,30 @@ Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
 ## [Unreleased]
+
+## [1.2] - 2026-10-15
 ### Added
+- "Attacks it enables" for every check: what an attacker can do with the
+  finding (NTLM relay, credential dumping, privilege escalation, evasion...),
+  written for each of the 132 checks (one text per DISA STIG product, whose
+  rule IDs name the attack). Shown under each check of the report, in a new
+  `Attacks` CSV column and a new `attacks` JSON Lines field (added, nothing
+  renamed). The regression fails on a check without it.
+- SQL Server through endoflife.date: the collector reads each Database Engine
+  instance (new `sqlServer` section: the version of `sqlservr.exe`, and the
+  registry `Setup` PatchLevel, Version, SP and Edition, read only). With
+  `-EolOnline` / `-EolFile` each instance is placed on its service pack line
+  (2016 SP2, SP3, SP3 Azure Connect Pack, 2008 R2 SP3...) by its build:
+  `software_eol` when that line has ended (Low while ESU runs), and
+  `software_outdated` when it is behind the latest cumulative update, or the
+  latest GDR build for an instance on the security-only branch. Once every
+  instance is placed, the Programs and Features rows of SQL Server are left to
+  it; the copy kept next to the report also keeps the label and latest GDR
+  build of each line. Without the data SQL Server stays on the lifecycle table.
+- Launcher banner framed, with the repository address; the version reads v1.2.
+- `.gitattributes` pins the line endings (LF in the repository, CRLF on disk), so
+  a tool that rewrites a file with other line endings no longer makes a
+  whole-file diff; the regression checks the rule is there.
 - `CONTRIBUTING.md` (reporting bugs without real host data, proposing changes,
   the tests to pass); `SECURITY.md` names the security contact and links GitHub
   private vulnerability reporting; OpenSSF Baseline badge in the README;

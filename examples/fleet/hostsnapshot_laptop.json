@@ -3330,6 +3330,7 @@
       "publisher": "Notepad++ Team"
     }
   ],
+  "sqlServer": [],
   "updatesPending": {
     "searched": true,
     "source": "Microsoft Update",

@@ -3,10 +3,10 @@
 
 function Export-FindingsCsv {
     param($Findings, [string]$Path)
-    $rows = @($Findings | Select-Object Severity, Type, Title, Category, Host, Object, Detail, Mitre, Cis, CisBenchmark, Found, Expected)
+    $rows = @($Findings | Select-Object Severity, Type, Title, Category, Host, Object, Detail, Mitre, Cis, CisBenchmark, Found, Expected, Attacks)
     if ($rows.Count -eq 0) {
         # Keep the header, so that -CompareTo still works against a clean run.
-        'Severity,Type,Title,Category,Host,Object,Detail,Mitre,Cis,CisBenchmark,Found,Expected' | Set-Content -LiteralPath $Path -Encoding UTF8
+        'Severity,Type,Title,Category,Host,Object,Detail,Mitre,Cis,CisBenchmark,Found,Expected,Attacks' | Set-Content -LiteralPath $Path -Encoding UTF8
         return
     }
     $rows | Export-Csv -LiteralPath $Path -NoTypeInformation -Encoding UTF8
@@ -86,6 +86,8 @@ function Export-FindingsJsonl {
         $o['fix_available'] = [bool]($script:FixTypes -and $script:FixTypes.ContainsKey($f.Type))
         $o['finding_id'] = Get-FindingId $f
         $o['status'] = $(if (-not $Comparison) { $null } elseif ($newKeys.ContainsKey((Get-FindingKey $f))) { 'new' } else { 'persisting' })
+        # What an attacker can do with it (the check's "Attacks it enables").
+        $o['attacks'] = $(if ($f.Attacks) { $f.Attacks } else { $null })
         [void]$sb.AppendLine(($o | ConvertTo-Json -Compress -Depth 3))
     }
     if ($Comparison) {
@@ -315,6 +317,8 @@ function ConvertTo-ReportHtml {
   .count { margin-left: auto; font-family: var(--mono); font-size: 11px; letter-spacing: .06em; background: var(--tint); border: 2px solid var(--ink); border-radius: 99px; padding: 1px 10px; }
   .kv { font-size: 13px; margin: 6px 0; }
   .kv b { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink); }
+  .kv.attacks { border-left: 3px solid var(--red); padding-left: 8px; }
+  .kv.attacks b { color: var(--red); }
 
   /* Tables: ink header, mono labels, framed panel. */
   .table-wrap { border: var(--line); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow-sm); overflow-x: auto; margin: 14px 0; }
@@ -551,6 +555,7 @@ function filterBadgerTable(input) {
         $nHosts = @($t.Items | ForEach-Object { $_.Host } | Select-Object -Unique).Count
         & $w "<details class=`"check`"><summary>$(Get-SevPill $t.Worst)<span class=`"check-title`">$(& $H $meta.Title)</span><span class=`"check-id`">$($t.Type) &middot; $(& $H $meta.Category)</span><span class=`"count`">$(@($t.Items).Count) finding(s) on $nHosts host(s)</span></summary><div class=`"body`">"
         & $w "<div class=`"kv`"><b>Why it matters.</b> $(& $H $meta.Description)</div>"
+        if ($meta.Attacks) { & $w "<div class=`"kv attacks`"><b>Attacks it enables.</b> $(& $H $meta.Attacks)</div>" }
         & $w "<div class=`"kv`"><b>Remediation.</b> $(& $H $meta.Remediation)</div>"
         if ($meta.Mitre) { & $w "<div class=`"kv`"><b>MITRE ATT&amp;CK.</b> $(Get-MitreLink $meta.Mitre)</div>" }
         if ($meta.Cis -or $meta.CisServer) {

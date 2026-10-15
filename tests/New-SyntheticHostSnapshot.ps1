@@ -219,6 +219,7 @@ $s = [ordered]@{
         [ordered]@{ name = 'Microsoft Visual C++ 2022 Redistributable (x64) - 14.38.33135'; version = '14.38.33135.0'; publisher = 'Microsoft Corporation' },
         [ordered]@{ name = 'CrowdStrike Windows Sensor'; version = '7.10.18605.0'; publisher = 'CrowdStrike, Inc.' },
         [ordered]@{ name = 'Notepad++ (64-bit x64)'; version = '8.6.2'; publisher = 'Notepad++ Team' })
+    sqlServer            = @()
     updatesPending       = $null
     services             = $baseServices
     drivers              = [ordered]@{ list = $baseDrivers; blocklistEnable = 1 }
@@ -232,6 +233,9 @@ switch ($Scenario) {
     'hardened' {
         # One Windows Server 2022 member server STIG rule not configured: even a hardened host drifts.
         $s.stig = Get-StigSection (Remove-StigValues $stigMachine 'srv2022ms' 1) $stigUser ([ordered]@{ edge = $true; chrome = $true; firefox = $true; office = $true }) 'srv2022ms'
+        # SQL Server 2022 on its latest cumulative update (CU27, 2026-09-15).
+        $s.software = @($s.software) + @([ordered]@{ name = 'Microsoft SQL Server 2022 (64-bit)'; version = ''; publisher = 'Microsoft Corporation' })
+        $s.sqlServer = @([ordered]@{ name = 'MSSQLSERVER'; id = 'MSSQL16.MSSQLSERVER'; wow64 = $false; edition = 'Standard Edition'; fileVersion = '16.0.4295.3'; patchLevel = '16.0.4295.3'; version = '16.0.1000.6'; sp = 0 })
     }
     'laptop' {
         # BitLocker from an older image: XTS-AES 128 on the OS volume, the drive's own encryption on D:.

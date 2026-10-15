@@ -429,7 +429,7 @@ $script:CheckCatalog = [ordered]@{
         Remediation = 'Compare the installed version with the advisories for the listed CVEs, update the program or remove it if it is not needed, and add an exception if the installed version is not affected.' }
     software_eol = @{ Category = 'Software'; Severity = 'Medium'; Mitre = 'T1203'; Needs = @('software'); Roles = $script:AllRoles
         Title = 'Installed software no longer supported by its vendor'
-        Description = 'An installed program is a release that its vendor no longer fixes: Flash, Silverlight, Java 6/7, old Adobe Reader and Office, Exchange, SQL Server, Python, Node.js, .NET and Visual C++ runtimes past their end of life. New vulnerabilities in it stay open for good. The release is read from the Programs and Features name (and the version for Node.js) and compared with the lifecycle table in lib\Checks.ps1, or with the endoflife.date data when it was given (-EolFile or -EolOnline), which also covers Oracle Java, Eclipse Temurin, PowerShell 7, VirtualBox and Wireshark; per-user installs are not listed. Severity follows the product: High for browser plugins, old document readers and Exchange, Low for the Visual C++ runtimes, and Low while paid extended support still runs.'
+        Description = 'An installed program is a release that its vendor no longer fixes: Flash, Silverlight, Java 6/7, old Adobe Reader and Office, Exchange, SQL Server, Python, Node.js, .NET and Visual C++ runtimes past their end of life. New vulnerabilities in it stay open for good. The release is read from the Programs and Features name (and the version for Node.js) and compared with the lifecycle table in lib\Checks.ps1, or with the endoflife.date data when it was given (-EolFile or -EolOnline), which also covers Oracle Java, Eclipse Temurin, PowerShell 7, VirtualBox and Wireshark, and judges each SQL Server instance on its service pack (2016 SP2 ended years before 2016 SP3) from the build the collector reads; per-user installs are not listed. Severity follows the product: High for browser plugins, old document readers and Exchange, Low for the Visual C++ runtimes, and Low while paid extended support still runs.'
         Remediation = 'Upgrade to a supported release, or uninstall it if nothing needs it. A Visual C++ runtime may be needed by an old program: remove it with that program. For SQL Server, Extended Security Updates can cover the gap while the upgrade is planned (add an exception if the host is enrolled).' }
     software_cve = @{ Category = 'Software'; Severity = 'Medium'; Mitre = 'T1203'; Needs = @('software'); Roles = $script:AllRoles
         Title = 'Installed software version with known vulnerabilities'
@@ -437,7 +437,7 @@ $script:CheckCatalog = [ordered]@{
         Remediation = 'Update the program to the release named in Expected (or later), starting with the ones whose CVEs are in KEV or have a high EPSS score. If the program is not needed, uninstall it.' }
     software_outdated = @{ Category = 'Software'; Severity = 'Low'; Mitre = 'T1203'; Needs = @('software'); Roles = $script:AllRoles
         Title = 'Installed software behind the latest release of its line'
-        Description = 'The release line of an installed program is still maintained, but a newer version of that line came out before the snapshot was taken, with the security fixes since the installed one. For products that ship every few weeks (Firefox, Chrome, Notepad++) a line that has already been replaced counts here too. A release counts only once it is older than the grace period (-SoftwareGraceDays, 30 days), so a host waiting for its normal update is not flagged; a host several releases behind a recent one (8.9.1 when 8.9.8.1 is out) is flagged anyway, Low. Medium when the missing release is more than 180 days old. For 7-Zip, VLC, Git, GIMP, WinSCP, PuTTY, FileZilla, KeePass, Audacity, Mullvad VPN, OBS Studio and AnyDesk the versions and their dates come from the Chocolatey community repository, and the grace period counts from the first newer release. Only present when endoflife.date data (-EolFile or -EolOnline) or Chocolatey data (-ChocoFile or -ChocoOnline) was given.'
+        Description = 'The release line of an installed program is still maintained, but a newer version of that line came out before the snapshot was taken, with the security fixes since the installed one. For products that ship every few weeks (Firefox, Chrome, Notepad++) a line that has already been replaced counts here too. A release counts only once it is older than the grace period (-SoftwareGraceDays, 30 days), so a host waiting for its normal update is not flagged; a host several releases behind a recent one (8.9.1 when 8.9.8.1 is out) is flagged anyway, Low. Medium when the missing release is more than 180 days old. A SQL Server instance is judged on its own branch: the latest cumulative update, or the latest security-only (GDR) build for an instance that takes only those. For 7-Zip, VLC, Git, GIMP, WinSCP, PuTTY, FileZilla, KeePass, Audacity, Mullvad VPN, OBS Studio and AnyDesk the versions and their dates come from the Chocolatey community repository, and the grace period counts from the first newer release. Only present when endoflife.date data (-EolFile or -EolOnline) or Chocolatey data (-ChocoFile or -ChocoOnline) was given.'
         Remediation = 'Update the program, and check why it did not update itself: auto-update turned off, a deployment ring that does not include it, or a copy that nobody manages.' }
 
     # ---------------- Further settings (Microsoft documentation, DISA STIG and ACSC guidance) ----------------
@@ -568,6 +568,144 @@ $script:CheckCatalog = [ordered]@{
         Description = 'Office is installed and a per-user policy of the DISA Microsoft Office 365 ProPlus STIG (V3R5) is not set as required, in at least one of the user profiles that were loaded when the snapshot was taken (a SYSTEM collection sees only users who were signed in). A policy that is not configured counts.'
         Remediation = 'Set the Office policy in the finding through Group Policy (Office ADMX, User Configuration) or the Office cloud policy service.' }
 }
+
+# What an attacker can do with each finding, shown as "Attacks it enables" in the report and written
+# as attacks in CSV and JSON Lines. One entry per check of the catalog (the regression checks it).
+$script:CheckAttacks = [ordered]@{
+    account_lockout_weak = 'Password guessing and spraying: an attacker tries many passwords against local or domain accounts (over SMB, RDP or WinRM) without the accounts locking.'
+    always_install_elevated = 'Privilege escalation to SYSTEM: any user can install a crafted .msi package (msiexec, or a one-line exploit module) and its custom actions run as SYSTEM.'
+    anonymous_sam_enum = 'Account enumeration without credentials: an attacker on the network lists user and group names, the starting list for password spraying and phishing.'
+    anonymous_shares_enum = 'Reconnaissance without credentials: an attacker lists the accounts and shares of the host and picks the ones to attack or to search for data.'
+    app_installer_policy_gaps = 'Malicious package installation: a user or malware installs software through winget from a local or unpinned source, past the usual software controls.'
+    asr_other_rules_not_blocking = 'Common initial-access and execution tricks stay open: Office macros starting processes, script-launched downloads, obfuscated scripts, WMI persistence, and USB-borne executables.'
+    asr_standard_rules_missing = 'Credential theft and persistence stay open: reading LSASS memory (mimikatz), loading vulnerable signed drivers, and WMI event subscription persistence are not blocked.'
+    audit_policy_gaps = 'Undetected activity: logons, privilege use, account changes or process starts that an attacker performs leave no Security log event to alert on or to investigate.'
+    authenticode_padding_check_off = 'Signed-file tampering: an attacker appends a payload to a validly signed executable (CVE-2013-3900) and Windows still reports the signature as valid.'
+    autologon_enabled = 'Credential theft: the password of the auto-logon account sits in the registry (Winlogon DefaultPassword or LSA secrets) where an administrator or malware reads it in clear text, and anyone with physical access gets a signed-in session.'
+    autoplay_enabled = 'Removable-media infection: a USB drive or CD runs or offers its content as soon as it is inserted, the way worms and dropped "found" USB sticks spread.'
+    autorun_writable = 'Privilege escalation and persistence: a user replaces the program that starts at every logon for every user (Run key) and their code runs in the session of the next administrator who logs on.'
+    bitlocker_data_volume_off = 'Data theft from a lost or stolen device: removing the disk or booting another OS gives full access to the files on the data volume.'
+    bitlocker_os_volume_off = 'Offline attacks on a lost or stolen device: reading files and cached credentials (SAM, LSA secrets, DPAPI keys) from the disk, or planting a backdoor by editing the system files offline.'
+    bitlocker_policy_gaps = 'Weaker recovery and key handling than the profile requires: recovery keys not escrowed, or unprotected drives allowed, which makes a lost device or a recovery more exposed.'
+    bitlocker_policy_weak = 'Disk protection bypass: with hardware encryption allowed, no-TPM startup, DMA left open while locked or writable unprotected USB drives, a stolen device or an insider can read the data or copy it out.'
+    bitlocker_tpm_only = 'Key extraction from a stolen device: with TPM-only unlock the key is released at boot without any secret, so TPM bus sniffing, DMA or cold-boot attacks on the running machine can recover it.'
+    bitlocker_weak_encryption = 'Weaker disk protection: AES-CBC 128 or hardware encryption (self-encrypting drives with known flaws) is easier to attack offline than XTS-AES 256 if the device is stolen.'
+    blank_password_network_logon = 'Remote logon without a password: an attacker on the network signs in over SMB, RDP or WinRM with any local account whose password is empty.'
+    builtin_admin_enabled = 'Password attacks on a known account: the RID-500 Administrator exists on every host, is exempt from lockout by default, and its shared password lets an attacker move from host to host (pass-the-hash).'
+    cached_logons_high = 'Offline cracking of domain passwords: an administrator on the host dumps the cached domain logons (DCC2 hashes, mimikatz lsadump::cache) and cracks them; the more are kept, the more accounts are exposed.'
+    cmdline_audit_off = 'Undetected execution: process start events (4688) carry no command line, so encoded PowerShell, LOLBins and attacker tools run without the arguments that reveal them.'
+    credential_guard_off = 'Credential theft from memory: NTLM hashes and Kerberos tickets in LSASS can be dumped (mimikatz) and reused for pass-the-hash and pass-the-ticket.'
+    dc_netlogon_policy_weak = 'Domain takeover: Zerologon-style Netlogon abuse (CVE-2020-1472) against an allow-listed or vulnerable channel, or Server Operators scheduling tasks that run as SYSTEM on the domain controller.'
+    dc_security_policy_gaps = 'Weakened domain controller defenses: weak Windows Hello for Business keys (ROCA) accepted for logon, or NTLM use in the domain left unaudited so NTLM relay and downgrade go unnoticed.'
+    defender_exclusion = 'Defense evasion: an attacker drops tools or payloads in the excluded folder, file type or process, and Defender does not scan them; the exclusion list itself tells an attacker where to hide.'
+    defender_network_protection_off = 'Malicious connections are not blocked: users and malware reach phishing pages, exploit sites and command-and-control servers that Defender SmartScreen reputation would stop.'
+    defender_protection_features_off = 'Defense evasion: with behavior monitoring, cloud protection or scanning of downloads and scripts off, new and fileless malware runs without being detected.'
+    defender_pua_off = 'Unwanted software runs: adware, bundled installers, crypto miners and remote-access tools that Defender would block as potentially unwanted are installed and run.'
+    defender_realtime_off = 'Malware runs unchecked: files are not scanned when they are written or run, so any payload an attacker brings executes without detection.'
+    defender_server_baseline_gaps = 'Easier evasion on servers: local users can read the Defender exclusion list to know where to hide, and quick scans skip excluded paths an attacker may use.'
+    defender_signatures_stale = 'Known malware is missed: threats released since the last signature update are not recognized.'
+    defender_tamper_off = 'Defense evasion: malware or an attacker with administrator rights turns Defender off or adds exclusions (Set-MpPreference, registry) before running their tools.'
+    deny_logon_rights_missing = 'Lateral movement with local accounts: an attacker who has one local password or hash (often the same on many hosts) signs in over the network or RDP; the Guest account can be used too.'
+    driver_blocklist_off = 'Kernel compromise (BYOVD): an attacker with administrator rights loads a signed but vulnerable driver to kill EDR, read credentials or run code in the kernel.'
+    edr_agent_stopped = 'Blind spot: the host is not monitored, so an attacker works there without detection or response, often after stopping the agent on purpose.'
+    edr_expected_missing = 'Blind spot: the host lacks the agent your organization relies on for detection and response, so attacker activity there goes unseen.'
+    edr_not_found = 'Blind spot: nothing on the host detects or responds to attacker activity beyond basic antivirus.'
+    event_logs_small = 'Lost evidence: the logs roll over quickly, so traces of an intrusion are overwritten before anyone investigates.'
+    everyone_includes_anonymous = 'Anonymous access: resources open to Everyone (shares, pipes, registry keys) become reachable by unauthenticated attackers on the network.'
+    explorer_motw_bypass = 'Phishing payload execution: files copied from insecure locations lose the Mark of the Web, so SmartScreen, Office Protected View and macro blocking do not apply to them.'
+    firewall_default_inbound_allow = 'Remote exploitation and lateral movement: every service listening on the host is reachable from the network, including ones nobody meant to expose.'
+    firewall_drop_logging_off = 'Undetected scanning: port scans and blocked connection attempts against the host leave no trace to investigate.'
+    firewall_notifications_on = 'Social engineering: when the firewall blocks a program, the user is asked to allow it, and malware that triggers the prompt may simply be allowed.'
+    firewall_profile_disabled = 'Remote exploitation and lateral movement: no host firewall filters connections on that network profile, so every listening service is exposed.'
+    force_guest_sharing_model = 'Unaccountable access: every network logon with a local account is mapped to Guest, so anyone reaching the shares has the same rights and nothing ties actions to a person.'
+    guest_enabled = 'Access without credentials: the Guest account lets anyone sign in or reach shares and resources that Guests or Everyone can read.'
+    hvci_off = 'Kernel attacks: without memory integrity, malicious or vulnerable drivers can load unsigned code into the kernel and disable security tools.'
+    inactivity_lock_missing = 'Hands-on-keyboard access: an unattended unlocked session lets anyone nearby use the logged-on account and its access.'
+    interactive_logon_gaps = 'Credential capture and reconnaissance: the logon screen gives away the last user name, and without CTRL+ALT+DEL a fake logon screen can collect passwords.'
+    ip_stack_hardening_gaps = 'Traffic redirection: source-routed packets and ICMP redirects let an attacker on the network steer the host''s traffic through a machine they control.'
+    kev_software_match = 'Exploitation of a known vulnerability: the product has vulnerabilities that attackers actively exploit in the wild (CISA KEV), often for initial access or privilege escalation.'
+    laps_not_configured = 'Lateral movement with a shared password: the local administrator password is likely the same on many hosts, so one stolen hash or password opens all of them (pass-the-hash).'
+    ldap_client_encryption_weak = 'Interception: LDAP traffic to domain controllers can travel without encryption, exposing directory data and credentials to an attacker in the path.'
+    ldap_client_signing_off = 'LDAP tampering and relay: an attacker in the path changes LDAP queries or answers, or relays the host''s authentication to LDAP.'
+    ldap_server_signing_off = 'NTLM relay to LDAP: an attacker who coerces or captures an authentication relays it to the domain controller to create accounts, set resource-based delegation or grant rights (ntlmrelayx), up to domain takeover.'
+    llmnr_enabled = 'Credential capture by name poisoning: an attacker on the local network answers LLMNR lookups (Responder) and collects NTLM hashes to crack or relay.'
+    lm_hash_stored = 'Password cracking: LM hashes are split, uppercase and unsalted, and are cracked in seconds once an attacker dumps the SAM or NTDS.'
+    local_account_password_never_expires = 'Long-lived credentials: a password stolen or guessed once keeps working indefinitely, including on every host where it is reused.'
+    local_account_password_not_required = 'Logon without a password: the account can be given, or may already have, an empty password that anyone can use.'
+    local_admin_member = 'Privilege abuse and lateral movement: every extra administrator is another account whose theft gives full control of the host and its stored credentials.'
+    logon_banner_missing = 'Legal exposure rather than a direct attack: without a warning banner, prosecuting or disciplining unauthorized use can be harder.'
+    lsa_not_protected = 'Credential dumping: without LSA protection, tools such as mimikatz read LSASS memory to collect password hashes, Kerberos tickets and sometimes clear-text passwords.'
+    lsa_weak_auth_options = 'Weaker authentication: NULL-session fallback lets LocalSystem authenticate anonymously, and PKU2U online identities open another authentication path an attacker can use.'
+    mdns_enabled = 'Credential capture by name poisoning: an attacker on the local network answers mDNS lookups and collects NTLM hashes to crack or relay.'
+    netbios_enabled = 'Credential capture by name poisoning: an attacker on the local network answers NetBIOS name lookups (Responder) and collects NTLM hashes to crack or relay.'
+    ntlm_min_session_security_weak = 'Interception and downgrade: NTLM sessions without NTLMv2 session security and 128-bit encryption can be tampered with or decrypted by an attacker in the path.'
+    ntlm_weak_lmcompat = 'Password hash cracking: LM and NTLMv1 responses captured on the network (Responder) are cracked quickly or turned into the account''s NTLM hash.'
+    null_session_access = 'Access without credentials: named pipes and shares reachable through anonymous (null) sessions expose data and RPC interfaces to unauthenticated attackers.'
+    os_support_ending = 'Soon no security fixes: once support ends, new Windows vulnerabilities stay exploitable on this host.'
+    os_unsupported = 'Exploitation of unpatched Windows vulnerabilities: no security fixes are released for this version, so every new flaw stays open.'
+    password_policy_weak = 'Password guessing and cracking: short, simple or never-changing local passwords fall quickly to spraying, brute force or offline cracking of dumped hashes.'
+    powershell_module_logging_off = 'Undetected PowerShell activity: the commands that attacker scripts and modules run are not logged.'
+    powershell_scriptblock_logging_off = 'Undetected PowerShell attacks: obfuscated or in-memory scripts (download cradles, AMSI bypasses, offensive frameworks) run without the decoded code being logged.'
+    powershell_transcription_off = 'Lost evidence: the input and output of PowerShell sessions an attacker opens are not recorded for investigation.'
+    powershell_v2_enabled = 'Security bypass by downgrade: an attacker starts powershell -version 2, which has no AMSI, script block logging or constrained language mode.'
+    print_point_and_print_weak = 'Privilege escalation to SYSTEM (PrintNightmare): a user installs a malicious printer driver from a server they control without an administrator prompt.'
+    rdp_enabled_workstation = 'Remote access and lateral movement: RDP on a workstation is a target for password attacks and lets an attacker with credentials take over the desktop remotely.'
+    rdp_nla_disabled = 'Pre-authentication attacks on RDP: the logon screen and the RDP stack are exposed before any credentials, which helps brute force and exploits such as BlueKeep.'
+    rdp_policy_gaps = 'Weaker RDP sessions: low encryption or legacy security layers allow interception, saved passwords allow logon without knowing them, and drive redirection lets data and tools move through the session.'
+    remote_uac_token_filter_off = 'Pass-the-hash with local accounts: a local administrator''s hash or password gives full remote administrative access (PsExec, WMI), the classic way to move between hosts.'
+    risky_listener = 'Remote exploitation: legacy or administrative services reachable from the network (Telnet, FTP, VNC, databases, SNMP) are targets for password attacks, sniffing and exploits.'
+    safe_dll_search_off = 'DLL hijacking: programs look for DLLs in the current folder before the system folders, so a planted DLL is loaded by a program started from that folder.'
+    schannel_legacy_crypto_enabled = 'Traffic decryption and downgrade: an attacker in the path forces old protocols or weak ciphers (SSL 3.0, TLS 1.0, RC4) and attacks them to read or alter TLS traffic.'
+    secure_boot_off = 'Boot-level persistence: bootkits and modified boot loaders run before Windows and its security tools, and survive reinstalls of the OS.'
+    secure_channel_unprotected = 'Domain traffic tampering: the host''s secure channel to the domain controller can be intercepted or altered, exposing logon and machine account traffic.'
+    security_log_small = 'Lost evidence: the Security log rolls over quickly, so logon and privilege events of an intrusion are overwritten before anyone looks.'
+    sehop_disabled = 'Easier memory-corruption exploits: structured exception handler overwrites, a common exploit technique, are not blocked.'
+    server_baseline_gaps = 'Weaker server defenses: shutdown or unlock without proper logon, or LAPS passwords that stay valid past their expiry, give an attacker or insider an easier path.'
+    server_network_policy_gaps = 'Interception: IPv6 default DNS servers can be spoofed (mitm6), and RSS feeds can send credentials in clear text with Basic authentication.'
+    service_binary_writable = 'Privilege escalation: a user replaces the service program (or plants a DLL it loads) and the code runs with the service''s account, often SYSTEM, at the next start.'
+    service_path_ancestor_control = 'Privilege escalation: a user who controls a folder above the service program can rename it and put their own program in its place, which the service runs at the next start.'
+    service_should_be_disabled = 'Larger attack surface: a service the baseline says to disable is reachable or running, with its own vulnerabilities and abuse paths.'
+    service_unquoted_path = 'Privilege escalation: Windows tries each space-separated part of the unquoted path, so a user who can write to one of those folders gets a program run by the service, often as SYSTEM.'
+    smartscreen_off = 'Malicious downloads run: files and apps with a bad or unknown reputation are opened without the SmartScreen warning.'
+    smb_client_signing_not_required = 'SMB tampering and relay: an attacker in the path alters the host''s SMB traffic, for example to serve malicious files or scripts.'
+    smb_insecure_guest_auth = 'Malicious share access: the host connects to an attacker''s SMB server as guest without authentication, which allows serving malware and hides who controls the share.'
+    smb_plaintext_password = 'Credential capture: the host sends clear-text passwords to SMB servers that ask for them, including an attacker''s.'
+    smb_server_hardening_gaps = 'Downgrade and interception: older SMB dialects stay allowed, and SMB client traffic to servers that do not require encryption can be read in the path.'
+    smb_server_signing_not_required = 'NTLM relay to SMB: an attacker who coerces or captures an authentication relays it to this host and runs commands with the victim''s rights (ntlmrelayx).'
+    smb1_client_driver_enabled = 'Exploitation and downgrade over SMBv1: the old protocol has wormable flaws (EternalBlue, WannaCry) and weaker authentication.'
+    smb1_server_enabled = 'Remote code execution over SMBv1: wormable exploits such as EternalBlue (used by WannaCry and NotPetya) target the SMBv1 server.'
+    software_cve = 'Exploitation of the installed version: the program has published vulnerabilities an attacker can use, through a crafted file, a web page or a network service, depending on the CVE.'
+    software_eol = 'Exploitation of unpatched software: the vendor no longer fixes this release, so every new vulnerability stays open for good.'
+    software_outdated = 'Exploitation of fixed vulnerabilities: the installed version lacks security fixes that a newer release of the same line already has.'
+    spooler_on_dc = 'Authentication coercion to domain takeover: an attacker forces the domain controller to authenticate to a host they control (PrinterBug), then relays it or abuses unconstrained delegation to compromise the domain.'
+    stig_chrome = 'Browser-based attacks: phishing, malicious downloads, risky extensions or weakened browser protections that the STIG policy would prevent.'
+    stig_defender = 'Defense evasion: Defender detects or blocks less than the STIG requires, so malware is more likely to run unnoticed.'
+    stig_edge = 'Browser-based attacks: phishing, malicious downloads, risky extensions or weakened browser protections that the STIG policy would prevent.'
+    stig_firefox = 'Browser-based attacks: phishing, malicious downloads, risky add-ons or weakened browser protections that the STIG policy would prevent.'
+    stig_firewall = 'Remote exploitation and lateral movement: the firewall filters or logs less than the STIG requires, so exposed services and blocked attempts go unnoticed.'
+    stig_office = 'Document-borne attacks: macros, embedded content and legacy file formats that the STIG policy would block can deliver malware through Office files.'
+    stig_server2016 = 'Depends on the rule: each DISA STIG setting closes a specific attack path (credential theft, relay, privilege escalation, logging gaps); the rule ID in the finding names it.'
+    stig_server2019 = 'Depends on the rule: each DISA STIG setting closes a specific attack path (credential theft, relay, privilege escalation, logging gaps); the rule ID in the finding names it.'
+    stig_server2022 = 'Depends on the rule: each DISA STIG setting closes a specific attack path (credential theft, relay, privilege escalation, logging gaps); the rule ID in the finding names it.'
+    stig_server2025 = 'Depends on the rule: each DISA STIG setting closes a specific attack path (credential theft, relay, privilege escalation, logging gaps); the rule ID in the finding names it.'
+    stig_windows10 = 'Depends on the rule: each DISA STIG setting closes a specific attack path (credential theft, relay, privilege escalation, logging gaps); the rule ID in the finding names it.'
+    stig_windows11 = 'Depends on the rule: each DISA STIG setting closes a specific attack path (credential theft, relay, privilege escalation, logging gaps); the rule ID in the finding names it.'
+    task_binary_writable = 'Privilege escalation and persistence: a user replaces the program a privileged scheduled task runs, and their code runs with the task''s account at its next trigger.'
+    terminal_services_server_gaps = 'Session data exposure: shared temporary folders and several sessions per user make it easier to read another session''s files or hijack a disconnected session.'
+    uac_admin_no_prompt = 'Silent elevation: malware started by an administrator gets full administrator rights without any prompt.'
+    uac_disabled = 'No privilege separation: every process an administrator starts, including malware, runs with full administrator rights.'
+    uac_hardening_gaps = 'UAC bypass and spoofing: the elevation prompt can be faked or driven by another program, installers elevate silently, or legacy apps write where they should not.'
+    updates_pending = 'Exploitation of fixed vulnerabilities: the missing updates fix flaws that attackers can use until they are installed.'
+    updates_stale = 'Exploitation of known vulnerabilities: months of security fixes may be missing, including flaws exploited in the wild.'
+    user_rights_excessive = 'Privilege escalation: rights such as debug programs, backup, restore, impersonate or act as part of the OS let their holders read credentials or become SYSTEM.'
+    vulnerable_driver_present = 'Kernel compromise (BYOVD): an attacker loads this known-vulnerable or malicious driver to kill security tools, read credentials or run code in the kernel.'
+    wdigest_cleartext = 'Clear-text password theft: LSASS keeps the passwords of logged-on users in clear text, and mimikatz (sekurlsa::wdigest) reads them.'
+    webclient_webdav_enabled = 'Authentication coercion and NTLM relay: an attacker makes the host authenticate over HTTP (WebDAV, PetitPotam) and relays it to LDAP or AD CS, which SMB signing does not stop.'
+    winrm_insecure_auth = 'Credential capture and remote abuse: Basic or Digest authentication and unencrypted WinRM traffic expose credentials in the path, and RunAs credentials stored for plugins can be reused.'
+    wpad_not_disabled = 'Traffic interception and credential capture: an attacker answers WPAD discovery, becomes the host''s web proxy and collects NTLM authentications.'
+    wu_auto_updates_disabled = 'Exploitation of known vulnerabilities: security updates are not installed on their own, so the host falls behind on fixes.'
+}
+foreach ($t in @($script:CheckAttacks.Keys)) { if ($script:CheckCatalog.Contains($t)) { $script:CheckCatalog[$t]['Attacks'] = $script:CheckAttacks[$t] } }
 
 # Microsoft's "standard protection" ASR rules, recommended for every device.
 $script:OtherAsrRules = [ordered]@{
@@ -770,6 +908,7 @@ function Add-Finding {
             CisBenchmark = $bench
             Found    = $Found
             Expected = $Expected
+            Attacks  = "$($meta.Attacks)"
         })
 }
 
@@ -1029,10 +1168,10 @@ function ConvertTo-EolDateText {
 function ConvertFrom-EolCatalog {
     # endoflife.date API v1: /products/full (result is the list of products), one product (result is
     # that product), or the reduced copy HostBadger keeps next to a report (same shape). Returns
-    # @{ slug = releases }, only for the products in $script:EolProductMap.
+    # @{ slug = releases }, only for the products in $script:EolProductMap and SQL Server.
     param([string]$Json)
     $doc = ConvertFrom-Json -InputObject $Json
-    $wanted = @($script:EolProductMap | ForEach-Object { $_.Slug })
+    $wanted = @($script:EolProductMap | ForEach-Object { $_.Slug }) + 'mssqlserver'
     $out = @{}
     foreach ($p in @($doc.result | ForEach-Object { $_ })) {
         $slug = "$($p.name)"
@@ -1041,7 +1180,8 @@ function ConvertFrom-EolCatalog {
         foreach ($r in @($p.releases | ForEach-Object { $_ })) {
             if (-not "$($r.name)") { continue }
             $rels.Add([PSCustomObject]@{ Name = "$($r.name)"; IsEol = ($r.isEol -eq $true); EolFrom = (ConvertTo-EolDateText $r.eolFrom); EoesFrom = (ConvertTo-EolDateText $r.eoesFrom)
-                    Latest = "$(if ($r.latest) { $r.latest.name })"; LatestDate = (ConvertTo-EolDateText $(if ($r.latest) { $r.latest.date })) })
+                    Latest = "$(if ($r.latest) { $r.latest.name })"; LatestDate = (ConvertTo-EolDateText $(if ($r.latest) { $r.latest.date }))
+                    Label = "$($r.label)"; LatestGdr = "$(if ($r.custom) { $r.custom.latestGdr })" })
         }
         $out[$slug] = $rels.ToArray()
     }
@@ -1054,8 +1194,11 @@ function ConvertTo-EolCatalogJson {
     param($Catalog, [string]$Source)
     $products = foreach ($slug in @($Catalog.Keys | Sort-Object)) {
         [ordered]@{ name = $slug; releases = @($Catalog[$slug] | ForEach-Object {
-                    [ordered]@{ name = $_.Name; isEol = $_.IsEol; eolFrom = $(if ($_.EolFrom) { $_.EolFrom } else { $null }); eoesFrom = $(if ($_.EoesFrom) { $_.EoesFrom } else { $null })
+                    $rel = [ordered]@{ name = $_.Name; isEol = $_.IsEol; eolFrom = $(if ($_.EolFrom) { $_.EolFrom } else { $null }); eoesFrom = $(if ($_.EoesFrom) { $_.EoesFrom } else { $null })
                         latest = $(if ($_.Latest) { [ordered]@{ name = $_.Latest; date = $(if ($_.LatestDate) { $_.LatestDate } else { $null }) } } else { $null }) }
+                    if ($_.Label) { $rel['label'] = $_.Label }
+                    if ($_.LatestGdr) { $rel['custom'] = [ordered]@{ latestGdr = $_.LatestGdr } }
+                    $rel
                 }) }
     }
     return ([ordered]@{ source = $Source; result = @($products) } | ConvertTo-Json -Depth 8)
@@ -1078,6 +1221,42 @@ function Find-EolRelease {
         if (-not $rel) { return }
         return [PSCustomObject]@{ Map = $m; Release = $rel; Cycle = $c; Version = "$($g['v'])" }
     }
+}
+
+# SQL Server (endoflife.date mssqlserver) has one release line per service pack ("13.0-sp3", its Azure
+# Connect Pack "13.0-sp3-acp", "10.50-sp3"): the Programs and Features name does not say which, so each
+# instance is judged on the build the collector reads (sqlServer section).
+function Get-SqlInstanceVersion {
+    # The build of a SQL Server instance (13.0.6300.2): the version of the engine file, else the registry
+    # PatchLevel or Version, whose second number is the service pack (13.3.6300.2 is 13.0 SP3, 10.53 is
+    # 10.50 SP3).
+    param($Instance)
+    if ("$($Instance.fileVersion)" -match '^\d{1,2}\.\d+\.\d+') { return "$($Instance.fileVersion)".Split(' ')[0] }
+    foreach ($v in @("$($Instance.patchLevel)", "$($Instance.version)")) {
+        if ($v -match '^(\d{1,2})\.(\d+)\.(\d+)(\.\d+)?') { return '{0}.{1}.{2}{3}' -f $Matches[1], $(if ([int]$Matches[2] -ge 50) { 50 } else { 0 }), $Matches[3], $Matches[4] }
+    }
+    return ''
+}
+
+function Find-SqlRelease {
+    # The release line of a SQL Server build: the same version (13.0, 10.50), then, when that version has
+    # several service pack lines, the one whose latest CU or GDR build is in the same thousand (SP2 is
+    # 13.0.5xxx, SP3 13.0.6xxx, its Azure Connect Pack 13.0.7xxx).
+    param([string]$Version, $Releases)
+    $x = Get-VersionNumbers $Version
+    if ($x.Count -lt 3) { return }
+    $same = @($Releases | Where-Object { $_ -and $_.Name -match '^(\d+)\.(\d+)' -and [int]$Matches[1] -eq $x[0] -and [int]$Matches[2] -eq $x[1] })
+    if ($same.Count -eq 1) { return $same[0] }
+    $band = [Math]::Floor($x[2] / 1000)
+    $hit = @($same | Where-Object { @(@($_.Latest, $_.LatestGdr) | Where-Object { $_ -and ($n = Get-VersionNumbers $_).Count -ge 3 -and [Math]::Floor($n[2] / 1000) -eq $band }).Count -gt 0 })
+    if ($hit.Count -eq 1) { return $hit[0] }
+}
+
+function Get-SqlLineName {
+    # "Microsoft SQL Server 2014 SP3" from the endoflife.date label "2014 'Hekaton' SP3".
+    param($Release)
+    $l = if ($Release.Label) { ("$($Release.Label)" -replace " '[^']*'", '').Trim() } else { $Release.Name }
+    return "Microsoft SQL Server $l"
 }
 
 # Programs that endoflife.date does not cover, judged on the versions of their Chocolatey community
@@ -1360,8 +1539,64 @@ function Invoke-SoftwareChecks {
             $seen["$Type|$Object"] = $true
             Add-Finding -Type $Type -Object $Object -Severity $Severity -Detail $Detail -Found $Found -Expected $Expected
         }
+        # SQL Server instances against endoflife.date: one finding per release line, on the oldest build
+        # of its instances. Once every instance is placed, the Programs and Features rows of SQL Server
+        # are left to it; an instance whose line cannot be told leaves them to the table.
+        $sqlRels = if ($Config.Eol) { @($Config.Eol['mssqlserver'] | Where-Object { $_ }) } else { @() }
+        $sqlInst = @($S.sqlServer | Where-Object { $_ })
+        $sqlDone = $false
+        if ($sqlRels.Count -gt 0 -and $sqlInst.Count -gt 0) {
+            $byProduct = [ordered]@{}
+            $sqlDone = $true
+            foreach ($i in $sqlInst) {
+                $v = Get-SqlInstanceVersion $i
+                $r = if ($v) { Find-SqlRelease $v $sqlRels } else { $null }
+                if (-not $r) { $sqlDone = $false; continue }
+                $name = Get-SqlLineName $r
+                # The Object keeps the table's product name (2008 R2 is "Microsoft SQL Server 2008").
+                $product = if ($name -match '^Microsoft SQL Server (\d{4}(?: R2)?|\d+\.\d+)') { "Microsoft SQL Server $($Matches[1])" } else { $name }
+                $row = Get-SoftwareLifecycle ([PSCustomObject]@{ name = $product; version = '' })
+                if ($row) { $product = $row.Product }
+                $end = ConvertTo-UtcDate $r.EolFrom
+                # A supported line: behind the latest cumulative update, or, on the GDR branch (security
+                # fixes only, builds in their own thousand: 16.0.1xxx against CU 16.0.4xxx), behind the
+                # latest GDR. endoflife.date dates only the latest CU.
+                $cu = "$($r.Latest)".Split(' ')[0]; $gdr = "$($r.LatestGdr)"
+                $vn = Get-VersionNumbers $v; $cn = Get-VersionNumbers $cu; $gn = Get-VersionNumbers $gdr
+                $onGdr = $gn.Count -ge 3 -and $cn.Count -ge 3 -and [Math]::Floor($vn[2] / 1000) -eq [Math]::Floor($gn[2] / 1000) -and [Math]::Floor($gn[2] / 1000) -ne [Math]::Floor($cn[2] / 1000)
+                if (-not $byProduct.Contains($product)) { $byProduct[$product] = New-Object System.Collections.Generic.List[object] }
+                $byProduct[$product].Add([PSCustomObject]@{ Version = $v; Release = $r; Name = $name; Row = $row; End = $end
+                        Ended = $(if ($end) { $end -le $script:RefDate } else { $r.IsEol }); OnGdr = $onGdr; Target = $(if ($onGdr) { $gdr } else { $cu }) })
+            }
+            foreach ($product in @($byProduct.Keys)) {
+                $all = $byProduct[$product].ToArray()
+                $count = { param($list, $first) if ($all.Count -eq 1) { "1 instance at build $($first.Version) ($($first.Name))" } else { "$(@($list).Count) of $($all.Count) instances, the oldest at build $($first.Version) ($($first.Name))" } }
+                $ended = @($all | Where-Object { $_.Ended } | Sort-Object @{ Expression = { $_.Release.EolFrom } }, @{ Expression = { $_.Version } })
+                if ($ended.Count -gt 0) {
+                    $x = $ended[0]; $r = $x.Release
+                    foreach ($e in $ended) { if ((Compare-SoftwareVersion $e.Version $x.Version) -lt 0) { $x = $e; $r = $e.Release } }
+                    $endText = if ($x.End) { $x.End.ToString('yyyy-MM-dd') } else { 'on a date endoflife.date does not give' }
+                    $days = if ($x.End) { [int][Math]::Floor(($script:RefDate - $x.End).TotalDays) } else { $null }
+                    $sev = if ($x.Row) { $x.Row.Severity } else { 'Medium' }
+                    $ext = ConvertTo-UtcDate $r.EoesFrom
+                    $extText = ''
+                    if ($ext -and $ext -gt $script:RefDate) { $sev = 'Low'; $extText = " Paid extended support (ESU) runs until $($ext.ToString('yyyy-MM-dd')): Low while the host is covered by it." }
+                    elseif ($ext) { $extText = " Paid extended support ended $($ext.ToString('yyyy-MM-dd'))." }
+                    & $emit 'software_eol' "software: $product" $sev ("SQL Server: {0}. Support for {1} ended {2}{3} (endoflife.date).{4}" -f (& $count $ended $x), $x.Name, $endText, $(if ($null -ne $days) { ", $days days before collection" } else { '' }), $extText) "$($x.Name), end of life $endText" 'a supported release or service pack'
+                }
+                $late = @($all | Where-Object { -not $_.Ended -and $_.Target -and ($rd = ConvertTo-UtcDate $_.Release.LatestDate) -and $rd -le $script:RefDate -and [Math]::Floor(($script:RefDate - $rd).TotalDays) -gt $grace -and (Compare-SoftwareVersion $_.Version $_.Target) -lt 0 })
+                if ($late.Count -gt 0) {
+                    $x = $late[0]; foreach ($e in $late) { if ((Compare-SoftwareVersion $e.Version $x.Version) -lt 0) { $x = $e } }
+                    $r = $x.Release; $rd = ConvertTo-UtcDate $r.LatestDate
+                    $lag = [int][Math]::Floor(($script:RefDate - $rd).TotalDays)
+                    $how = if ($x.OnGdr) { "the latest security-only (GDR) build is $($x.Target); the latest cumulative update, $($r.Latest), came out $($rd.ToString('yyyy-MM-dd'))" } else { "$($r.Latest) came out $($rd.ToString('yyyy-MM-dd'))" }
+                    & $emit 'software_outdated' "software: $product" $(if ($lag -gt 180) { 'Medium' } else { 'Low' }) ("SQL Server: {0}. {1} is still supported, but {2}, {3} days before collection, with the fixes since {4} (endoflife.date)." -f (& $count $late $x), $x.Name, $how, $lag, $x.Version) $x.Version "$($x.Target) or later"
+                }
+            }
+        }
         foreach ($sw in @($S.software | Where-Object { $_ })) {
             if ($seen.Count -ge 100) { break }
+            if ($sqlDone -and "$($sw.name)" -match '^Microsoft SQL Server \d{4}( R2)?( \((32|64)-bit\))?$') { continue }
             if ($Config.Cve -and (& $can 'software_cve')) {
                 # Known vulnerabilities of the installed version: CVEs published before collection whose
                 # NVD ranges hold it. KEV only from the date CISA added the CVE, EPSS as downloaded.

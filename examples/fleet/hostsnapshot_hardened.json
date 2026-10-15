@@ -3176,6 +3176,23 @@
       "name": "Notepad++ (64-bit x64)",
       "version": "8.6.2",
       "publisher": "Notepad++ Team"
+    },
+    {
+      "name": "Microsoft SQL Server 2022 (64-bit)",
+      "version": "",
+      "publisher": "Microsoft Corporation"
+    }
+  ],
+  "sqlServer": [
+    {
+      "name": "MSSQLSERVER",
+      "id": "MSSQL16.MSSQLSERVER",
+      "wow64": false,
+      "edition": "Standard Edition",
+      "fileVersion": "16.0.4295.3",
+      "patchLevel": "16.0.4295.3",
+      "version": "16.0.1000.6",
+      "sp": 0
     }
   ],
   "updatesPending": null,

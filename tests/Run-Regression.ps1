@@ -329,6 +329,10 @@ Assert-True (@($jl | Where-Object { $_.cis -and $_.check -notin 'audit_policy_ga
 Assert-True (@($jl | Where-Object { $_.check -eq 'audit_policy_gaps' -and $null -eq $_.found -and $null -eq $_.expected }).Count -ge 1) 'found/expected: an aggregate finding leaves both null in JSON Lines'
 $csvFe = @(Import-Csv (Join-Path $out 'r.csv') | Where-Object { $_.Type -eq 'wdigest_cleartext' })
 Assert-True ($csvFe.Count -eq 1 -and $csvFe[0].Found -eq '1' -and $csvFe[0].Expected -eq '0') 'found/expected: CSV columns'
+# Attacks it enables: every check says what an attacker can do with it, in the report, CSV and JSON Lines.
+Assert-Equal ((@($script:CheckCatalog.Keys | Where-Object { -not "$($script:CheckCatalog[$_].Attacks)".Trim() }) + @($script:CheckAttacks.Keys | Where-Object { -not $script:CheckCatalog.Contains($_) })) -join ',') '' 'attacks: every check has its "Attacks it enables" text, and every text belongs to a check'
+Assert-True (@($jl | Where-Object { -not $_.attacks }).Count -eq 0 -and @($jl | Where-Object { $_.check -eq 'wdigest_cleartext' })[0].attacks -match 'mimikatz' -and $csvFe[0].Attacks -match '^Clear-text password theft') 'attacks: in every JSON Lines finding and in the CSV'
+Assert-True ($remHtml -match '<div class="kv attacks"><b>Attacks it enables\.</b> Clear-text password theft') 'attacks: shown under each check of the report'
 $feHtml = [System.IO.File]::ReadAllText((Join-Path $out 'r.html'))
 Assert-True ($feHtml -match '<th>Found</th><th>Required</th>' -and $feHtml -match '<td class="found">not configured</td>') 'found/expected: report columns'
 
@@ -698,7 +702,13 @@ Assert-Equal @((Invoke-HostChecks -Snapshot $eolSoon -Config $config).Findings |
 # software_outdated for a program behind the latest release of its line. Collected 2026-10-01.
 $eolSample = Join-Path $work 'eol_sample.json'
 $eolRel = { param($n, $isEol, $eol, $latest, $date, $eoes) [ordered]@{ name = $n; isEol = $isEol; eolFrom = $eol; eoesFrom = $eoes; latest = $(if ($latest) { [ordered]@{ name = $latest; date = $date } } else { $null }) } }
-[System.IO.File]::WriteAllText($eolSample, ([ordered]@{ schema_version = '1.2.1'; total = 8; result = @(
+# SQL Server: one line per service pack, with its label and the latest GDR build.
+$sqlRel = { param($n, $label, $isEol, $eol, $latest, $date, $eoes, $gdr) $r = & $eolRel $n $isEol $eol $latest $date $eoes; $r['label'] = $label; $r['custom'] = [ordered]@{ latestGdr = $gdr }; $r }
+[System.IO.File]::WriteAllText($eolSample, ([ordered]@{ schema_version = '1.2.1'; total = 9; result = @(
+                [ordered]@{ name = 'mssqlserver'; releases = @((& $sqlRel '16.0' "2022 'Dallas'" $false '2033-01-11' '16.0.4295.3 CU27' '2026-09-15' $null '16.0.1200.5'), (& $sqlRel '15.0' "2019 'Aris/Seattle'" $false '2030-01-08' '15.0.4490.9 CU32+GDR' '2026-04-08' $null '15.0.2190.7'),
+                        (& $sqlRel '13.0-sp3-acp' '2016 SP3 Azure Connect Pack' $true '2026-07-14' '13.0.7095.1 Azure Connect pack+GDR' '2026-07-14' '2029-07-17' '13.0.7095.1'), (& $sqlRel '13.0-sp3' '2016 SP3' $true '2026-07-14' '13.0.6500.1 GDR' '2026-07-14' '2029-07-17' '13.0.6500.1'),
+                        (& $sqlRel '13.0-sp2' '2016 SP2' $true '2022-10-11' '13.0.5893.48 CU17+GDR' '2022-06-14' $null '13.0.5108.50'), (& $sqlRel '12.0-sp3' "2014 'Hekaton' SP3" $true '2024-07-09' '12.0.6449.1 CU4+GDR' '2023-10-10' '2027-07-12' '12.0.6179.1'),
+                        (& $sqlRel '10.50-sp3' "2008 R2 'Kilimanjaro' SP3" $true '2019-07-09' '10.50.6785.2 GDR' '2023-02-14' '2022-07-12' '10.50.6785.2')) },
                 [ordered]@{ name = 'python'; releases = @((& $eolRel '3.12' $false '2028-10-31' '3.12.9' '2026-06-01'), (& $eolRel '2.7' $true '2020-01-01' '2.7.18' '2020-04-19')) },
                 [ordered]@{ name = 'nodejs'; releases = @((& $eolRel '22' $false '2027-04-30' '22.9.0' '2026-09-21'), (& $eolRel '16' $true '2023-09-11' '16.20.2' '2023-08-08')) },
                 [ordered]@{ name = 'firefox'; releases = @((& $eolRel '157' $false '2026-10-13' '157.0' '2026-09-15'), (& $eolRel '118' $true '2023-10-24' '118.0.2' '2023-10-10')) },
@@ -709,7 +719,7 @@ $eolRel = { param($n, $isEol, $eol, $latest, $date, $eoes) [ordered]@{ name = $n
                 [ordered]@{ name = 'adonisjs'; releases = @((& $eolRel '7' $false $null '7.0.0' '2026-01-01')) })
         } | ConvertTo-Json -Depth 8), (New-Object System.Text.UTF8Encoding($false)))
 $eolCat = ConvertFrom-EolCatalog ([System.IO.File]::ReadAllText($eolSample))
-Assert-True ($eolCat.Count -eq 7 -and -not $eolCat.ContainsKey('adonisjs') -and @($eolCat['oracle-jdk'])[0].EoesFrom -eq '2030-12-31' -and @($eolCat['python'] | Where-Object { $_.Name -eq '3.12' })[0].Latest -eq '3.12.9') 'endoflife.date: the products HostBadger maps are read, with end of support, extended support and latest release'
+Assert-True ($eolCat.Count -eq 8 -and -not $eolCat.ContainsKey('adonisjs') -and @($eolCat['oracle-jdk'])[0].EoesFrom -eq '2030-12-31' -and @($eolCat['python'] | Where-Object { $_.Name -eq '3.12' })[0].Latest -eq '3.12.9') 'endoflife.date: the products HostBadger maps are read, with end of support, extended support and latest release'
 Assert-Equal (@((ConvertFrom-EolCatalog (ConvertTo-EolCatalogJson $eolCat 'test'))['oracle-jdk']) | ConvertTo-Json -Compress) (@($eolCat['oracle-jdk']) | ConvertTo-Json -Compress) 'endoflife.date: the copy kept next to the report reads back the same'
 Assert-True ((Compare-SoftwareVersion '8 Update 431' '8u503') -lt 0 -and (Compare-SoftwareVersion '157.0' '157.0.1') -lt 0 -and (Compare-SoftwareVersion '3.12.9' '3.12.9') -eq 0 -and (Compare-SoftwareVersion '21.0.12' '21.0.5') -gt 0 -and (Compare-SoftwareVersion '25.0.4.1+1' '25.0.4.1+7') -eq 0) 'versions compared number by number, build metadata ignored'
 Assert-Equal ((@(@('8.9.1', '8.9.8.1'), @('7.4.20', '7.4.21'), @('157.0', '157.0.1'), @('22.1.0', '23.0.0'), @('3.12.9', '3.12.9')) | ForEach-Object { Get-SoftwareVersionGap $_[0] $_[1] }) -join ',') '7,1,1,0,0' 'version gap: how far behind inside the release line'
@@ -735,6 +745,22 @@ Assert-True (@($eolRes | Where-Object { $_.Object -eq 'software: Python 2' -and 
 $cfgEol['SoftwareGraceDays'] = 5
 Assert-True (@((Invoke-HostChecks -Snapshot $eolHost -Config $cfgEol).Findings | Where-Object { $_.Type -eq 'software_outdated' -and $_.Object -eq 'software: Node.js' }).Count -eq 1) 'software outdated: -SoftwareGraceDays sets how long a host may take to update'
 Assert-Equal @($weak.NotEvaluated | Where-Object { $_.Type -eq 'software_outdated' }).Count 0 'software outdated: without endoflife.date data the check is off, not "not evaluated"'
+# SQL Server instances (collector sqlServer section) against the endoflife.date service pack lines.
+Assert-True ((@($eolCat['mssqlserver'] | Where-Object { $_.Name -eq '16.0' }))[0].LatestGdr -eq '16.0.1200.5' -and (@((ConvertFrom-EolCatalog (ConvertTo-EolCatalogJson $eolCat 'test'))['mssqlserver']) | ConvertTo-Json -Compress) -eq (@($eolCat['mssqlserver']) | ConvertTo-Json -Compress)) 'SQL Server: label and latest GDR read, and kept in the copy next to the report'
+$sqlRels = @($eolCat['mssqlserver'])
+Assert-Equal ((@('13.0.6300.2', '13.0.7050.2', '13.0.5026.0', '12.0.6024.0', '10.50.6000.34', '16.0.1135.2', '16.0.4135.4', '11.0.7001.0') | ForEach-Object { $r = Find-SqlRelease $_ $sqlRels; if ($r) { $r.Name } else { '-' } }) -join ',') '13.0-sp3,13.0-sp3-acp,13.0-sp2,12.0-sp3,10.50-sp3,16.0,16.0,-' 'SQL Server: a build finds its service pack line (SP3, its Azure Connect Pack, SP2, 2008 R2), an unknown version none'
+Assert-Equal ((@([PSCustomObject]@{ fileVersion = '13.0.6300.2'; patchLevel = '13.2.5026.0' }, [PSCustomObject]@{ fileVersion = ''; patchLevel = '10.53.6000.34' }, [PSCustomObject]@{ fileVersion = '2015.0131.6300.02'; patchLevel = '13.3.6300.2' }, [PSCustomObject]@{ fileVersion = ''; patchLevel = ''; version = '' }) | ForEach-Object { Get-SqlInstanceVersion $_ }) -join ',') '13.0.6300.2,10.50.6000.34,13.0.6300.2,' 'SQL Server: the engine file version first, else the registry PatchLevel without its service pack number'
+$sqlHost = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_hardened.json'); $sqlHost.meta.collectedAtUtc = '2026-12-01T08:00:00Z'
+$sqlHost.software = @([ordered]@{ name = 'Microsoft SQL Server 2016 (64-bit)'; version = ''; publisher = 'Microsoft Corporation' }, [ordered]@{ name = 'Microsoft SQL Server 2014 (64-bit)'; version = ''; publisher = 'Microsoft Corporation' }, [ordered]@{ name = 'Microsoft SQL Server 2022 (64-bit)'; version = ''; publisher = 'Microsoft Corporation' })
+$sqlHost.sqlServer = @(
+    [PSCustomObject]@{ name = 'A'; id = 'MSSQL13.A'; fileVersion = '13.0.6300.2'; patchLevel = '13.3.6300.2' }, [PSCustomObject]@{ name = 'B'; id = 'MSSQL13.B'; fileVersion = ''; patchLevel = '13.2.5026.0' },
+    [PSCustomObject]@{ name = 'C'; id = 'MSSQL12.C'; fileVersion = '12.0.6449.1' }, [PSCustomObject]@{ name = 'D'; id = 'MSSQL16.D'; fileVersion = '16.0.4135.4' },
+    [PSCustomObject]@{ name = 'E'; id = 'MSSQL16.E'; fileVersion = '16.0.1000.6' }, [PSCustomObject]@{ name = 'F'; id = 'MSSQL15.F'; fileVersion = '15.0.2190.7' })
+$sqlRes = @((Invoke-HostChecks -Snapshot $sqlHost -Config $cfgEol).Findings | Where-Object { $_.Type -like 'software_*' })
+Assert-Equal (($sqlRes | Sort-Object Type, Object | ForEach-Object { "$($_.Type)|$($_.Object)|$($_.Severity)|$($_.Found)|$($_.Expected)" }) -join ';') 'software_eol|software: Microsoft SQL Server 2014|Low|Microsoft SQL Server 2014 SP3, end of life 2024-07-09|a supported release or service pack;software_eol|software: Microsoft SQL Server 2016|Medium|Microsoft SQL Server 2016 SP2, end of life 2022-10-11|a supported release or service pack;software_outdated|software: Microsoft SQL Server 2022|Low|16.0.1000.6|16.0.1200.5 or later' 'SQL Server: judged per instance (2016 SP2 out of support, 2014 SP3 under ESU, 2022 behind on both branches, 2019 on its latest GDR), the Programs and Features rows left to it'
+Assert-True (@($sqlRes | Where-Object { $_.Object -eq 'software: Microsoft SQL Server 2016' -and $_.Detail -eq 'SQL Server: 2 of 2 instances, the oldest at build 13.0.5026.0 (Microsoft SQL Server 2016 SP2). Support for Microsoft SQL Server 2016 SP2 ended 2022-10-11, 1512 days before collection (endoflife.date).' }).Count -eq 1 -and @($sqlRes | Where-Object { $_.Object -eq 'software: Microsoft SQL Server 2022' -and $_.Detail -match '^SQL Server: 2 of 2 instances, the oldest at build 16\.0\.1000\.6 .*security-only \(GDR\) build is 16\.0\.1200\.5' }).Count -eq 1 -and @($sqlRes | Where-Object { $_.Detail -match 'ESU\) runs until 2027-07-12' }).Count -eq 1) 'SQL Server: the finding names the instances, the service pack line and the branch'
+$sqlHost.sqlServer = @([PSCustomObject]@{ name = 'A'; id = 'MSSQL13.A'; fileVersion = '13.0.6300.2' }, [PSCustomObject]@{ name = 'X'; id = 'MSSQL11.X'; fileVersion = '11.0.7001.0' })
+Assert-Equal ((@((Invoke-HostChecks -Snapshot $sqlHost -Config $cfgEol).Findings | Where-Object { $_.Type -like 'software_*' }) | Sort-Object Object | ForEach-Object { "$($_.Object)|$($_.Found)" }) -join ';') 'software: Microsoft SQL Server 2014|Microsoft SQL Server 2014, end of life 2024-07-09;software: Microsoft SQL Server 2016|Microsoft SQL Server 2016 SP3, end of life 2026-07-14' 'SQL Server: an instance whose line is unknown leaves the Programs and Features rows to the table'
 # Chocolatey package versions (-ChocoFile / -ChocoOnline) for programs endoflife.date lacks: every
 # version with its publication date. A feed page as the OData API writes it (typed properties are
 # elements with an m:type attribute), with a pre-release, a package fix version (24.9.0.20241201 is
@@ -1056,6 +1082,10 @@ $coverage = [System.IO.File]::ReadAllText((Join-Path $root 'COVERAGE.md'))
 $missingDoc = @($script:CheckCatalog.Keys | Where-Object { $coverage -notmatch [regex]::Escape("``$_``") })
 Assert-Equal ($missingDoc -join ',') '' 'COVERAGE.md lists every check'
 Assert-True ([System.IO.File]::ReadAllText((Join-Path $root 'README.md')) -match "\*\*$($script:CheckCatalog.Count) checks\*\*") 'README states the check count'
+# Line endings are pinned by .gitattributes (LF in the repository, CRLF on disk): a tool that rewrites a
+# file with other line endings must not turn it into a whole-file diff.
+$gitAttr = Join-Path $root '.gitattributes'
+Assert-True ((Test-Path -LiteralPath $gitAttr) -and ([System.IO.File]::ReadAllText($gitAttr) -match '(?m)^\* text=auto eol=crlf\s*$')) '.gitattributes pins the line endings'
 
 # ------------------------------------------------------------------ safety review
 $safety = Join-Path $root 'Test-HostBadgerSafety.ps1'

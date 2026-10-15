@@ -3281,6 +3281,7 @@
       "publisher": "Igor Pavlov"
     }
   ],
+  "sqlServer": [],
   "updatesPending": {
     "searched": true,
     "source": "WSUS",

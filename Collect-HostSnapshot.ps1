@@ -1201,6 +1201,31 @@ $software = Invoke-Section 'software' {
     $out.ToArray()
 }
 
+# ------------------------------------------------------------------ SQL Server instances
+# The Programs and Features name of SQL Server gives no service pack or update: each Database Engine
+# instance gives its build, from the version of sqlservr.exe (the engine on disk) and from the registry
+# (Setup PatchLevel, whose second number is the service pack and which can lag after an update). Read only.
+$sqlServer = Invoke-Section 'sqlServer' {
+    $out = New-Object System.Collections.Generic.List[object]
+    $seen = @{}
+    foreach ($root in @('HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Microsoft SQL Server')) {
+        foreach ($v in @(Get-RegSubkeyValues "$root\Instance Names\SQL")) {
+            $id = "$($v.value)"
+            if (-not $id -or $seen.ContainsKey("$root|$id")) { continue }
+            $seen["$root|$id"] = $true
+            $setup = "$root\$id\Setup"
+            $file = ''
+            $bin = "$(Get-RegValue $setup 'SQLBinRoot')"
+            if ($bin) {
+                try { $file = "$((Get-Item -LiteralPath (Join-Path $bin 'sqlservr.exe') -ErrorAction Stop).VersionInfo.ProductVersion)".Trim() } catch { }
+            }
+            $out.Add([ordered]@{ name = $v.name; id = $id; wow64 = ($root -like '*WOW6432Node*'); edition = "$(Get-RegValue $setup 'Edition')"
+                    fileVersion = $file; patchLevel = "$(Get-RegValue $setup 'PatchLevel')"; version = "$(Get-RegValue $setup 'Version')"; sp = (Get-RegValue $setup 'SP') })
+        }
+    }
+    $out.ToArray()
+}
+
 # ------------------------------------------------------------------ pending Windows updates (only with -CheckUpdates)
 # Asks the Windows Update Agent on this machine what is missing. This is the one place where the
 # collector causes network traffic: the agent contacts the WSUS server set by policy (WUServer) or, if
@@ -1820,6 +1845,7 @@ $snapshot = [ordered]@{
     hardening            = $hardening
     stig                 = $stig
     software             = @($software | Where-Object { $_ })
+    sqlServer            = @($sqlServer | Where-Object { $_ })
     updatesPending       = $updatesPending
     # A section that returns an empty list hands back $null, and @($null) would be one empty entry.
     services             = @($services | Where-Object { $_ })

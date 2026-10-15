@@ -80,7 +80,9 @@ should.
   Python, Node.js, .NET, old Visual C++ runtimes) are flagged from a lifecycle
   table, no download needed. With `-EolOnline` (or `-EolFile`) the dates come
   from [endoflife.date](https://endoflife.date) (MIT), which adds Oracle Java, Eclipse Temurin,
-  PowerShell 7, VirtualBox and Wireshark and flags programs behind the latest
+  PowerShell 7, VirtualBox and Wireshark, judges each SQL Server instance on its
+  service pack and its latest cumulative update or GDR build (read from the
+  engine file `sqlservr.exe`), and flags programs behind the latest
   release of their line (`software_outdated`: Python 3.12.1 when 3.12.9 has been
   out for months, a Firefox, Chrome or Notepad++ that stopped updating). A
   release counts only if it came out before the snapshot and more than
@@ -165,6 +167,10 @@ should.
   finding ids. Every CIS and STIG finding shows the value **found** on the
   host next to the value the framework **requires** (for example found "not
   configured", required "1"), in the report table, the CSV and the JSON Lines.
+  Every check also says **what an attacker can do with it** ("Attacks it
+  enables": NTLM relay to SMB, credential dumping, privilege escalation to
+  SYSTEM...), in the report, the `Attacks` CSV column and the `attacks` JSON
+  Lines field.
 - **One report per host** with `-PerHost`, or one fleet report.
 - **Comparison with an earlier run** (new and resolved findings) and **accepted
   risks** with an owner and an expiry.
