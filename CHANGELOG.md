@@ -54,6 +54,10 @@ new major if the snapshot or the JSON Lines format ever breaks.
 - Guided menu: option 4 is called "Analyze with an AI summary" (it runs a
   whole analysis, with the AI questions up front); after a collection (option
   1) it says that option 2 lists the new snapshot.
+### Fixed
+- The collector reported version 1.0 on screen and in `meta.collectorVersion`
+  since the first release: it now carries the HostBadger release (1.5), and the
+  regression fails if the two versions differ.
 
 ## [1.4] - 2026-10-15
 ### Added

@@ -1169,6 +1169,9 @@ $coverage = [System.IO.File]::ReadAllText((Join-Path $root 'COVERAGE.md'))
 $missingDoc = @($script:CheckCatalog.Keys | Where-Object { $coverage -notmatch [regex]::Escape("``$_``") })
 Assert-Equal ($missingDoc -join ',') '' 'COVERAGE.md lists every check'
 Assert-True ([System.IO.File]::ReadAllText((Join-Path $root 'README.md')) -match "\*\*$($script:CheckCatalog.Count) checks\*\*") 'README states the check count'
+# The collector ships with the analyzer: both print the release they belong to.
+$verOf = { param($file, $var) if ([System.IO.File]::ReadAllText((Join-Path $root $file)) -match "\`$script:$var = '([^']+)'") { $Matches[1] } }
+Assert-Equal (& $verOf 'Collect-HostSnapshot.ps1' 'CollectorVersion') (& $verOf 'HostBadger.ps1' 'HostBadgerVersion') 'collector and analyzer carry the same version'
 # Line endings are pinned by .gitattributes (LF in the repository, CRLF on disk): a tool that rewrites a
 # file with other line endings must not turn it into a whole-file diff.
 $gitAttr = Join-Path $root '.gitattributes'
