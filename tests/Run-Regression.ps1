@@ -59,7 +59,14 @@ Assert-Equal @($lap.Findings).Count 8 'laptop: total findings'
 Assert-Equal @($dc.Findings).Count 28 'dc: total findings'
 Assert-Equal @($part.Findings).Count 2 'partial: total findings'
 $all = @($weak.Findings) + @($hard.Findings) + @($lap.Findings) + @($dc.Findings) + @($part.Findings)
-Assert-Equal ((@('Critical', 'High', 'Medium', 'Low') | ForEach-Object { $s = $_; @($all | Where-Object { $_.Severity -eq $s }).Count }) -join '/') '1/41/111/83' 'fleet: severity split'
+Assert-Equal ((@('Critical', 'High', 'Medium', 'Low') | ForEach-Object { $s = $_; @($all | Where-Object { $_.Severity -eq $s }).Count }) -join '/') '1/41/108/86' 'fleet: severity split'
+# A STIG value no policy sets, with the setting in effect compliant (the weak host's firewall profiles are on): still a finding, at Low.
+$effFw = @($weak.Findings | Where-Object { $_.Type -eq 'stig_firewall' -and $_.Found -like 'not configured (in effect:*' })
+Assert-True ($effFw.Count -eq 3 -and @($effFw | Where-Object { $_.Severity -ne 'Low' }).Count -eq 0 -and $effFw[0].Detail -match 'setting in effect is compliant') 'STIG: a rule no policy sets but compliant in effect is a Low finding that says so'
+# The score measures exposure: DISA STIG, the Brave policy gaps and NoScore findings stay out of it.
+$mkF = { param($ty, $sv, $cat, $ns) [PSCustomObject]@{ Type = $ty; Severity = $sv; Category = $cat; NoScore = $ns } }
+Assert-Equal (Get-HostScore @((& $mkF 'stig_defender' 'High' 'DISA STIG' $false), (& $mkF 'brave_policy_gaps' 'Medium' 'System Hardening' $false), (& $mkF 'kev_software_match' 'Medium' 'Software' $true))).Score 100 'score: STIG rules, Brave policy gaps and findings counted elsewhere do not lower it'
+Assert-Equal (Get-HostScore @((& $mkF 'kev_software_match' 'Low' 'Software' $false))).Score 99 'score: a KEV match not judged by version still counts'
 Assert-True (Has $weak 'webclient_webdav_enabled' 'service: WebClient') 'host: the WebClient (WebDAV) service enabled is a coercion/relay finding'
 Assert-True (Has $weak 'wpad_not_disabled' 'WPAD auto-discovery') 'host: WPAD not disabled is an NTLM-capture finding'
 # edr_expected_missing only exists when the operator names the EDR every host should run.
@@ -524,12 +531,20 @@ $launcher = Join-Path $root 'Start-HostBadger.ps1'
 # The remediation question follows JSON Lines: "y" and Enter on the folder (next to the report) when the
 # offer is "n", plain Enter (no) otherwise.
 $wizAnswers = { param($offer) (@('2', $fleet, (Join-Path $wizDir 'w.html'), '', '', '', '', '', 'n', '', '', '', '') + $(if ($offer -eq 'n') { @('y', '') } else { @('') }) + @('', '', '', '', '', $offer) + $(if ($offer -eq 'd') { @('', (Join-Path $wizDir 'w_prompt.txt')) } else { @() }) + @('q')) -join "`n" }
-$wizNo = (& $wizAnswers 'n') | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
-Assert-True ($wizNo -match 'Report ready:' -and -not (Test-Path (Join-Path $wizDir 'w_prompt.txt')) -and [regex]::Matches($wizNo, 'Hosts analyzed').Count -eq 1) 'launcher: after the report it offers the AI summary, and "n" does nothing more'
+# Run from the test folder: the launcher offers catalogs kept in .\output, and the project's own output
+# folder may hold real ones.
+Push-Location $wizDir
+try {
+    $wizNo = (& $wizAnswers 'n') | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    $wizNoPrompt = Test-Path (Join-Path $wizDir 'w_prompt.txt')
+    $wizDry = (& $wizAnswers 'd') | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    # Before the run every answer is listed and can be changed: 4 flips "DISA STIG rules", Enter runs.
+    $wizEdit = (@('2', $fleet, (Join-Path $wizDir 'e.html'), '', '', '', '', '', 'n', '', '', '', '', '', '', '', '', '', '4', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+}
+finally { Pop-Location }
+Assert-True ($wizNo -match 'Not running as administrator|Running as administrator' -and $wizNo -notmatch 'Restart this menu as administrator') 'launcher: says up front whether it runs as administrator (the restart is offered only at an interactive console)'
+Assert-True ($wizNo -match 'Report ready:' -and -not $wizNoPrompt -and [regex]::Matches($wizNo, 'Hosts analyzed').Count -eq 1) 'launcher: after the report it offers the AI summary, and "n" does nothing more'
 Assert-True ($wizNo -match 'remediate_<host>\.ps1' -and @(Get-ChildItem (Join-Path $wizDir 'w_remediation') -Filter 'remediate_*.ps1' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name } | Sort-Object) -join ',' -eq 'remediate_DC01.ps1,remediate_WKS-ACCT-017.ps1') 'launcher: asks about per-host remediation scripts and writes them next to the report (the hosts with a fix)'
-$wizDry = (& $wizAnswers 'd') | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
-# Before the run every answer is listed and can be changed: 4 flips "DISA STIG rules", Enter runs.
-$wizEdit = (@('2', $fleet, (Join-Path $wizDir 'e.html'), '', '', '', '', '', 'n', '', '', '', '', '', '', '', '', '', '4', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
 Assert-True ($wizEdit -match 'Settings for this run:' -and $wizEdit -match '\[ 4\] DISA STIG rules\s+no' -and (Test-Path (Join-Path $wizDir 'e.csv')) -and @(Import-Csv (Join-Path $wizDir 'e.csv') | Where-Object { $_.Type -like 'stig_*' }).Count -eq 0 -and @(Import-Csv (Join-Path $wizDir 'e.csv')).Count -gt 0) 'launcher: the answers are listed before the run and one can be changed (DISA STIG turned off)'
 Assert-True ((Test-Path (Join-Path $wizDir 'w_prompt.txt')) -and $wizDry -match 'Nothing sent') 'launcher: "d" after the report writes the prompt and sends nothing'
 # The launcher looks for snapshots by itself: it lists what it finds in a "snapshots" folder, marks an older
@@ -697,6 +712,9 @@ $hideOut = Join-Path $work 'hide'; New-Item -ItemType Directory -Path $hideOut -
 $showHtml = [System.IO.File]::ReadAllText((Join-Path $hideOut 'show.html')); $hideHtml = [System.IO.File]::ReadAllText((Join-Path $hideOut 'hide.html'))
 Assert-True ($showHtml -match 'DISA STIG compliance: \d+% of \d+ rules' -and $showHtml -match 'CIS-based compliance: \d+% of \d+ checks' -and $showHtml -match 'WN11 V-253260') 'report: compliance charts on top, STIG findings listed'
 Assert-True ($showHtml.IndexOf('Score per host') -lt $showHtml.IndexOf('DISA STIG compliance') -and $showHtml.IndexOf('DISA STIG compliance') -lt $showHtml.IndexOf('Findings by severity')) 'report: the compliance charts sit under the score'
+Assert-True ($showHtml -match 'Summary by framework' -and $showHtml -match 'E8: Restrict administrative privileges' -and $showHtml -match "<details class='dash-more'><summary>Restrict administrative privileges <span class='meta'>\(\d+ not clean\)" -and $showHtml -match 'Checks not clean \(\d+\)' -and $showHtml -match '<b>ACSC Essential Eight\.</b>') 'report: CIS, STIG and Essential Eight have a summary row each, and the dashboard lists the checks that are not clean'
+Assert-True ([regex]::Match($showHtml, '(?s)Summary by category</h2>.*?</table>').Value -notmatch '<td>DISA STIG</td>' -and [regex]::Match($showHtml, '(?s)Summary by framework</h2>.*?</table>').Value -match '<td>DISA STIG') 'report: DISA STIG is in the summary by framework, not in the summary by category'
+Assert-True ((Get-DashboardHtml -Hosts @([PSCustomObject]@{ Name = 'h'; Role = 'workstation'; Score = [PSCustomObject]@{ Score = 48; Grade = 'D' }; StigByType = @{}; NotEvaluated = @(); OptionalOff = @(); StigEvaluated = 0 }) -All @() -Shown @() -Title 't') -match 'Partial protection') 'dashboard: the verdict follows the grades (48, grade D, is partial protection)'
 Assert-True ($hideHtml -match 'DISA STIG compliance' -and $hideHtml -match 'Hidden from this report: \d+ CIS-based and 27 DISA STIG' -and $hideHtml -notmatch 'WN11 V-253260' -and $hideHtml -notmatch 'CIS 18\.10\.7\.3' -and $hideHtml.Length -lt $showHtml.Length) 'report: -HideCis -HideStig leave the findings out and keep the charts'
 Assert-Equal @(Import-Csv (Join-Path $hideOut 'hide.csv')).Count 236 'report: hidden findings stay in the CSV'
 $aiNo = Join-Path $hideOut 'ai_no.txt'; $aiYes = Join-Path $hideOut 'ai_yes.txt'
@@ -1046,6 +1064,15 @@ $dfRows = @(Import-Csv (Join-Path $dfOut 'r.csv') | Where-Object { $_.Type -eq '
 Assert-True ($dfRows.Count -eq 1 -and $dfRows[0].Severity -eq 'Critical') 'drivers file: -DriversFile uses a kept catalog, no network'
 & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $dfOut 'raw.html') -DriversFile $lolSample *>&1 | Out-Null
 Assert-Equal @(Import-Csv (Join-Path $dfOut 'raw.csv') | Where-Object { $_.Type -eq 'vulnerable_driver_present' }).Count 1 'drivers file: the original LOLDrivers drivers.json works too'
+# The launcher offers a catalog kept by an earlier run (here a converted LOLDrivers copy in .\output) as
+# the default: Enter uses it, and the review screen names the file. Nothing is downloaded.
+$keptDir = Join-Path $work 'kept'; New-Item -ItemType Directory -Path (Join-Path $keptDir 'output') -Force | Out-Null
+Copy-Item (Join-Path $lolDl 'r_drivers.json') (Join-Path $keptDir 'output\old_drivers.json')
+Push-Location $keptDir
+try { $keptOut = (@('2', $fleet, (Join-Path $keptDir 'k.html'), 'n', '', '','', '', '', '', '', '', '', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String }
+finally { Pop-Location }
+$keptRows = @(Import-Csv (Join-Path $keptDir 'k.csv') -ErrorAction SilentlyContinue | Where-Object { $_.Type -eq 'vulnerable_driver_present' })
+Assert-True ($keptOut -match 'Kept from an earlier run: .*old_drivers\.json' -and $keptOut -match 'LOLDrivers catalog\s+file .*old_drivers\.json' -and $keptOut -match 'driver files from .*old_drivers\.json' -and $keptRows.Count -eq 1 -and $keptRows[0].Severity -eq 'Critical') 'launcher: a catalog kept by an earlier run is offered, Enter uses it (no download)'
 
 # The lib files are dot-sourced into HostBadger.ps1's own scope: a variable they set at the top level
 # with the name of a parameter silently replaces what the user passed (it once wiped -SnapshotPassword).

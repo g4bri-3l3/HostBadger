@@ -881,7 +881,9 @@ function Add-Finding {
     # Found / Expected: the value on the host and the value the framework requires, for the report
     # columns and the found/expected JSON Lines fields. A CIS-based check that does not pass them gets
     # them from its Detail ("Name = value (CIS x expects y)", see Get-FoundExpectedFromDetail).
-    param([string]$Type, [string]$Object, [string]$Detail, [string]$Severity = '', [string]$ServerCis = '', [string]$Found = '', [string]$Expected = '')
+    # NoScore: listed and exported as usual, left out of the host score (Get-HostScore) because another
+    # finding already counts the same problem.
+    param([string]$Type, [string]$Object, [string]$Detail, [string]$Severity = '', [string]$ServerCis = '', [string]$Found = '', [string]$Expected = '', [switch]$NoScore)
     $meta = $script:CheckCatalog[$Type]
     if (-not $meta) { throw "Unknown check type: $Type" }
     # A check that follows several rules names the one that applies in the detail ("CIS 5.30 ...").
@@ -943,6 +945,7 @@ function Add-Finding {
             Found    = $Found
             Expected = $Expected
             Attacks  = "$($meta.Attacks)"
+            NoScore  = [bool]$NoScore
         })
 }
 
@@ -1762,7 +1765,12 @@ function Invoke-SoftwareChecks {
                 $cves = (@($entries | Select-Object -First 3 | ForEach-Object { $_.Cve }) -join ', ')
                 $ver = if ("$($sw.version)") { "version $($sw.version)" } else { 'no version recorded' }
                 $detail = ("Installed as {0} ({1}). CISA KEV lists {2} exploited vulnerabilit{3} for {4} {5}, newest {6} (added {7}){8}. The catalog has no version ranges: compare {9} with the vendor advisories." -f $sw.name, $ver, $entries.Count, $(if ($entries.Count -eq 1) { 'y' } else { 'ies' }), $g.Vendor, $g.Product, $entries[0].Cve, $entries[0].DateAdded, $(if ($ransom -gt 0) { "; $ransom used in ransomware campaigns" } else { '' }), $ver) + " Others: $cves."
-                Add-Finding -Type 'kev_software_match' -Object "software: $($g.Vendor) $($g.Product)" -Severity $(if ($ransom -gt 0) { 'Medium' } else { 'Low' }) -Detail $detail
+                # A product that software_cve judged by its version (CVE data loaded and the product mapped):
+                # the name match stays as a lead but does not count in the score a second time.
+                $ipK = if ($Config.Cve -and $Config.Cve.Products) { Find-InstalledProduct $sw } else { $null }
+                $byVersion = $ipK -and $Config.Cve.Products.Contains($ipK.Label)
+                if ($byVersion) { $detail += " $($ipK.Label) $($ipK.Version) is judged by version in software_cve, so this match is not counted in the score." }
+                Add-Finding -Type 'kev_software_match' -Object "software: $($g.Vendor) $($g.Product)" -Severity $(if ($ransom -gt 0) { 'Medium' } else { 'Low' }) -Detail $detail -NoScore:$byVersion
             }
         }
     }
@@ -1917,6 +1925,39 @@ function Get-StigExpectedText {
     return $t
 }
 
+# A STIG value that no policy sets, when the snapshot shows that the setting in effect is the one the
+# rule wants (firewall profiles, Defender status and preferences): the text that says so, else nothing.
+# The rule is still a finding (the STIG wants the policy), at Low severity.
+function Get-StigEffectiveState {
+    param($S, $Entry)
+    $n = "$($Entry.n)"
+    if ("$($Entry.p)" -eq 'firewall') {
+        $prof = if ("$($Entry.k)" -match 'DomainProfile') { 'Domain' } elseif ("$($Entry.k)" -match 'PrivateProfile|StandardProfile') { 'Private' } elseif ("$($Entry.k)" -match 'PublicProfile') { 'Public' } else { '' }
+        $fp = @($S.network.firewallProfiles | Where-Object { $_ -and "$($_.name)" -eq $prof }) | Select-Object -First 1
+        if (-not $fp) { return }
+        if ($n -eq 'EnableFirewall' -and $fp.enabled -eq $true) { return "$prof profile on" }
+        if ($n -eq 'DefaultInboundAction' -and "$($fp.defaultInboundAction)" -eq 'Block') { return "$prof profile blocks inbound by default" }
+        if ($n -eq 'LogDroppedPackets' -and "$($fp.logBlocked)" -eq 'True') { return "$prof profile logs dropped packets" }
+        return
+    }
+    if ("$($Entry.p)" -ne 'defender' -or -not $S.defender) { return }
+    $d = $S.defender
+    switch ($n) {
+        'PUAProtection' { if ("$($d.puaProtection)" -eq '1') { return 'PUA protection on' } }
+        'DisableRealtimeMonitoring' { if ($d.realTimeProtectionEnabled -eq $true) { return 'real-time protection on' } }
+        'DisableBehaviorMonitoring' { if ($d.behaviorMonitorEnabled -eq $true) { return 'behavior monitoring on' } }
+        'DisableIOAVProtection' { if ($d.ioavProtectionEnabled -eq $true) { return 'downloads and attachments scanned' } }
+        'DisableScriptScanning' { if ($d.disableScriptScanning -eq $false) { return 'script scanning on' } }
+        'DisableBlockAtFirstSeen' { if ($d.disableBlockAtFirstSeen -eq $false) { return 'block at first sight on' } }
+        'SpynetReporting' { if ("$($d.mapsReporting)" -eq '2') { return 'cloud protection (MAPS) advanced' } }
+        'EnableNetworkProtection' { if ("$($d.networkProtection)" -eq '1') { return 'network protection blocking' } }
+        { $_ -in 'ASSignatureDue', 'AVSignatureDue' } {
+            $age = Get-AgeDays $d.signatureUpdatedUtc
+            if ($null -ne $age -and $age -le 7) { return "signatures $age day(s) old at collection" }
+        }
+    }
+}
+
 function Invoke-StigChecks {
     param($S, $Config, $can)
     $st = $S.stig
@@ -1960,7 +2001,11 @@ function Invoke-StigChecks {
             $script:StigEvaluated++; $script:StigEvaluatedBy[$type] = 1 + [int]$script:StigEvaluatedBy[$type]
             $has = $machine.ContainsKey($id)
             $why = Test-StigValue -Entry $e -Present $has -Value $machine[$id]
-            if ($why) { Add-Finding -Type $type -Object $obj -Severity $sev["$($e.s)"] -Found $(if ($has) { "$($machine[$id])" } else { 'not configured' }) -Expected (Get-StigExpectedText $e) -Detail "$loc $why. $($e.d)" }
+            if ($why) {
+                $eff = if (-not $has) { Get-StigEffectiveState -S $S -Entry $e } else { $null }
+                if ($eff) { Add-Finding -Type $type -Object $obj -Severity 'Low' -Found "not configured (in effect: $eff)" -Expected (Get-StigExpectedText $e) -Detail "$loc $why. No policy sets it, but the setting in effect is compliant ($eff): set the policy so it cannot be changed locally. $($e.d)" }
+                else { Add-Finding -Type $type -Object $obj -Severity $sev["$($e.s)"] -Found $(if ($has) { "$($machine[$id])" } else { 'not configured' }) -Expected (Get-StigExpectedText $e) -Detail "$loc $why. $($e.d)" }
+            }
         }
         elseif ($userMaps.Count -gt 0) {
             $script:StigEvaluated++; $script:StigEvaluatedBy[$type] = 1 + [int]$script:StigEvaluatedBy[$type]
@@ -3219,11 +3264,14 @@ function Split-FindingsByException {
 function Get-HostScore {
     # The score of a host: one weight per triggered check at its worst severity (Critical 20, High 8,
     # Medium 3, Low 1), then 100 * e^(-penalty/100), capped at 35 with any Critical and at 65 with
-    # any High.
+    # any High. It measures exposure: the DISA STIG rules and the Brave adaptation of the Chrome STIG
+    # are compliance with a policy baseline (the dashboard shows them on their own) and stay out, as do
+    # findings marked NoScore (the same problem already counted by another check).
     param($Findings)
     $weights = @{ Critical = 20; High = 8; Medium = 3; Low = 1 }
     $worstPerType = @{}
     foreach ($f in $Findings) {
+        if ($f.NoScore -eq $true -or "$($f.Category)" -eq 'DISA STIG' -or "$($f.Type)" -eq 'brave_policy_gaps') { continue }
         $cur = $worstPerType[$f.Type]
         if (-not $cur -or $script:SeverityRank[$f.Severity] -gt $script:SeverityRank[$cur]) { $worstPerType[$f.Type] = $f.Severity }
     }

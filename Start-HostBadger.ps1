@@ -8,7 +8,7 @@
       1  Collect this machine            (Collect-HostSnapshot.ps1, read-only)
       2  Analyze snapshots               (HostBadger.ps1: one snapshot, a zip or a folder of them)
       3  Collect and analyze this machine
-      4  Add an AI summary               (Gemini; names replaced by tokens first)
+      4  Analyze with an AI summary      (Gemini; names replaced by tokens first)
       5  Safety review                   (Test-HostBadgerSafety.ps1: what the scripts can do)
       6  Remediate this machine          (collect, analyze, preview the fixes, apply after YES)
       7  Restore a remediation backup    (put back the values a remediation changed)
@@ -28,6 +28,15 @@
     resumed at the next start; a finished run removes the file. At the end of
     an analysis the menu offers to open the report in the default browser.
 
+    At the start the menu says whether it runs as administrator. If not, it
+    marks the options that need it and, at an interactive console, offers to
+    restart itself elevated (Windows asks you to confirm, UAC).
+
+    Catalogs downloaded by an earlier analysis (CISA KEV, LOLDrivers,
+    endoflife.date, Chocolatey, NVD/EPSS: <report>_kev.json and the like, next
+    to the report or in .\output) are offered again: Enter uses the newest kept
+    copy, O downloads a fresh one.
+
     Double-click use: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-HostBadger.ps1
     (the policy is bypassed for that process only; a policy enforced by GPO still wins).
 
@@ -36,17 +45,22 @@
 #>
 
 [CmdletBinding()]
-Param()
+Param(
+    # Set by the restart as administrator: Windows starts an elevated process in System32, so the new
+    # window is brought back to the folder the menu was started from.
+    [string]$StartIn = ''
+)
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
+if ($StartIn -and (Test-Path -LiteralPath $StartIn -PathType Container)) { Set-Location -LiteralPath $StartIn }
 
 function Show-Banner {
     $art = @(
         ''
         '    _.--""--._'
         '  .''  |    |  ''.'
-        ' /    |    |    \      HostBadger v1.4'
+        ' /    |    |    \      HostBadger v1.5'
         '|  (o)|    |(o)  |     Windows host hardening'
         '|     |    |     |     collect, analyze, optional AI summary'
         ' \    ''.__.''    /'
@@ -155,6 +169,96 @@ function Open-Report {
 function Test-IsAdmin {
     try { return ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) }
     catch { return $false }
+}
+
+# At the start, without administrator rights: offer to open the menu again elevated (only at an
+# interactive console). Windows shows its UAC prompt; declined, the menu goes on as it is.
+function Request-Elevation {
+    $redirected = $true; try { $redirected = [Console]::IsInputRedirected } catch { }
+    if ($redirected) { return }
+    if ("$(Read-Host 'Restart this menu as administrator? Windows asks you to confirm (y/N)')".Trim() -notmatch '^[YySs]') { return }
+    $exe = (Get-Process -Id $PID).Path
+    # A folder ending in "\" would escape the closing quote ("C:\"): "C:\." is the same folder.
+    $here = $PWD.ProviderPath; if ($here.EndsWith('\')) { $here += '.' }
+    $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $PSCommandPath), '-StartIn', ('"{0}"' -f $here))
+    try {
+        Start-Process -FilePath $exe -ArgumentList $argList -Verb RunAs -ErrorAction Stop
+        Write-Host 'The menu goes on in the new administrator window.' -ForegroundColor Green
+        exit 0
+    }
+    catch { Write-Host "Not restarted ($($_.Exception.Message)): the menu goes on without administrator rights." -ForegroundColor Yellow }
+}
+
+# ---------------- Catalogs an analysis can download. Each download is kept next to its report
+# (<report>_kev.json ...); the next analysis offers the newest kept copy (next to the new report or in
+# .\output) as the default, and asks whether to download a fresh one instead.
+$script:CatalogDefs = [ordered]@{
+    Kev     = @{ Label = 'CISA KEV catalog'; Suffix = 'kev'; Online = 'KevOnline'; File = 'KevFile'; Site = 'www.cisa.gov'; Off = 'none'; OffPrompt = 'none'
+        Prompt = 'CISA KEV catalog: [N]one, [O]nline download, or a [F]ile you already have (N/o/f)' }
+    Drivers = @{ Label = 'LOLDrivers catalog'; Suffix = 'drivers'; Online = 'DriversOnline'; File = 'DriversFile'; Site = 'www.loldrivers.io'; Off = 'the copy HostBadger ships'; OffPrompt = 'the copy HostBadger ships'
+        Prompt = 'Download a fresh LOLDrivers catalog from www.loldrivers.io? (y/N)' }
+    Eol     = @{ Label = 'Software lifecycle'; Suffix = 'eol'; Online = 'EolOnline'; File = 'EolFile'; Site = 'endoflife.date'; Off = 'the table HostBadger ships'; OffPrompt = 'the table HostBadger ships'
+        Prompt = 'Download software lifecycle data from endoflife.date? (y/N)' }
+    Choco   = @{ Label = 'Program versions'; Suffix = 'choco'; Online = 'ChocoOnline'; File = 'ChocoFile'; Site = 'community.chocolatey.org'; Off = 'no'; OffPrompt = 'skip it'
+        Prompt = 'Download program versions from community.chocolatey.org? (y/N)' }
+    Cve     = @{ Label = 'CVEs and EPSS'; Suffix = 'cve'; Online = 'CveOnline'; File = 'CveFile'; Site = 'services.nvd.nist.gov, epss.empiricalsecurity.com'; Off = 'no'; OffPrompt = 'skip it'
+        Prompt = 'Download CVEs from NVD and EPSS scores from FIRST? (y/N)' }
+}
+
+# The newest kept copy of a catalog (<anything>_<suffix>.json), or nothing.
+function Find-KeptCatalog {
+    param([string]$Suffix, [string]$Report)
+    $full = if ([System.IO.Path]::IsPathRooted($Report)) { $Report } else { Join-Path $PWD.ProviderPath $Report }
+    $dirs = @((Split-Path -Parent $full), (Join-Path $PWD.ProviderPath 'output')) | Sort-Object -Unique
+    $hits = @(foreach ($d in $dirs) {
+            if (Test-Path -LiteralPath $d -PathType Container) {
+                Get-ChildItem -LiteralPath $d -File -Filter "*_$Suffix.json" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*_$Suffix.json" -and $_.Length -gt 0 }
+            }
+        })
+    if ($hits.Count -eq 0) { return }
+    return ($hits | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1)
+}
+
+function Get-CatalogPrompt {
+    param([string]$Name, [bool]$Kept)
+    $c = $script:CatalogDefs[$Name]
+    if (-not $Kept) { return $c.Prompt }
+    if ($Name -eq 'Kev') { return "$($c.Label): [U]se the kept copy, [O]nline download, a [F]ile you already have, or [N]one (U/o/f/n)" }
+    return "$($c.Label): [U]se the kept copy, download a fresh one [O]nline, or [N]o, $($c.OffPrompt) (U/o/n)"
+}
+
+# Ask about one catalog and set its parameters. With a kept copy, Enter (or U) uses it. -Edit is the
+# review screen: asked again, never resumed, and the new answer saved under its question.
+function Set-CatalogChoice {
+    param([hashtable]$Ap, [string]$Name, [switch]$Edit)
+    $c = $script:CatalogDefs[$Name]
+    $kept = Find-KeptCatalog -Suffix $c.Suffix -Report $Ap['OutHtml']
+    if ($kept) {
+        $age = (Get-Date) - $kept.LastWriteTime
+        $ageText = if ($age.TotalDays -ge 2) { '{0} days ago' -f [math]::Floor($age.TotalDays) } elseif ($age.TotalHours -ge 2) { '{0} hours ago' -f [math]::Floor($age.TotalHours) } else { 'less than 2 hours ago' }
+        $stale = if ($age.TotalDays -gt 7) { ' It is over a week old: a fresh download is advisable.' } else { '' }
+        Write-Host ("Kept from an earlier run: {0} ({1:yyyy-MM-dd HH:mm}, {2}).{3}" -f $kept.FullName, $kept.LastWriteTime, $ageText, $stale) -ForegroundColor DarkGray
+    }
+    $prompt = Get-CatalogPrompt -Name $Name -Kept ([bool]$kept)
+    if ($Edit) { $ans = "$(Read-Host $prompt)"; Set-WizardValue $prompt $ans } else { $ans = Read-Line $prompt }
+    $ans = $ans.Trim().ToUpper()
+    $Ap.Remove($c.Online); $Ap.Remove($c.File)
+    if ($ans -match '^[OYS]') { $Ap[$c.Online] = $true }
+    elseif ($ans -eq 'F' -and $Name -eq 'Kev') {
+        $kp = if ($Edit) { Read-PathRaw 'Path of known_exploited_vulnerabilities.json' '' } else { Read-Path 'Path of known_exploited_vulnerabilities.json' }
+        if ($Edit) { Set-WizardValue 'Path of known_exploited_vulnerabilities.json' $kp }
+        if ($kp -and (Test-Path -LiteralPath $kp)) { $Ap['KevFile'] = $kp } else { Write-Host "Not found, KEV skipped: $kp" -ForegroundColor Yellow }
+    }
+    elseif ($kept -and ($ans -eq '' -or $ans -eq 'U')) { $Ap[$c.File] = $kept.FullName }
+}
+
+# How a catalog choice reads on the review screen.
+function Get-CatalogSummary {
+    param([hashtable]$Ap, [string]$Name)
+    $c = $script:CatalogDefs[$Name]
+    if ($Ap[$c.Online]) { return "download ($($c.Site))" }
+    if ($Ap[$c.File]) { return "file $($Ap[$c.File])" }
+    return $c.Off
 }
 
 # Collect this machine. Returns the folder with the snapshot, or an empty string if nothing came
@@ -301,21 +405,17 @@ function Get-AnalysisParams {
         $stigShow = "$(Read-Line 'Show the DISA STIG findings in the report? (Y/n)')".Trim()
         if ($stigShow -match '^[Nn]') { $ap['HideStig'] = $true }
     }
+    Write-Host "`nCatalogs: each download is kept next to its report, and the next analysis offers the newest kept copy (Enter) or a fresh download (O)." -ForegroundColor DarkGray
     Write-Host "`nCISA KEV: installed software can be compared with the catalog of vulnerabilities known to be exploited. The match is by vendor and product name only (the catalog has no version ranges), so it is a lead to verify. Downloading connects to www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json (one HTTPS GET, nothing is sent); a copy is kept next to the report." -ForegroundColor DarkGray
-    $kevAns = "$(Read-Line 'CISA KEV catalog: [N]one, [O]nline download, or a [F]ile you already have (N/o/f)')".Trim().ToUpper()
-    if ($kevAns -eq 'O') { $ap['KevOnline'] = $true }
-    elseif ($kevAns -eq 'F') {
-        $kevPath = Read-Path 'Path of known_exploited_vulnerabilities.json'
-        if ($kevPath -and (Test-Path -LiteralPath $kevPath)) { $ap['KevFile'] = $kevPath } else { Write-Host "Not found, KEV skipped: $kevPath" -ForegroundColor Yellow }
-    }
+    Set-CatalogChoice -Ap $ap -Name 'Kev'
     Write-Host "`nVulnerable drivers: the driver files on the hosts are compared, by SHA-256, with the LOLDrivers catalog of known vulnerable and malicious drivers. HostBadger ships a copy of it; a fresh one is a download from www.loldrivers.io/api/drivers.json (one HTTPS GET of about 30 MB, nothing is sent), kept next to the report." -ForegroundColor DarkGray
-    if (Test-Yes 'Download a fresh LOLDrivers catalog from www.loldrivers.io? (y/N)') { $ap['DriversOnline'] = $true }
+    Set-CatalogChoice -Ap $ap -Name 'Drivers'
     Write-Host "`nSoftware lifecycle: without a download, programs past their end of support are found with the table HostBadger ships. With current data from endoflife.date the dates are up to date and programs that missed a newer release of their line are flagged too (Python, Node.js, .NET, Office, Exchange, Java, Firefox, Chrome, Notepad++, PowerShell, VirtualBox, Wireshark). Downloading connects to endoflife.date/api/v1/products/full (one HTTPS GET of about 3 MB, nothing is sent); a copy is kept next to the report." -ForegroundColor DarkGray
-    if (Test-Yes 'Download software lifecycle data from endoflife.date? (y/N)') { $ap['EolOnline'] = $true }
+    Set-CatalogChoice -Ap $ap -Name 'Eol'
     Write-Host "`nOther programs (7-Zip, VLC, Git, GIMP, WinSCP, PuTTY, FileZilla, KeePass, Audacity, Mullvad VPN, OBS Studio, AnyDesk) are compared with the versions published on the Chocolatey community repository. Downloading connects to community.chocolatey.org/api/v2/ (a few HTTPS GETs per program, the same list whatever the hosts have, nothing is sent); a copy is kept next to the report." -ForegroundColor DarkGray
-    if (Test-Yes 'Download program versions from community.chocolatey.org? (y/N)') { $ap['ChocoOnline'] = $true }
+    Set-CatalogChoice -Ap $ap -Name 'Choco'
     Write-Host "`nKnown vulnerabilities: the installed versions of Python, Node.js, .NET, Notepad++, PowerShell 7, VirtualBox, Wireshark, 7-Zip, VLC, Git, GIMP, WinSCP, PuTTY, FileZilla, KeePass, Audacity, Mullvad VPN and AnyDesk can be checked against their CVEs, with the EPSS probability of exploitation. Downloading connects to services.nvd.nist.gov (the CVEs of each product, never its version: the same list whatever the hosts have; about 2.5 minutes, faster with NVD_API_KEY) and epss.empiricalsecurity.com (one file of about 3 MB). Nothing is sent; a copy is kept next to the report." -ForegroundColor DarkGray
-    if (Test-Yes 'Download CVEs from NVD and EPSS scores from FIRST? (y/N)') { $ap['CveOnline'] = $true }
+    Set-CatalogChoice -Ap $ap -Name 'Cve'
     if (Test-Yes "Also write JSON Lines for a SIEM? (y/N)") { $ap['OutJsonl'] = Read-Path "JSON Lines path" ($ap['OutHtml'] -replace '\.html?$', '.jsonl') }
     Write-Host "`nRemediation scripts: the report already shows a fix script under each check whose fix is one safe setting. HostBadger can also write one remediate_<host>.ps1 per host with all of that host's fixes in one file, for a scripted rollout. They are text files: HostBadger never runs them, they only preview until run with -Apply, and they write a rollback file. Read them and test on a pilot host first." -ForegroundColor DarkGray
     if (Test-Yes 'Write one remediation script per host? (y/N)') { $ap['OutRemediation'] = Read-Path "Folder for the remediation scripts" ($ap['OutHtml'] -replace '\.html?$', '_remediation') }
@@ -345,10 +445,7 @@ function Edit-AnalysisParams {
     param([hashtable]$Ap)
     $q = @{
         PerHost = 'One report per host? (Y/n)'; Stig = 'Include the DISA STIG rules? (Y/n)'; Cis = 'Show the CIS-based findings in the report? (Y/n)'
-        StigShow = 'Show the DISA STIG findings in the report? (Y/n)'; Kev = 'CISA KEV catalog: [N]one, [O]nline download, or a [F]ile you already have (N/o/f)'
-        KevFile = 'Path of known_exploited_vulnerabilities.json'; Drivers = 'Download a fresh LOLDrivers catalog from www.loldrivers.io? (y/N)'
-        Eol = 'Download software lifecycle data from endoflife.date? (y/N)'; Choco = 'Download program versions from community.chocolatey.org? (y/N)'
-        Cve = 'Download CVEs from NVD and EPSS scores from FIRST? (y/N)'; Jsonl = 'Also write JSON Lines for a SIEM? (y/N)'; JsonlPath = 'JSON Lines path'
+        StigShow = 'Show the DISA STIG findings in the report? (Y/n)'; Jsonl = 'Also write JSON Lines for a SIEM? (y/N)'; JsonlPath = 'JSON Lines path'
         Rem = 'Write one remediation script per host? (y/N)'; RemPath = 'Folder for the remediation scripts'
         Compare = 'Findings CSV of an earlier run, to show new and resolved (optional, Enter to skip)'; Exceptions = 'Exceptions file (accepted risks, optional, Enter to skip)'
         Admins = 'Allowed local administrators, e.g. CORP/Workstation Admins, CORP/helpdesk (Enter = none)'
@@ -365,11 +462,7 @@ function Edit-AnalysisParams {
         $items.Add(@('Stig', 'DISA STIG rules', (& $yn (-not $Ap['SkipStig']))))
         $items.Add(@('Cis', 'Show CIS-based findings', (& $yn (-not $Ap['HideCis']))))
         if (-not $Ap['SkipStig']) { $items.Add(@('StigShow', 'Show DISA STIG findings', (& $yn (-not $Ap['HideStig'])))) }
-        $items.Add(@('Kev', 'CISA KEV catalog', $(if ($Ap['KevOnline']) { 'download (www.cisa.gov)' } elseif ($Ap['KevFile']) { "file $($Ap['KevFile'])" } else { 'none' })))
-        $items.Add(@('Drivers', 'LOLDrivers catalog', $(if ($Ap['DriversOnline']) { 'download (www.loldrivers.io)' } else { 'the copy HostBadger ships' })))
-        $items.Add(@('Eol', 'Software lifecycle', $(if ($Ap['EolOnline']) { 'download (endoflife.date)' } else { 'the table HostBadger ships' })))
-        $items.Add(@('Choco', 'Program versions', $(if ($Ap['ChocoOnline']) { 'download (community.chocolatey.org)' } else { 'no' })))
-        $items.Add(@('Cve', 'CVEs and EPSS', $(if ($Ap['CveOnline']) { 'download (services.nvd.nist.gov, epss.empiricalsecurity.com)' } else { 'no' })))
+        foreach ($cn in $script:CatalogDefs.Keys) { $items.Add(@($cn, $script:CatalogDefs[$cn].Label, (Get-CatalogSummary -Ap $Ap -Name $cn))) }
         $items.Add(@('Jsonl', 'JSON Lines', $(if ($Ap['OutJsonl']) { $Ap['OutJsonl'] } else { 'no' })))
         $items.Add(@('Rem', 'Remediation scripts', $(if ($Ap['OutRemediation']) { $Ap['OutRemediation'] } else { 'no' })))
         $items.Add(@('Compare', 'Compare with', $(if ($Ap['CompareTo']) { $Ap['CompareTo'] } else { 'no' })))
@@ -400,20 +493,7 @@ function Edit-AnalysisParams {
             'Stig' { $skip = -not $Ap['SkipStig']; & $flag 'SkipStig' $skip $q.Stig 'n' ''; if ($skip) { $Ap.Remove('HideStig') } }
             'Cis' { & $flag 'HideCis' (-not $Ap['HideCis']) $q.Cis 'n' '' }
             'StigShow' { & $flag 'HideStig' (-not $Ap['HideStig']) $q.StigShow 'n' '' }
-            'Kev' {
-                $Ap.Remove('KevOnline'); $Ap.Remove('KevFile')
-                $k = "$(Read-Host 'CISA KEV catalog: [N]one, [O]nline download, or a [F]ile you already have (N/o/f)')".Trim().ToUpper()
-                Set-WizardValue $q.Kev $k
-                if ($k -eq 'O') { $Ap['KevOnline'] = $true }
-                elseif ($k -eq 'F') {
-                    $kp = Read-PathRaw $q.KevFile ''
-                    if ($kp -and (Test-Path -LiteralPath $kp)) { $Ap['KevFile'] = $kp; Set-WizardValue $q.KevFile $kp } else { Write-Host "Not found, KEV skipped: $kp" -ForegroundColor Yellow }
-                }
-            }
-            'Drivers' { & $flag 'DriversOnline' (-not $Ap['DriversOnline']) $q.Drivers 'y' '' }
-            'Eol' { & $flag 'EolOnline' (-not $Ap['EolOnline']) $q.Eol 'y' '' }
-            'Choco' { & $flag 'ChocoOnline' (-not $Ap['ChocoOnline']) $q.Choco 'y' '' }
-            'Cve' { & $flag 'CveOnline' (-not $Ap['CveOnline']) $q.Cve 'y' '' }
+            { $script:CatalogDefs.Contains($_) } { Set-CatalogChoice -Ap $Ap -Name $_ -Edit }
             'Jsonl' {
                 $v = Read-PathRaw 'JSON Lines path ("-" for none)' $(if ($Ap['OutJsonl']) { $Ap['OutJsonl'] } else { $Ap['OutHtml'] -replace '\.html?$', '.jsonl' })
                 if ($v -eq '-') { $Ap.Remove('OutJsonl'); Set-WizardValue $q.Jsonl '' } else { $Ap['OutJsonl'] = $v; Set-WizardValue $q.Jsonl 'y'; Set-WizardValue $q.JsonlPath $v }
@@ -551,7 +631,7 @@ function Invoke-BloatwareStep {
 }
 
 function Invoke-RemediateStep {
-    if (-not (Test-IsAdmin)) { Write-Host 'Remediation changes system settings: start an elevated PowerShell (Run as administrator) and choose it again.' -ForegroundColor Yellow; return }
+    if (-not (Test-IsAdmin)) { Write-Host 'Remediation changes system settings: start an elevated PowerShell (Run as administrator), or restart the menu as administrator, and choose it again.' -ForegroundColor Yellow; return }
     Write-Host "`nRemediate this machine: HostBadger collects and analyzes this machine, then shows what its fix script would change. Only settings with a safe, reversible fix are in it (one value, the one the baseline expects, no organizational choice). Nothing changes until you type YES; a System Restore point comes first where Windows has one, and the script writes every previous value to a rollback file (menu 7 puts them back). Group Policy or Intune may set a value back on managed machines." -ForegroundColor DarkGray
     if (-not (Test-Yes 'Continue? (y/N)')) { return }
     $run = Join-Path $script:RemediationRoot (Ts)
@@ -602,10 +682,17 @@ function Invoke-RestoreStep {
 }
 
 Show-Banner
+# Administrator or not, said up front: it decides what a collection sees and whether 6 and 7 can run.
+$script:IsAdmin = Test-IsAdmin
+if ($script:IsAdmin) { Write-Host '  Running as administrator: full collection, remediation and restore available.' -ForegroundColor Green }
+else {
+    Write-Host "  Not running as administrator: a collection of this machine (1, 3) has gaps, listed as 'not evaluated' in the report, and remediation and restore (6, 7) cannot change anything. Analysis (2, 4) and the safety review (5) work as they are." -ForegroundColor Yellow
+    Request-Elevation
+}
 # An unfinished run from last time: offered again (a remediation is only explained, never resumed).
 if ((Test-ResumeEnabled) -and (Test-Path -LiteralPath $script:StatePath)) {
     $st = $null; try { $st = Get-Content -LiteralPath $script:StatePath -Raw | ConvertFrom-Json } catch { }
-    $flowNames = @{ collect = 'Collect this machine'; analyze = 'Analyze snapshots'; 'collect-analyze' = 'Collect and analyze this machine'; ai = 'Add an AI summary'; remediate = 'Remediate this machine' }
+    $flowNames = @{ collect = 'Collect this machine'; analyze = 'Analyze snapshots'; 'collect-analyze' = 'Collect and analyze this machine'; ai = 'Analyze with an AI summary'; remediate = 'Remediate this machine' }
     $flowChoice = @{ collect = '1'; analyze = '2'; 'collect-analyze' = '3'; ai = '4' }
     if ($st -and $flowNames.ContainsKey("$($st.flow)")) {
         Write-Host "`nUnfinished run, saved $($st.savedUtc): $($flowNames["$($st.flow)"])" -ForegroundColor Cyan
@@ -626,18 +713,31 @@ if ((Test-ResumeEnabled) -and (Test-Path -LiteralPath $script:StatePath)) {
 }
 while ($true) {
     Write-Host ""
-    Write-Host "  [1] Collect this machine        (read-only snapshot, as administrator for full coverage)" -ForegroundColor White
+    # Without administrator rights the options that need them say so.
+    $na = -not $script:IsAdmin
+    $gapColor = if ($na) { 'DarkYellow' } else { 'White' }
+    Write-Host "  [1] Collect this machine        (read-only snapshot$(if ($na) { '; not administrator: with gaps' }))" -ForegroundColor $gapColor
     Write-Host "  [2] Analyze snapshots           (a file, a zip or a folder of many hosts)" -ForegroundColor White
-    Write-Host "  [3] Collect and analyze this machine" -ForegroundColor White
-    Write-Host "  [4] Add an AI summary           (Gemini, names tokenized, dry run available)" -ForegroundColor White
+    Write-Host "  [3] Collect and analyze this machine$(if ($na) { '   (not administrator: with gaps)' })" -ForegroundColor $gapColor
+    Write-Host "  [4] Analyze with an AI summary  (Gemini, names tokenized, dry run available)" -ForegroundColor White
     Write-Host "  [5] Safety review               (what the scripts can and cannot do)" -ForegroundColor White
-    Write-Host "  [6] Remediate this machine      (preview, apply after YES, restore point and rollback; administrator)" -ForegroundColor White
-    Write-Host "  [7] Restore a remediation backup" -ForegroundColor White
+    if ($na) {
+        Write-Host "  [6] Remediate this machine      (needs administrator)" -ForegroundColor DarkGray
+        Write-Host "  [7] Restore a remediation backup (preview only; restoring needs administrator)" -ForegroundColor DarkGray
+    }
+    else {
+        Write-Host "  [6] Remediate this machine      (preview, apply after YES, restore point and rollback)" -ForegroundColor White
+        Write-Host "  [7] Restore a remediation backup" -ForegroundColor White
+    }
     Write-Host "  [Q] Quit" -ForegroundColor White
     if ($script:ResumeChoice) { $choice = $script:ResumeChoice; $script:ResumeChoice = ''; Write-Host "`nChoice: $choice   (resumed)" -ForegroundColor DarkGray }
     else { $choice = (Read-Host "`nChoice").Trim().ToUpper() }
     switch ($choice) {
-        '1' { Start-WizardState 'collect'; [void](Invoke-CollectStep); Clear-WizardState }
+        '1' {
+            Start-WizardState 'collect'
+            if ([string](@(Invoke-CollectStep) | Select-Object -Last 1)) { Write-Host 'To analyze it: option 2 lists it.' -ForegroundColor DarkGray }
+            Clear-WizardState
+        }
         '2' {
             Start-WizardState 'analyze'
             $ap = Get-AnalysisParams

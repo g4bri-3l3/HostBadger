@@ -6,6 +6,55 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
+## [1.5] - 2026-10-16
+### Added
+- Guided menu: it says at the start whether it runs as administrator. If not,
+  options 1 and 3 are marked "with gaps", 6 and 7 "needs administrator", and at
+  an interactive console it offers to restart itself elevated (Windows asks you
+  to confirm, UAC), in the same folder (new `-StartIn` parameter).
+  `Start-Process` (`-Verb RunAs` of the menu itself) and `Set-Location` are
+  allowed by the safety review in `Start-HostBadger.ps1` only.
+- Guided menu: catalogs kept by an earlier analysis (`<report>_kev.json`,
+  `_drivers.json`, `_eol.json`, `_choco.json`, `_cve.json`, next to the new
+  report or in `.\output`) are offered as the default, with their date and age
+  (over a week: a fresh download is advised): Enter uses the newest copy, O
+  downloads a fresh one, N goes without. The review screen shows the file used.
+- Report: "Summary by framework" next to the summary by category, with one row
+  for CIS, one for DISA STIG, one for the ACSC Essential Eight and one per
+  Essential Eight strategy (severities, checks triggered, hosts). In the
+  dashboard each Essential Eight strategy opens on the checks that are not
+  clean (worst severity, findings, hosts) and the clean ones, and the CIS panel
+  lists the CIS-based checks that are not clean with their rules. Each check in
+  the details names the Essential Eight strategies it relates to.
+
+### Changed
+- Score: it measures exposure. The DISA STIG rules and `brave_policy_gaps`
+  (compliance with a policy baseline, shown in their own dashboard panel) no
+  longer lower it, and a `kev_software_match` on a program the CVE data judged
+  by its version is listed but not counted twice (its Detail says so). On a
+  home PC that is not managed against the STIG the score of the same snapshot
+  went from 33 (E) to 48 (D).
+- DISA STIG: a value that no policy sets, while the snapshot shows the setting
+  in effect is the compliant one, is a Low finding instead of the rule's
+  severity, with Found "not configured (in effect: ...)": the firewall profile
+  on, inbound blocked by default, dropped packets logged; Defender PUA,
+  real-time, behavior, download and script scanning, block at first sight, MAPS,
+  network protection, and signatures at most 7 days old for the signature-age
+  rules.
+- Dashboard: the verdict follows the grades (A-B good, C-D partial, E-F weak)
+  and so does the color of the score ring: 48 (grade D) read "weak protection"
+  before.
+- Report: DISA STIG is no longer a row of the summary by category (it is in
+  the summary by framework).
+- Documentation: the collector is described as runnable by any tool that runs
+  a .ps1 on the hosts (an EDR's live response, an RMM, Configuration Manager or
+  Intune, a Group Policy startup script, PowerShell remoting), not only by an
+  EDR; the README has a PowerShell remoting example next to CrowdStrike RTR and
+  notes on the execution policy for each kind of tool.
+- Guided menu: option 4 is called "Analyze with an AI summary" (it runs a
+  whole analysis, with the AI questions up front); after a collection (option
+  1) it says that option 2 lists the new snapshot.
+
 ## [1.4] - 2026-10-15
 ### Added
 - Guided menu: after the last question of an analysis it lists every answer,

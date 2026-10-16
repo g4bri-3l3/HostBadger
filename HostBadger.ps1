@@ -5,8 +5,10 @@
     optionally, JSON Lines for a SIEM.
 
 .DESCRIPTION
-    Collect once on each host (as SYSTEM through EDR Real Time Response, or
-    as a local administrator) and analyze anywhere. This script needs no
+    Collect once on each host (as SYSTEM or as a local administrator, through
+    any tool that runs a .ps1: an EDR's live response, an RMM, Configuration
+    Manager or Intune, a startup script, PowerShell remoting) and analyze
+    anywhere. This script needs no
     module and no rights on the hosts, and it only goes on the network if you
     ask for the optional AI step. Give it one snapshot, a zip or a folder of
     them, and it reports every host in one place.
@@ -210,7 +212,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:HostBadgerVersion = '1.4'
+$script:HostBadgerVersion = '1.5'
 . (Join-Path $PSScriptRoot 'lib\Common.ps1')
 . (Join-Path $PSScriptRoot 'lib\Checks.ps1')
 . (Join-Path $PSScriptRoot 'lib\AI.ps1')
@@ -220,7 +222,7 @@ $script:HostBadgerVersion = '1.4'
 Write-Host @'
      _.--""--._
    .'  |    |  '.
-  /    |    |    \      HostBadger v1.4
+  /    |    |    \      HostBadger v1.5
  |  (o)|    |(o)  |     Windows host hardening
  |     |    |     |     read-only snapshots, offline analysis
   \    '.__.'    /

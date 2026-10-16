@@ -26,9 +26,12 @@ the whole fleet in one report, or one report per host.
   STIG registry rules, with the CIS Windows 11 benchmark as the baseline, and
   the drivers matched against 2,198 known vulnerable or malicious driver files
   (LOLDrivers).
-- **Collect anywhere, analyze anywhere**: the collector is one `.ps1` file made
-  to run as SYSTEM through an EDR (CrowdStrike Falcon RTR or any tool that runs
-  scripts) on many hosts in about 15 seconds.
+- **Collect anywhere, analyze anywhere**: the collector is one `.ps1` file,
+  with no module and no prompt, that runs as SYSTEM or as an administrator
+  through any tool that can run a PowerShell script on your hosts (an EDR's
+  live response such as CrowdStrike Falcon RTR, an RMM, Configuration Manager
+  or Intune scripts, a Group Policy startup script, PowerShell remoting) and
+  takes about 15 seconds per host.
 - **Read only**: it changes nothing and starts nothing, and it makes no network
   call unless you ask for one: `-CheckUpdates` (the Windows Update service
   searches for missing updates), `-KevOnline` (downloads the CISA KEV catalog,
@@ -206,7 +209,7 @@ own pages before relying on it, especially for licensing and editions.
 | DISA STIG | Registry rules only (1,475, fourteen products) | Some lists (Windows 10, Server 2019, Defender, Firewall) | No | Yes, full SCAP content | Check with CIS | Yes | Add-on |
 | Microsoft security baselines | Partly, through CIS/STIG overlap | Yes | Yes | No | No | Yes | Yes |
 | Software and vulnerabilities | End of support, behind latest release, CVEs by installed version with CVSS, KEV and EPSS (about 20 mapped products), vulnerable drivers | No | No | No | No | Yes, full CVE scanning | Yes |
-| Collection | One read-only script, also through an EDR | Run on the host | Local or exported GPOs | Local or remote | Local or remote | Agent or credentialed scan | Defender sensor |
+| Collection | One read-only script, through any tool that runs a .ps1 (EDR, RMM, SCCM/Intune, GPO, remoting) | Run on the host | Local or exported GPOs | Local or remote | Local or remote | Agent or credentialed scan | Defender sensor |
 | Offline analysis of saved snapshots | Yes | No | Yes (GPO backups) | No | No | No | No (cloud) |
 | Fleet report | HTML, CSV, JSON Lines | Per host (CSV) | Per comparison | Per host | Yes | Console | Console |
 | Value found next to value required | Yes | Yes | Yes | Yes | Yes | Yes | Partly |
@@ -227,8 +230,13 @@ It runs on Windows PowerShell 5.1 or PowerShell 7, and there is nothing to
 install.
 
 If you are not sure where to start, run `.\Start-HostBadger.ps1`. It is a
-small menu: collect this machine, analyze a file, a zip or a folder, add an AI
-summary, run the safety review. When you analyze, it looks for snapshots by
+small menu: collect this machine, analyze a file, a zip or a folder, analyze
+with an AI summary, run the safety review. At the start it says whether it runs
+as administrator; if not, it marks the options that need it and offers to
+restart itself elevated (Windows asks you to confirm). The catalogs an analysis
+downloads (CISA KEV, LOLDrivers, endoflife.date, Chocolatey, NVD/EPSS) are kept
+next to the report, and the next analysis offers the newest kept copy as the
+default, with its date, or a fresh download. When you analyze, it looks for snapshots by
 itself (in a `snapshots` folder, then in the current folder) and lets you take
 them all or pick one by number. It can also write one remediation script per
 host (previewing until `-Apply`, with a rollback), and, as administrator,
@@ -252,8 +260,27 @@ On one host, as administrator:
 .\HostBadger.ps1 -Snapshot C:\Windows\Temp\HostBadger -OutHtml report.html
 ```
 
-On many hosts through CrowdStrike Real Time Response (upload
-`Collect-HostSnapshot.ps1` as a cloud script first):
+On many hosts, use whatever already runs scripts on them. The collector is one
+file and every parameter is optional, so any tool that can run a `.ps1` as
+SYSTEM or as an administrator will do: an EDR's live response, an RMM, a
+Configuration Manager or Intune script, a Group Policy startup script,
+PowerShell remoting. Each host writes its snapshot to
+`C:\Windows\Temp\HostBadger` (or to `-OutDir`, for example a share the computer
+accounts can write to); collect the files, put them in one folder and analyze
+them together.
+
+With PowerShell remoting (WinRM), from an administrator's machine:
+
+```powershell
+$s = New-PSSession -ComputerName (Get-Content .\hosts.txt)
+Invoke-Command -Session $s -FilePath .\Collect-HostSnapshot.ps1
+foreach ($x in $s) { Copy-Item -FromSession $x -Path 'C:\Windows\Temp\HostBadger\hostsnapshot_*' -Destination .\snapshots\ }
+Remove-PSSession $s
+.\HostBadger.ps1 -Snapshot .\snapshots\ -OutHtml fleet.html
+```
+
+Through CrowdStrike Real Time Response (upload `Collect-HostSnapshot.ps1` as a
+cloud script first):
 
 ```text
 runscript -CloudFile="Collect-HostSnapshot" -Timeout=600
@@ -278,7 +305,7 @@ snapshots of more than one host.
 ### Encrypted snapshots
 
 A snapshot describes the host in detail, and it waits in a temp folder and in
-the EDR's file store. The collector can encrypt it: the output is then
+the file store of whatever tool fetched it. The collector can encrypt it: the output is then
 `hostsnapshot_<host>_<time>.hbx`, the zip is built in memory, and nothing is
 written in clear. Two ways:
 
@@ -291,7 +318,8 @@ runscript -CloudFile="Collect-HostSnapshot" -CommandLine="-EncryptPassword 'long
 runscript -CloudFile="Collect-HostSnapshot" -CommandLine="-EncryptCertificate C:\Windows\Temp\hostbadger.cer" -Timeout=600
 ```
 
-A password given on a command line is kept in the EDR's command history; a
+A password given on a command line is kept in the command history or log of
+the tool that ran it (EDR, RMM, deployment job); a
 certificate leaves no secret on the host or in any log, so it is the better
 choice for a fleet. HostBadger.ps1 reads `.hbx` files like zips: it asks for
 the password (or takes `-SnapshotPassword`, a SecureString), and opens a
@@ -332,8 +360,14 @@ A few things worth knowing:
   `Get-ChildItem .\HostBadger -Recurse -Filter *.ps1 | Unblock-File`. You can
   also unblock the zip itself before extracting (right-click, Properties,
   Unblock).
-- Through EDR Real Time Response none of this applies, because the platform
-  runs the cloud script itself.
+- Through an EDR's live response none of this applies, because the platform
+  runs the cloud script itself. Other tools differ: Configuration Manager (its
+  "PowerShell execution policy" client setting) and Intune (its script
+  signature check option) decide it themselves, a Group Policy
+  startup script or a scheduled job can call `powershell.exe -NoProfile
+  -ExecutionPolicy Bypass -File Collect-HostSnapshot.ps1`, and PowerShell
+  remoting with `-FilePath` sends the script text, so no file on the host is
+  subject to the policy.
 - The execution policy is a safety net against accidents, not a security
   boundary. Before you run anything as administrator, see what the scripts can
   do with `.\Test-HostBadgerSafety.ps1`.
@@ -551,6 +585,13 @@ or, without one, when they have the same title.
 The score of a host is 100 &times; e<sup>&minus;penalty/100</sup>. Each
 triggered check adds a weight for its worst severity (Critical 20, High 8,
 Medium 3, Low 1). Any Critical caps the score at 35, and any High at 65.
+The score measures exposure: the DISA STIG rules (and the Brave adaptation of
+the Chrome STIG) are compliance with a policy baseline and are shown on their
+own, as compliance per product, not in the score. A KEV name match on a
+program that the CVE data already judged by its version is listed but not
+counted twice. A STIG value that no policy sets is still a finding, at Low,
+when the snapshot shows the setting in effect is the compliant one (firewall
+profiles, Defender protection and signature age).
 
 `examples/demo_report.html` is a full report on the synthetic fleet in
 `examples/fleet/`. It has five hosts: a neglected workstation, a hardened
@@ -661,7 +702,9 @@ machine's own script, after showing what it would change and asking you to type
 YES, with a System Restore point first where Windows has one; option 7 puts the
 values back from the rollback file. `Test-HostBadgerSafety.ps1` allows the
 commands it needs (restore point, removing preinstalled Store apps) in that file
-only, and lists them.
+only, and lists them. The same file may also restart itself as administrator
+(`Start-Process -Verb RunAs`, after asking; Windows confirms) and nothing else
+may start a process.
 
 Some fixes are left out on purpose, and for those the report keeps the written
 remediation:

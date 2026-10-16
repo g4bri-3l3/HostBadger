@@ -7,9 +7,12 @@
     and writes it as JSON (and a zip), for HostBadger.ps1 to analyze anywhere.
 
 .DESCRIPTION
-    One self-contained file, so it can be uploaded as a CrowdStrike Falcon
-    cloud script (or to any EDR / SOAR that runs .ps1 files) and run on many
-    endpoints through Real Time Response:
+    One self-contained file, with no module, no prompt and every parameter
+    optional, so any tool that can run a .ps1 on your hosts can run it: an
+    EDR's live response (a CrowdStrike Falcon cloud script, for example), an
+    RMM, Configuration Manager or Intune scripts, a Group Policy startup
+    script, PowerShell remoting (Invoke-Command -FilePath). Through
+    CrowdStrike Real Time Response:
 
         runscript -CloudFile="Collect-HostSnapshot" -Timeout=600
         get C:\Windows\Temp\HostBadger\hostsnapshot_<host>_<time>.zip
@@ -22,7 +25,8 @@
     is the opt-in -CheckUpdates, where the Windows Update Agent contacts its
     update server. Test-HostBadgerSafety.ps1 checks this claim against the code.
 
-    It runs as SYSTEM under RTR, or as a local administrator. As a standard
+    It runs as SYSTEM (live response, deployment tools, startup scripts) or
+    as a local administrator. As a standard
     user it still runs, but some sections (Defender exclusions, BitLocker,
     the audit policy, the security policy, the security log) can't be read.
     Those failures are recorded in meta.collectionErrors, and the analyzer
@@ -52,7 +56,8 @@
     from PBKDF2. The output is hostsnapshot_<host>_<time>.hbx and nothing is
     written in clear (the zip is built in memory). HostBadger.ps1 asks for the
     password, or takes -SnapshotPassword. Mind that a password given on a
-    command line ends up in the EDR's command log; -EncryptCertificate avoids
+    command line ends up in the command log of the tool that ran it (EDR,
+    RMM, deployment job); -EncryptCertificate avoids
     that.
 .PARAMETER EncryptCertificate
     Encrypt the snapshot to a certificate instead (CMS, AES-256): the path of a

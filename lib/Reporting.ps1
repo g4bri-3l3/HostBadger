@@ -200,10 +200,11 @@ function Get-ComplianceStats {
 
 function Get-RingSvg {
     # A score ring: the share of the circle that is done, the big number and a small label under it.
-    param([double]$Percent, [string]$Big, [string]$Small = '', [int]$Size = 120)
+    # GoodAt / MidAt: where the ring turns green and amber (the score ring follows the grades).
+    param([double]$Percent, [string]$Big, [string]$Small = '', [int]$Size = 120, [double]$GoodAt = 80, [double]$MidAt = 50)
     $inv = [Globalization.CultureInfo]::InvariantCulture
     $pct = [Math]::Max(0, [Math]::Min(100, $Percent))
-    $color = if ($pct -ge 80) { '#6E8B5F' } elseif ($pct -ge 50) { '#F2B632' } else { '#E2372A' }
+    $color = if ($pct -ge $GoodAt) { '#6E8B5F' } elseif ($pct -ge $MidAt) { '#F2B632' } else { '#E2372A' }
     $sw = [Math]::Round($Size * 0.11, 1); $r = ($Size / 2) - ($sw / 2) - 2; $c = $Size / 2
     $circ = 2 * [Math]::PI * $r; $dash = $circ * $pct / 100
     return "<svg class='ring' viewBox='0 0 $Size $Size' width='$Size' height='$Size' role='img' aria-label='$(ConvertTo-HtmlSafe "$Big $Small")'>" +
@@ -237,13 +238,15 @@ function Get-DashboardHtml {
     $fixable = @($All | Where-Object { $script:FixTypes -and $script:FixTypes.ContainsKey("$($_.Type)") }).Count
     $comp = Get-ComplianceStats -Hosts $hostsArr -Findings $All
     $fired = @{}; foreach ($f in @($All)) { $fired["$($f.Host)|$($f.Type)"] = $true }
-    $verdict = if ($avg -ge 80) { 'Good protection' } elseif ($avg -ge 50) { 'Partial protection' } else { 'Weak protection' }
+    # The verdict follows the grades (Get-HostScore): A-B good, C-D partial, E-F weak.
+    $verdict = if ($avg -ge 70) { 'Good protection' } elseif ($avg -ge 40) { 'Partial protection' } else { 'Weak protection' }
 
     # Score panel.
-    & $w "<div class='dash-hero'>$(Get-RingSvg -Percent $avg -Big "$avg" -Small '/ 100' -Size 150)<div class='dash-hero-text'>"
+    & $w "<div class='dash-hero'>$(Get-RingSvg -Percent $avg -Big "$avg" -Small '/ 100' -Size 150 -GoodAt 70 -MidAt 40)<div class='dash-hero-text'>"
     & $w "<div class='dash-kicker'>$(& $H $Title)</div><div class='dash-big'>Hardening score$(if ($grade) { " &middot; grade $(& $H $grade)" })</div>"
-    & $w "<div class='dash-verdict v$([int]($avg -ge 80) + [int]($avg -ge 50))'>$verdict</div>"
+    & $w "<div class='dash-verdict v$([int]($avg -ge 70) + [int]($avg -ge 40))'>$verdict</div>"
     & $w "<div class='dash-sevs'>$(($sev | ForEach-Object { "<span class='sev-pill sev-pill-$($_.ToLower())'>$($cnt[$_]) $_</span>" }) -join ' ')</div>"
+    & $w "<div class='meta'>Exposure checks only: the DISA STIG rules have their own panel below.</div>"
     & $w "<div class='meta'>$(@($Shown).Count) finding(s) on $($hostsArr.Count) host(s) &middot; $fixable with a reversible fix script &middot; <a href='#' onclick=""hbTab('details'); return false;"">open the details</a></div>"
     & $w '</div></div>'
 
@@ -272,12 +275,23 @@ function Get-DashboardHtml {
         if ($srvOnWks.Count) { $benches += "on workstations, $($srvOnWks -join ', ') follow$(if ($srvOnWks.Count -eq 1) { 's' }) a rule that only the Windows Server benchmarks have, so the Server rule number is quoted" }
         & $w "<div class='dash-panel'><div class='dash-panel-head'>$(Get-RingSvg -Percent $pC -Big "$([int][Math]::Round($pC))%" -Small 'clean')<div><div class='dash-panel-title'>CIS benchmarks</div><div class='meta'>$okC of $($comp.CisApplicable) CIS-based checks clean</div></div></div>"
         if ($benches.Count) { & $w "<p class='meta'>Rules quoted from (findings): $(& $H ($benches -join '; '))</p>" }
+        # The CIS-based checks that fired, with the rules they quote.
+        $cisBad = @($All | Where-Object { $_.Cis } | Group-Object Type | ForEach-Object {
+                $ws = ($_.Group | Sort-Object { - $script:SeverityRank[$_.Severity] } | Select-Object -First 1).Severity
+                [PSCustomObject]@{ Type = $_.Name; Worst = $ws; Rank = $script:SeverityRank[$ws]; Count = $_.Count; Hosts = @($_.Group | ForEach-Object { $_.Host } | Select-Object -Unique).Count; Rules = @($_.Group | ForEach-Object { "$($_.Cis)" -split ',\s*' } | Where-Object { $_ } | Sort-Object -Unique) }
+            } | Sort-Object @{ Expression = 'Rank'; Descending = $true }, @{ Expression = 'Count'; Descending = $true })
+        if ($cisBad.Count) {
+            $li = @($cisBad | ForEach-Object { "<li>$(Get-SevPill $_.Worst) $(& $H $script:CheckCatalog[$_.Type].Title) <span class='meta'>CIS $(& $H (@($_.Rules | Select-Object -First 4) -join ', '))$(if ($_.Rules.Count -gt 4) { ' ...' }) &middot; $($_.Count) finding(s) on $($_.Hosts) host(s)</span></li>" })
+            & $w "<details class='dash-more'><summary>Checks not clean ($($cisBad.Count))</summary><ul class='dash-list'>$($li -join '')</ul></details>"
+        }
         & $w '</div>'
     }
     # Essential Eight: related checks that were judged on each host, and how many are clean.
+    # Each strategy opens on its checks: the ones that fired (worst severity, hosts) and the clean ones.
     $e8Rows = @(); $e8Ok = 0; $e8All = 0
     foreach ($k in $script:E8Strategies.Keys) {
         $st = $script:E8Strategies[$k]; $ok = 0; $n = 0
+        $badHosts = [ordered]@{}; $cleanTypes = [ordered]@{}
         foreach ($hx in $hostsArr) {
             $ne = @{}; foreach ($x in @($hx.NotEvaluated | Where-Object { $_ })) { $ne["$($x.Type)"] = $true }
             foreach ($t in @($st.Checks)) {
@@ -286,11 +300,23 @@ function Get-DashboardHtml {
                 if ("$($hx.Role)" -ne 'unknown' -and $m.Roles -notcontains "$($hx.Role)") { continue }
                 if ($t -like 'stig_*' -and [int]$hx.StigByType[$t] -eq 0) { continue }
                 $n++
-                if (-not $fired.ContainsKey("$($hx.Name)|$t")) { $ok++ }
+                if ($fired.ContainsKey("$($hx.Name)|$t")) { if (-not $badHosts.Contains($t)) { $badHosts[$t] = 0 }; $badHosts[$t]++ }
+                else { $ok++; $cleanTypes[$t] = $true }
             }
         }
         $e8Ok += $ok; $e8All += $n
-        $e8Rows += "<tr><td>$(& $H $st.Label)</td>" + $(if ($n -gt 0) { "<td class='num'>$ok/$n</td><td class='bar'>$(Get-DashBar (100 * $ok / $n))</td>" } else { "<td class='num' colspan='2'>$(& $H $(if ($st.Note) { $st.Note } else { 'nothing judged' }))</td>" }) + '</tr>'
+        $label = & $H $st.Label
+        if ($n -gt 0) {
+            $items = @(foreach ($t in $badHosts.Keys) {
+                    $tf = @($All | Where-Object { $_.Type -eq $t })
+                    $worstSev = ($tf | Sort-Object { - $script:SeverityRank[$_.Severity] } | Select-Object -First 1).Severity
+                    "<li>$(Get-SevPill $worstSev) $(& $H $script:CheckCatalog[$t].Title) <span class='meta'>$t &middot; $($tf.Count) finding(s) on $($badHosts[$t]) host(s)</span></li>"
+                })
+            $clean = @($cleanTypes.Keys | Where-Object { -not $badHosts.Contains($_) } | ForEach-Object { & $H $script:CheckCatalog[$_].Title })
+            if ($clean.Count) { $items += "<li class='meta'>Clean: $($clean -join '; ')</li>" }
+            $label = "<details class='dash-more'><summary>$label$(if ($badHosts.Count) { " <span class='meta'>($($badHosts.Count) not clean)</span>" })</summary><ul class='dash-list'>$($items -join '')</ul></details>"
+        }
+        $e8Rows += "<tr><td>$label</td>" + $(if ($n -gt 0) { "<td class='num'>$ok/$n</td><td class='bar'>$(Get-DashBar (100 * $ok / $n))</td>" } else { "<td class='num' colspan='2'>$(& $H $(if ($st.Note) { $st.Note } else { 'nothing judged' }))</td>" }) + '</tr>'
     }
     if ($e8All -gt 0) {
         $pE = 100 * $e8Ok / $e8All
@@ -514,6 +540,11 @@ function ConvertTo-ReportHtml {
   .dash-table td.bar span.mid { background: var(--amber); } .dash-table td.bar span.low { background: var(--red); }
   .dash-panel-title { font-family: var(--display); font-weight: 800; font-size: 1.25rem; letter-spacing: -0.02em; }
   .dash-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  details.dash-more { margin-top: 0; }
+  details.dash-more > summary { border-bottom: none; padding-bottom: 0; }
+  details.dash-more > summary::before { font-size: 10px; margin-right: 6px; }
+  .dash-list { margin: 6px 0 4px 16px; padding: 0; font-size: 12px; }
+  .dash-list li { margin: 3px 0; }
   .dash-table td { border-top: 1.5px solid var(--tint); padding: 5px 4px; }
   .dash-table td.num { font-family: var(--mono); white-space: nowrap; text-align: right; width: 1%; }
   .dash-table td.bar { width: 34%; }
@@ -615,7 +646,7 @@ function filterBadgerTable(input) {
     }
     foreach ($s in $sevOrder) { & $w "<div class=`"card $($s.ToLower())`"><div class=`"num`">$($counts[$s])</div><div class=`"lbl`">$s findings</div></div>" }
     & $w '</div>'
-    & $w '<div class="meta">Score per host = 100 &times; e<sup>&minus;penalty/100</sup>, where penalty sums a weight per triggered check at its worst severity (Critical 20, High 8, Medium 3, Low 1); any Critical caps it at 35, any High at 65.</div>'
+    & $w '<div class="meta">Score per host = 100 &times; e<sup>&minus;penalty/100</sup>, where penalty sums a weight per triggered check at its worst severity (Critical 20, High 8, Medium 3, Low 1); any Critical caps it at 35, any High at 65. It measures exposure: DISA STIG rules and the Brave policy gaps are compliance, shown on their own, and a KEV name match already judged by version (CVE data) is not counted twice.</div>'
 
     # ---------------- Compliance ----------------
     $compCharts = @()
@@ -725,13 +756,34 @@ function filterBadgerTable(input) {
         & $w '</table></div></details>'
     }
 
-    # ---------------- Category summary ----------------
+    # ---------------- Category summary (DISA STIG is a framework: its row is in the summary by framework)
     & $w '<details open><summary><h2>Summary by category</h2></summary><div class="table-wrap"><table><tr><th>Category</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Checks triggered</th><th>Hosts affected</th></tr>'
-    foreach ($c in $cats) {
+    foreach ($c in @($cats | Where-Object { $_ -ne 'DISA STIG' })) {
         $cf = @($findings | Where-Object { $_.Category -eq $c })
         $row = "<tr class=`"data-row`"><td>$(& $H $c)</td>"
         foreach ($s in $sevOrder) { $row += "<td>$(@($cf | Where-Object { $_.Severity -eq $s }).Count)</td>" }
         $row += "<td>$(@($cf | ForEach-Object { $_.Type } | Select-Object -Unique).Count)</td><td>$(@($cf | ForEach-Object { $_.Host } | Select-Object -Unique).Count)</td></tr>"
+        & $w $row
+    }
+    & $w '</table></div></details>'
+
+    # ---------------- Summary by framework: CIS, DISA STIG and the Essential Eight strategies cut across
+    # the categories, so a finding can count in more than one row.
+    $e8TypeSet = @{}; foreach ($k in $script:E8Strategies.Keys) { foreach ($t in @($script:E8Strategies[$k].Checks)) { $e8TypeSet[$t] = $true } }
+    $fwRows = New-Object System.Collections.Generic.List[object]
+    $fwRows.Add(@('CIS benchmarks', @($findings | Where-Object { $_.Cis }), $(if ($HideCis) { "$hiddenCis hidden (-HideCis)" } else { '' })))
+    $fwRows.Add(@('DISA STIG', @($findings | Where-Object { $_.Category -eq 'DISA STIG' }), $(if ($HideStig) { "$hiddenStig hidden (-HideStig)" } else { '' })))
+    $fwRows.Add(@('ACSC Essential Eight (related checks)', @($findings | Where-Object { $e8TypeSet.ContainsKey("$($_.Type)") }), ''))
+    foreach ($k in $script:E8Strategies.Keys) {
+        $st = $script:E8Strategies[$k]; $set = @($st.Checks)
+        $fwRows.Add(@("&nbsp;&nbsp;&nbsp;E8: $(& $H $st.Label)", @($findings | Where-Object { $set -contains "$($_.Type)" }), $(if ($st.Note) { $st.Note } else { '' })))
+    }
+    & $w '<details open><summary><h2>Summary by framework</h2></summary><p class="meta">CIS, DISA STIG and the ACSC Essential Eight cut across the categories: a finding can count in more than one row. The Essential Eight rows are the HostBadger checks related to each strategy, not a maturity assessment.</p><div class="table-wrap"><table><tr><th>Framework</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Checks triggered</th><th>Hosts affected</th></tr>'
+    foreach ($fr in $fwRows) {
+        $ff = @($fr[1]); $name = if ($fr[0] -like '&nbsp;*') { $fr[0] } else { & $H $fr[0] }
+        $row = "<tr class=`"data-row`"><td>$name$(if ($fr[2]) { " <span class='meta'>($(& $H $fr[2]))</span>" })</td>"
+        foreach ($s in $sevOrder) { $row += "<td>$(@($ff | Where-Object { $_.Severity -eq $s }).Count)</td>" }
+        $row += "<td>$(@($ff | ForEach-Object { $_.Type } | Select-Object -Unique).Count)</td><td>$(@($ff | ForEach-Object { $_.Host } | Select-Object -Unique).Count)</td></tr>"
         & $w $row
     }
     & $w '</table></div></details>'
@@ -751,6 +803,8 @@ function filterBadgerTable(input) {
         if ($meta.Attacks) { & $w "<div class=`"kv attacks`"><b>Attacks it enables.</b> $(& $H $meta.Attacks)</div>" }
         & $w "<div class=`"kv`"><b>Remediation.</b> $(& $H $meta.Remediation)</div>"
         if ($meta.Mitre) { & $w "<div class=`"kv`"><b>MITRE ATT&amp;CK.</b> $(Get-MitreLink $meta.Mitre)</div>" }
+        $e8Of = @($script:E8Strategies.Values | Where-Object { @($_.Checks) -contains $t.Type } | ForEach-Object { $_.Label })
+        if ($e8Of.Count) { & $w "<div class=`"kv`"><b>ACSC Essential Eight.</b> $(& $H ($e8Of -join '; ')) (related check)</div>" }
         if ($meta.Cis -or $meta.CisServer) {
             if ($meta.Cis) { & $w "<div class=`"kv`"><b>CIS Windows 11 Enterprise v3.0.0.</b> rule $(& $H $meta.Cis)</div>" }
             # Servers quote their own benchmark (data\cis-map.json): list the rules their findings name.

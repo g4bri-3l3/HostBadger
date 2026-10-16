@@ -44,7 +44,10 @@
         that changes the machine: it runs the fix script HostBadger generated
         for this host, after showing it and asking for YES, and that script
         records every previous value in a rollback file. The collector and the
-        analyzer stay read-only.
+        analyzer stay read-only;
+      - Start-Process anywhere but Start-HostBadger.ps1, and there only to
+        restart the menu itself as administrator (-Verb RunAs, after asking;
+        Windows confirms with UAC).
 
     It also prints the SHA-256 of every script, so you can compare them with a
     release.
@@ -72,6 +75,7 @@ $allowed = [ordered]@{
     'Optional AI step only (lib\AI.ps1 waits between retries; the entry points ask questions)' = @('Start-Sleep', 'Read-Host')
     'Guided menu only, "Remediate this machine" after YES (Start-HostBadger.ps1): restore point, preinstalled apps' = @('Checkpoint-Computer', 'Get-AppxPackage', 'Get-AppxProvisionedPackage', 'Remove-AppxPackage', 'Remove-AppxProvisionedPackage')
     'Guided menu only: open the finished report with the default program for .html, after asking' = @('Invoke-Item')
+    'Guided menu only: restart itself as administrator after asking (Windows confirms with UAC), back in the same folder' = @('Start-Process', 'Set-Location')
     'Data handling' = @('ConvertTo-Json', 'ConvertFrom-Json', 'Select-Object', 'Where-Object', 'ForEach-Object', 'Sort-Object', 'Group-Object', 'Measure-Object', 'New-Object', 'Add-Member')
 }
 $allowedSet = @{}; foreach ($k in $allowed.Keys) { foreach ($c in $allowed[$k]) { $allowedSet[$c.ToLower()] = $k } }
@@ -81,8 +85,8 @@ $changeVerbs = '^(Set|New|Remove|Add|Enable|Disable|Clear|Start|Stop|Restart|Sus
 $ownFileCommands = @('new-item', 'remove-item', 'set-content', 'new-object', 'add-member', 'add-type')
 # Commands that exist only for the optional AI step, and the one file each of them may appear in.
 $restrictedCommands = @{ 'start-sleep' = @('lib/AI.ps1'); 'read-host' = @('HostBadger.ps1', 'Start-HostBadger.ps1') }
-foreach ($c in 'checkpoint-computer', 'get-appxpackage', 'get-appxprovisionedpackage', 'remove-appxpackage', 'remove-appxprovisionedpackage', 'invoke-item') { $restrictedCommands[$c] = @('Start-HostBadger.ps1') }
-$bannedCommands = @('Invoke-Expression', 'iex', 'Start-Process', 'Invoke-WebRequest', 'Invoke-RestMethod', 'iwr', 'irm', 'curl', 'wget', 'Start-Job',
+foreach ($c in 'checkpoint-computer', 'get-appxpackage', 'get-appxprovisionedpackage', 'remove-appxpackage', 'remove-appxprovisionedpackage', 'invoke-item', 'start-process', 'set-location') { $restrictedCommands[$c] = @('Start-HostBadger.ps1') }
+$bannedCommands = @('Invoke-Expression', 'iex','Invoke-WebRequest', 'Invoke-RestMethod', 'iwr', 'irm', 'curl', 'wget', 'Start-Job',
     'Invoke-CimMethod', 'Invoke-WmiMethod', 'Set-ItemProperty', 'New-ItemProperty', 'Remove-ItemProperty', 'Set-MpPreference', 'Add-MpPreference',
     'reg', 'reg.exe', 'net', 'net.exe', 'sc', 'sc.exe', 'schtasks', 'schtasks.exe', 'Enter-PSSession', 'Invoke-Command', 'New-PSSession')
 $bannedText = [ordered]@{
@@ -169,6 +173,11 @@ foreach ($f in $files) {
         if ($lc -eq 'auditpol.exe') {
             $argText = ($c.CommandElements | Select-Object -Skip 1 | ForEach-Object { $_.Extent.Text }) -join ' '
             if ($argText -notmatch '^/(get|backup)\b') { $problems.Add("${rel}:${line}: auditpol $argText (only /get and /backup read the policy)") }
+        }
+        if ($lc -eq 'start-process') {
+            # Only the launcher restarting itself elevated: its own script, -Verb RunAs (Windows asks for confirmation).
+            $argText = ($c.CommandElements | Select-Object -Skip 1 | ForEach-Object { $_.Extent.Text }) -join ' '
+            if ($argText -notmatch '(?i)-Verb\s+RunAs\b' -or $codeOnly -notmatch '\$PSCommandPath') { $problems.Add("${rel}:${line}: Start-Process $argText (only the menu restarting itself with -Verb RunAs)") }
         }
         if ($lc -in 'set-content', 'export-csv', 'new-item', 'remove-item', 'compress-archive') { $writes.Add("${rel}:${line}: $($c.Extent.Text.Split("`n")[0].Trim())") }
     }
