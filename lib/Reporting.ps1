@@ -116,6 +116,13 @@ function Export-FindingsJsonl {
         $o['collected_as_system'] = $h.AsSystem
         # The EDR agents found among the services, as name:state (empty list if none, null if the services were not collected).
         $o['edr'] = $(if ($h.EdrKnown) { [string[]]@(@($h.Edr) | ForEach-Object { "$($_.Name):$($_.State)" }) } else { $null })
+        # Essential Eight maturity level per strategy from what the host shows (null: not visible from a
+        # host or not applicable); e8_capped lists the strategies where the next level could not be judged.
+        if ($h.E8) {
+            $lv = [ordered]@{}; foreach ($k in $h.E8.Keys) { $lv[$k] = $h.E8[$k].Level }
+            $o['e8_levels'] = $lv
+            $o['e8_capped'] = [string[]]@($h.E8.Keys | Where-Object { $h.E8[$_].Capped })
+        }
         [void]$sb.AppendLine(($o | ConvertTo-Json -Compress -Depth 3))
     }
     [System.IO.File]::WriteAllText($Path, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
@@ -255,7 +262,7 @@ function Get-DashboardHtml {
     $stigTypes = @($script:StigTypeLabel.Keys | Where-Object { $t = $_; ($hostsArr | ForEach-Object { [int]$_.StigByType[$t] } | Measure-Object -Sum).Sum -gt 0 })
     if ($comp.StigEvaluated -gt 0) {
         $okS = $comp.StigEvaluated - $comp.StigFailed; $pS = 100 * $okS / $comp.StigEvaluated
-        & $w "<div class='dash-panel'><div class='dash-panel-head'>$(Get-RingSvg -Percent $pS -Big "$([int][Math]::Round($pS))%" -Small 'compliant')<div><div class='dash-panel-title'>DISA STIG</div><div class='meta'>$okS of $($comp.StigEvaluated) registry rules met</div></div></div><table class='dash-table'>"
+        & $w "<div class='dash-panel'><div class='dash-panel-head'>$(Get-RingSvg -Percent $pS -Big "$([int][Math]::Round($pS))%" -Small 'compliant')<div><div class='dash-panel-title'>DISA STIG</div><div class='meta'>$okS of $($comp.StigEvaluated) registry rules met; $($comp.StigEvaluated - $okS) not met, one finding each (the DISA STIG count in the summary by framework)</div></div></div><table class='dash-table'>"
         foreach ($t in $stigTypes) {
             $ev = ($hostsArr | ForEach-Object { [int]$_.StigByType[$t] } | Measure-Object -Sum).Sum
             $bad = [Math]::Min($ev, @($All | Where-Object { $_.Type -eq $t }).Count)
@@ -286,41 +293,48 @@ function Get-DashboardHtml {
         }
         & $w '</div>'
     }
-    # Essential Eight: related checks that were judged on each host, and how many are clean.
-    # Each strategy opens on its checks: the ones that fired (worst severity, hosts) and the clean ones.
-    $e8Rows = @(); $e8Ok = 0; $e8All = 0
+    # Essential Eight: the maturity level each strategy reaches from the requirements a host shows
+    # (Get-E8Maturity, per host); for several hosts, the lowest. Each strategy opens on the
+    # requirements not met and not judged, in the ASD wording, with the checks behind them.
+    $e8Rows = @(); $e8Met = 0; $e8Judged = 0; $overall = $null; $overallCapped = $false
     foreach ($k in $script:E8Strategies.Keys) {
-        $st = $script:E8Strategies[$k]; $ok = 0; $n = 0
-        $badHosts = [ordered]@{}; $cleanTypes = [ordered]@{}
-        foreach ($hx in $hostsArr) {
-            $ne = @{}; foreach ($x in @($hx.NotEvaluated | Where-Object { $_ })) { $ne["$($x.Type)"] = $true }
-            foreach ($t in @($st.Checks)) {
-                $m = $script:CheckCatalog[$t]
-                if (-not $m -or $ne.ContainsKey($t) -or @($hx.OptionalOff) -contains $t) { continue }
-                if ("$($hx.Role)" -ne 'unknown' -and $m.Roles -notcontains "$($hx.Role)") { continue }
-                if ($t -like 'stig_*' -and [int]$hx.StigByType[$t] -eq 0) { continue }
-                $n++
-                if ($fired.ContainsKey("$($hx.Name)|$t")) { if (-not $badHosts.Contains($t)) { $badHosts[$t] = 0 }; $badHosts[$t]++ }
-                else { $ok++; $cleanTypes[$t] = $true }
+        $st = $script:E8Strategies[$k]
+        $per = @($hostsArr | Where-Object { $_.E8 } | ForEach-Object { $_.E8[$k] } | Where-Object { $_ })
+        $levels = @($per | Where-Object { $null -ne $_.Level })
+        $label = & $H $st.Label
+        if ($levels.Count -eq 0) {
+            $why = if (@($per | Where-Object { $_.NotApplicable }).Count -gt 0 -and $k -eq 'macros') { 'not applicable (no Microsoft Office)' } elseif ($st.Note) { $st.Note } else { 'not applicable' }
+            $e8Rows += "<tr><td>$label</td><td class='num' colspan='2'>$(& $H $why)</td></tr>"
+            continue
+        }
+        $minL = ($levels | ForEach-Object { [int]$_.Level } | Measure-Object -Minimum).Minimum
+        $capped = @($levels | Where-Object { [int]$_.Level -eq $minL -and $_.Capped }).Count -gt 0
+        if ($null -eq $overall -or $minL -lt $overall) { $overall = $minL; $overallCapped = $capped } elseif ($minL -eq $overall -and $capped) { $overallCapped = $true }
+        # Requirements across the hosts: how many hosts miss each one, or could not be judged.
+        $byReq = [ordered]@{}
+        foreach ($p in $per) {
+            foreach ($rq in @($p.Requirements | Where-Object { $_.State -ne 'na' })) {
+                if (-not $byReq.Contains($rq.Req)) { $byReq[$rq.Req] = [PSCustomObject]@{ Row = $rq; Unmet = 0; Unknown = 0; Met = 0 } }
+                $e8Judged++
+                switch ($rq.State) { 'unmet' { $byReq[$rq.Req].Unmet++ } 'unknown' { $byReq[$rq.Req].Unknown++ } default { $byReq[$rq.Req].Met++; $e8Met++ } }
             }
         }
-        $e8Ok += $ok; $e8All += $n
-        $label = & $H $st.Label
-        if ($n -gt 0) {
-            $items = @(foreach ($t in $badHosts.Keys) {
-                    $tf = @($All | Where-Object { $_.Type -eq $t })
-                    $worstSev = ($tf | Sort-Object { - $script:SeverityRank[$_.Severity] } | Select-Object -First 1).Severity
-                    "<li>$(Get-SevPill $worstSev) $(& $H $script:CheckCatalog[$t].Title) <span class='meta'>$t &middot; $($tf.Count) finding(s) on $($badHosts[$t]) host(s)</span></li>"
-                })
-            $clean = @($cleanTypes.Keys | Where-Object { -not $badHosts.Contains($_) } | ForEach-Object { & $H $script:CheckCatalog[$_].Title })
-            if ($clean.Count) { $items += "<li class='meta'>Clean: $($clean -join '; ')</li>" }
-            $label = "<details class='dash-more'><summary>$label$(if ($badHosts.Count) { " <span class='meta'>($($badHosts.Count) not clean)</span>" })</summary><ul class='dash-list'>$($items -join '')</ul></details>"
+        $items = @()
+        foreach ($b in @($byReq.Values | Sort-Object { $_.Row.Level })) {
+            if ($b.Unmet -eq 0 -and $b.Unknown -eq 0) { continue }
+            $titles = (@($b.Row.Checks | Where-Object { $script:CheckCatalog.Contains($_) } | ForEach-Object { $script:CheckCatalog[$_].Title }) -join '; ')
+            $state = if ($b.Unmet) { "not met on $($b.Unmet) host(s)" } else { "not judged on $($b.Unknown) host(s)" }
+            $items += "<li><span class='e8-ml'>ML$($b.Row.Level)</span> $(& $H $b.Row.Req) <span class='meta'>$state &middot; $(& $H $titles)$(if ($b.Row.Note) { " &middot; $(& $H $b.Row.Note)" })</span></li>"
         }
-        $e8Rows += "<tr><td>$label</td>" + $(if ($n -gt 0) { "<td class='num'>$ok/$n</td><td class='bar'>$(Get-DashBar (100 * $ok / $n))</td>" } else { "<td class='num' colspan='2'>$(& $H $(if ($st.Note) { $st.Note } else { 'nothing judged' }))</td>" }) + '</tr>'
+        $metCount = @($byReq.Values | Where-Object { $_.Unmet -eq 0 -and $_.Unknown -eq 0 }).Count
+        if ($metCount) { $items += "<li class='meta'>$metCount requirement(s) met on every host.</li>" }
+        $label = "<details class='dash-more'><summary>$label <span class='meta'>($($byReq.Count) requirement(s) judged)</span></summary><ul class='dash-list'>$($items -join '')</ul></details>"
+        $mlText = "ML$minL$(if ($capped) { '+?' })"
+        $e8Rows += "<tr><td>$label</td><td class='num' title='$(if ($capped) { 'a requirement of the next level could not be judged' } else { 'maturity level from what a host shows' })'>$mlText</td><td class='bar'>$(Get-DashBar (100 * $minL / 3))</td></tr>"
     }
-    if ($e8All -gt 0) {
-        $pE = 100 * $e8Ok / $e8All
-        & $w "<div class='dash-panel'><div class='dash-panel-head'>$(Get-RingSvg -Percent $pE -Big "$([int][Math]::Round($pE))%" -Small 'clean')<div><div class='dash-panel-title'>ACSC Essential Eight</div><div class='meta'>$e8Ok of $e8All related checks clean: coverage of settings, not a maturity assessment</div></div></div><table class='dash-table'>$($e8Rows -join '')</table></div>"
+    if ($e8Judged -gt 0) {
+        $pE = 100 * $e8Met / $e8Judged
+        & $w "<div class='dash-panel'><div class='dash-panel-head'>$(Get-RingSvg -Percent $pE -Big "ML$overall" -Small 'from a host')<div><div class='dash-panel-title'>ACSC Essential Eight</div><div class='meta'>Maturity levels from the requirements a host shows (ASD model, November 2023): $e8Met of $e8Judged met$(if ($hostsArr.Count -gt 1) { ', lowest host per strategy' }). Multi-factor authentication, backups, central logging and scanning cadence need evidence a host does not hold, so this is an upper bound, not an assessment.$(if ($overallCapped) { ' ML<n>+? means a requirement of the next level could not be judged.' })</div></div></div><table class='dash-table'>$($e8Rows -join '')</table></div>"
     }
     & $w '</div>'
 
@@ -545,6 +559,7 @@ function ConvertTo-ReportHtml {
   details.dash-more > summary::before { font-size: 10px; margin-right: 6px; }
   .dash-list { margin: 6px 0 4px 16px; padding: 0; font-size: 12px; }
   .dash-list li { margin: 3px 0; }
+  .e8-ml { display: inline-block; font-family: var(--mono, monospace); font-size: 10px; font-weight: 700; border: 1.5px solid var(--ink); border-radius: 4px; padding: 0 4px; background: var(--amber); color: var(--ink); }
   .dash-table td { border-top: 1.5px solid var(--tint); padding: 5px 4px; }
   .dash-table td.num { font-family: var(--mono); white-space: nowrap; text-align: right; width: 1%; }
   .dash-table td.bar { width: 34%; }
@@ -773,12 +788,12 @@ function filterBadgerTable(input) {
     $fwRows = New-Object System.Collections.Generic.List[object]
     $fwRows.Add(@('CIS benchmarks', @($findings | Where-Object { $_.Cis }), $(if ($HideCis) { "$hiddenCis hidden (-HideCis)" } else { '' })))
     $fwRows.Add(@('DISA STIG', @($findings | Where-Object { $_.Category -eq 'DISA STIG' }), $(if ($HideStig) { "$hiddenStig hidden (-HideStig)" } else { '' })))
-    $fwRows.Add(@('ACSC Essential Eight (related checks)', @($findings | Where-Object { $e8TypeSet.ContainsKey("$($_.Type)") }), ''))
+    $fwRows.Add(@('ACSC Essential Eight (checks tied to its requirements)', @($findings | Where-Object { $e8TypeSet.ContainsKey("$($_.Type)") }), ''))
     foreach ($k in $script:E8Strategies.Keys) {
         $st = $script:E8Strategies[$k]; $set = @($st.Checks)
         $fwRows.Add(@("&nbsp;&nbsp;&nbsp;E8: $(& $H $st.Label)", @($findings | Where-Object { $set -contains "$($_.Type)" }), $(if ($st.Note) { $st.Note } else { '' })))
     }
-    & $w '<details open><summary><h2>Summary by framework</h2></summary><p class="meta">CIS, DISA STIG and the ACSC Essential Eight cut across the categories: a finding can count in more than one row. The Essential Eight rows are the HostBadger checks related to each strategy, not a maturity assessment.</p><div class="table-wrap"><table><tr><th>Framework</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Checks triggered</th><th>Hosts affected</th></tr>'
+    & $w '<details open><summary><h2>Summary by framework</h2></summary><p class="meta">CIS, DISA STIG and the ACSC Essential Eight cut across the categories: a finding can count in more than one row. The Essential Eight rows are the HostBadger checks that judge a requirement of each strategy; the maturity levels are in the dashboard.</p><div class="table-wrap"><table><tr><th>Framework</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Checks triggered</th><th>Hosts affected</th></tr>'
     foreach ($fr in $fwRows) {
         $ff = @($fr[1]); $name = if ($fr[0] -like '&nbsp;*') { $fr[0] } else { & $H $fr[0] }
         $row = "<tr class=`"data-row`"><td>$name$(if ($fr[2]) { " <span class='meta'>($(& $H $fr[2]))</span>" })</td>"
@@ -803,8 +818,8 @@ function filterBadgerTable(input) {
         if ($meta.Attacks) { & $w "<div class=`"kv attacks`"><b>Attacks it enables.</b> $(& $H $meta.Attacks)</div>" }
         & $w "<div class=`"kv`"><b>Remediation.</b> $(& $H $meta.Remediation)</div>"
         if ($meta.Mitre) { & $w "<div class=`"kv`"><b>MITRE ATT&amp;CK.</b> $(Get-MitreLink $meta.Mitre)</div>" }
-        $e8Of = @($script:E8Strategies.Values | Where-Object { @($_.Checks) -contains $t.Type } | ForEach-Object { $_.Label })
-        if ($e8Of.Count) { & $w "<div class=`"kv`"><b>ACSC Essential Eight.</b> $(& $H ($e8Of -join '; ')) (related check)</div>" }
+        $e8Of = @($script:E8Requirements | Where-Object { @($_.Checks) -contains $t.Type } | ForEach-Object { "$($script:E8Strategies[$_.S].Label), ML$($_.L): $($_.Req)" } | Select-Object -Unique)
+        if ($e8Of.Count) { & $w "<div class=`"kv`"><b>ACSC Essential Eight.</b> $(& $H ($e8Of -join ' | '))</div>" }
         if ($meta.Cis -or $meta.CisServer) {
             if ($meta.Cis) { & $w "<div class=`"kv`"><b>CIS Windows 11 Enterprise v3.0.0.</b> rule $(& $H $meta.Cis)</div>" }
             # Servers quote their own benchmark (data\cis-map.json): list the rules their findings name.

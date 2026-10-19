@@ -417,6 +417,10 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Service program under a folder that a non-administrator controls'
         Description = 'A folder above the program of a service (its own folder or any folder up to the drive root, outside the Windows directory) is owned by an account that is not an administrator, or gives such an account the right to change permissions, take ownership or delete what is inside. Whoever controls a parent folder controls the whole path to the program, whatever the permissions on the program itself. High when everyone (Everyone, Users, Authenticated Users) has that control and the service runs as LocalSystem, Medium otherwise. The finding names the account and how many levels above the program the folder is; accounts that are members of the local Administrators group are not reported. The usual cause is an installer that makes the installing user the owner of the folders it creates.'
         Remediation = 'As an administrator, make Administrators and SYSTEM the owners of those folders and remove the entry of the account (icacls <folder> /setowner Administrators and /remove), or move the program under Program Files. Keep a backup of the permissions first (icacls <folder> /save). Check that the vendor''s updater still works afterwards, and report the installer behavior to the vendor.' }
+    service_permissions_weak = @{ Category = 'Privilege Escalation'; Severity = 'High'; Mitre = 'T1543.003'; Needs = @('services'); Roles = $script:AllRoles
+        Title = 'Service permissions let non-administrators change or delete it'
+        Description = 'The permissions of the service itself (not of its files) give an account that is not an administrator (Everyone, Users, Authenticated Users, INTERACTIVE, Domain Users, or a user outside the local Administrators group) the right to change its configuration, its permissions or its owner (High: "sc config <name> binPath= ... obj= LocalSystem" runs any program as SYSTEM), or to delete it (Medium: a user removes the service, an agent or an updater included). Starting and stopping alone are not reported: many vendors allow them on purpose; the finding names them when they come with the rights above, and the checks on writable service files take them into account.'
+        Remediation = 'Save the current descriptor (sc.exe sdshow <name>), then remove the entry of that account or take away its change, permission, owner and delete rights (sc.exe sdset <name> <SDDL>, as an administrator). If the vendor''s client needs to start its own service, keep start and stop only. Report the installer behavior to the vendor.' }
 
     # ---------------- Pending updates and known exploited vulnerabilities (both opt-in) ----------------
     updates_pending = @{ Category = 'Patching'; Severity = 'Medium'; Mitre = 'T1190'; Needs = @('updatesPending'); Roles = $script:AllRoles
@@ -537,6 +541,32 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Point and Print allows driver installation without elevation'
         Description = 'The Point and Print policy lets standard users install printer drivers (RestrictDriverInstallationToAdministrators = 0) or suppresses the elevation prompt (NoWarningNoElevationOnInstall / NoWarningNoElevationOnUpdate = 1). That is the PrintNightmare condition: a standard user gets code running as SYSTEM through a driver.'
         Remediation = 'Set RestrictDriverInstallationToAdministrators = 1 and remove the NoWarningNoElevation values (Group Policy: Point and Print Restrictions, "Show warning and elevation prompt").' }
+
+    # ---------------- ACSC Essential Eight requirements a host shows ----------------
+    app_control_not_enforced = @{ Category = 'System Hardening'; Severity = 'Medium'; Mitre = 'T1204.002'; Needs = @('hardening', 'services'); Roles = $script:AllRoles
+        Title = 'No application control enforced'
+        Description = 'Neither App Control for Business (WDAC) enforces a user-mode policy (Win32_DeviceGuard UsermodeCodeIntegrityPolicyEnforcementStatus = 2) nor AppLocker enforces executable rules (rules in the Exe collection, not in audit-only mode, Application Identity service not disabled): any program a user downloads or brings runs. A policy in audit mode is named in the detail. Smart App Control blocks by reputation, not against a list the organization approved: it lowers the severity to Low but does not count. The Essential Eight wants application control on workstations from Maturity Level One (internet-facing servers at Two, all servers at Three).'
+        Remediation = 'Deploy App Control for Business (WDAC) in enforced mode, starting from a Microsoft base policy with Microsoft''s recommended block rules, after an audit period; or AppLocker with rules for executables, scripts, installers and DLLs, and the Application Identity service set to start. Both are organizational choices that need testing: there is no fix script.' }
+    powershell_clm_off = @{ Category = 'System Hardening'; Severity = 'Low'; Mitre = 'T1059.001'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'PowerShell is not held to Constrained Language Mode'
+        Description = 'Nothing puts PowerShell in Constrained Language Mode: no enforced WDAC user-mode policy and no enforced AppLocker script rules (either makes PowerShell run untrusted code in Constrained Language Mode), and no __PSLockdownPolicy = 4. Full Language Mode lets a script call .NET and Win32 directly, which most PowerShell attack tooling needs. An Essential Eight Maturity Level Three requirement.'
+        Remediation = 'Enforce WDAC or AppLocker script rules (Constrained Language Mode follows from them). The __PSLockdownPolicy environment variable alone is not a security boundary.' }
+    netfx3_enabled = @{ Category = 'System Hardening'; Severity = 'Low'; Mitre = 'T1562.010'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = '.NET Framework 3.5 (2.0 and 3.0) is enabled'
+        Description = 'The optional feature NetFx3 is enabled. .NET 2.0 and 3.x lack the AMSI and the security features of .NET 4.8, and attack tools target them to dodge both. The Essential Eight wants it disabled or removed at Maturity Level Three.'
+        Remediation = 'Find the applications that still need .NET 3.5, then turn the feature off (Disable-WindowsOptionalFeature -Online -FeatureName NetFx3, or Remove-WindowsFeature NET-Framework-Core on servers). It is a compatibility decision: there is no fix script.' }
+    ie11_enabled = @{ Category = 'System Hardening'; Severity = 'Medium'; Mitre = 'T1189'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'Internet Explorer 11 is enabled'
+        Description = 'The Internet Explorer 11 optional feature is enabled and no policy turns it off as a standalone browser (NotifyDisableIEOptions = 1). IE11 is out of support and is the last browser that ran Java applets and ActiveX from the internet. Windows 11 does not have it; Windows 10 LTSC and Windows Server still can. An Essential Eight Maturity Level One requirement (it also covers "web browsers do not process Java from the internet").'
+        Remediation = 'Turn off the feature (Disable-WindowsOptionalFeature -Online -FeatureName Internet-Explorer-Optional-amd64) or set "Disable Internet Explorer 11 as a standalone browser" to Always; sites that need it go to Edge IE mode.' }
+    remote_credential_guard_off = @{ Category = 'Credential Protection'; Severity = 'Low'; Mitre = 'T1550.002'; Needs = @('hardening', 'host'); Roles = $script:AllRoles
+        Title = 'Remote Credential Guard is not in use'
+        Description = 'On a domain-joined host: as a Remote Desktop client, no policy makes it use Remote Credential Guard ("Restrict delegation of credentials to remote servers" set to Require Remote Credential Guard or Restrict credential delegation), so an administrator''s credentials are sent to every server they connect to; as a Remote Desktop host, it does not accept Remote Credential Guard (AllowProtectedCreds = 1, also a CIS Level 1 rule). An Essential Eight Maturity Level Three requirement.'
+        Remediation = 'Set "Remote host allows delegation of non-exportable credentials" to Enabled and "Restrict delegation of credentials to remote servers" to Require Remote Credential Guard (Computer Configuration > Administrative Templates > System > Credentials Delegation). Remote Credential Guard needs Kerberos and direct connections (no RD Gateway).' }
+    office_macro_settings_weak = @{ Category = 'System Hardening'; Severity = 'Medium'; Mitre = 'T1566.001'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'Office macro settings not enforced by policy'
+        Description = 'Microsoft Office is installed and the Office policies of the loaded user profiles (HKU, what a SYSTEM run sees) leave macros open: macros in files from the internet not blocked by policy (blockcontentexecutionfrominternet), macro antivirus scanning turned off (macroruntimescanscope = 0), the macro security level not set by policy so users can change it in the Trust Center (vbawarnings), users able to enable unsigned macros (vbawarnings not 3 or 4), or OLE packages that can run (packagerprompt not 2). Word, Excel and PowerPoint are read. One finding per setting, with how many profiles miss it. The Essential Eight levels: internet block, scanning and settings users cannot change at One, OLE packages at Two, signed or trusted macros only at Three.'
+        Remediation = 'In the Office administrative templates (user configuration), for Word, Excel and PowerPoint: "Block macros from running in Office files from the Internet" Enabled; "VBA Macro Notification Settings" Disable all except digitally signed macros (or all macros where nobody needs them); "Macro Runtime Scan Scope" Enable for all documents; "Packager Prompt" No prompt, Object does not execute.' }
 
     # ---------------- DISA STIG, registry settings (data\stig-catalog.json) ----------------
     stig_windows10 = @{ Category = 'DISA STIG'; Severity = 'Medium'; Mitre = 'T1112'; Needs = @('stig'); Roles = @('workstation')
@@ -688,6 +718,7 @@ $script:CheckAttacks = [ordered]@{
     server_network_policy_gaps = 'Interception: IPv6 default DNS servers can be spoofed (mitm6), and RSS feeds can send credentials in clear text with Basic authentication.'
     service_binary_writable = 'Privilege escalation: a user replaces the service program (or plants a DLL it loads) and the code runs with the service''s account, often SYSTEM, at the next start.'
     service_path_ancestor_control = 'Privilege escalation: a user who controls a folder above the service program can rename it and put their own program in its place, which the service runs at the next start.'
+    service_permissions_weak = 'Privilege escalation: a user points the service at their own program and sets it to run as LocalSystem (sc config), then starts it. Defense evasion: a user deletes the service of an agent or updater.'
     service_should_be_disabled = 'Larger attack surface: a service the baseline says to disable is reachable or running, with its own vulnerabilities and abuse paths.'
     service_unquoted_path = 'Privilege escalation: Windows tries each space-separated part of the unquoted path, so a user who can write to one of those folders gets a program run by the service, often as SYSTEM.'
     smartscreen_off = 'Malicious downloads run: files and apps with a bad or unknown reputation are opened without the SmartScreen warning.'
@@ -731,6 +762,12 @@ $script:CheckAttacks = [ordered]@{
     brave_policy_gaps = 'Browser-based attacks: phishing, malicious downloads, risky extensions or weakened browser protections that the Chrome STIG policies would prevent, and Tor windows that reach the internet past the proxy and network monitoring.'
     script_files_execute_on_open = 'Malware delivery by phishing: a .js, .vbs, .wsf or .hta attachment or download runs with the user''s rights as soon as it is double-clicked, typically to download and start ransomware or a loader.'
     lolbin_outbound_not_blocked = 'Living-off-the-land downloads: an attacker uses signed Windows tools (certutil -urlcache, mshta or regsvr32 /i pointed at a remote URL, bitsadmin) to fetch payloads and run remote scripts past application allow lists.'
+    app_control_not_enforced = 'Execution of anything a user downloads or brings: a phishing payload, a dropped tool, a portable remote access program or ransomware runs straight from Downloads or Temp.'
+    powershell_clm_off = 'Fileless attack tooling: PowerShell scripts call .NET and Win32 directly (in-memory loaders, AMSI bypasses, credential dumpers written in PowerShell).'
+    netfx3_enabled = 'Security bypass by downgrade: tools run on .NET 2.0/3.5, which has no AMSI, so in-memory .NET payloads are not scanned.'
+    ie11_enabled = 'Drive-by compromise through an unsupported browser engine: exploits for IE11, ActiveX and Java applets that modern browsers no longer run.'
+    remote_credential_guard_off = 'Credential theft on the server side of a Remote Desktop session: a compromised server captures the administrator''s credentials or hash and reuses them (pass-the-hash, lateral movement).'
+    office_macro_settings_weak = 'Initial access through malicious documents: a phishing attachment runs macro or OLE code when the user enables content or double-clicks an embedded object.'
     removable_media_execute_allowed = 'Removable-media infection and insider attacks: a program brought on a USB drive or SD card (a dropped "found" stick, a rubber-ducky payload, an unapproved tool) runs directly from the device.'
     wpad_not_disabled = 'Traffic interception and credential capture: an attacker answers WPAD discovery, becomes the host''s web proxy and collects NTLM authentications.'
     wu_auto_updates_disabled = 'Exploitation of known vulnerabilities: security updates are not installed on their own, so the host falls behind on fixes.'
@@ -2089,6 +2126,27 @@ function Invoke-HostChecks {
         $extra['credential_guard_off'] = 'Device Guard status (Win32_DeviceGuard) not readable'
         $extra['hvci_off'] = 'Device Guard status (Win32_DeviceGuard) not readable'
     }
+    $svcList = @($Snapshot.services | Where-Object { $_ })
+    if ($svcList.Count -gt 0) {
+        $withField = @($svcList | Where-Object { $_.PSObject.Properties['permissionsRead'] })
+        if ($withField.Count -eq 0) { $extra['service_permissions_weak'] = 'snapshot from an older collector: service permissions not collected' }
+        elseif (@($withField | Where-Object { $_.permissionsRead -eq $true }).Count -eq 0) { $extra['service_permissions_weak'] = 'service permissions not readable' }
+    }
+    # Essential Eight host checks: fields an older collector did not write, and data that is missing.
+    $hd = $Snapshot.hardening
+    if ($hd) {
+        $old = 'snapshot from an older collector: field not collected'
+        $has = { param($p) [bool]$hd.PSObject.Properties[$p] }
+        if (-not (& $has 'appControl')) { $extra['app_control_not_enforced'] = $old; $extra['powershell_clm_off'] = $old }
+        elseif ($null -eq $hd.appControl.umci -and -not ($hd.appControl.appLocker -and [int]$hd.appControl.appLocker.exe.rules -gt 0)) {
+            $extra['app_control_not_enforced'] = 'Device Guard status (Win32_DeviceGuard) not readable'; $extra['powershell_clm_off'] = 'Device Guard status (Win32_DeviceGuard) not readable'
+        }
+        if (-not (& $has 'optionalFeatures')) { $extra['netfx3_enabled'] = $old; $extra['ie11_enabled'] = $old }
+        elseif ($null -eq $hd.optionalFeatures) { $extra['netfx3_enabled'] = 'optional features (Win32_OptionalFeature) not readable'; $extra['ie11_enabled'] = 'optional features (Win32_OptionalFeature) not readable' }
+        if (-not (& $has 'credentialsDelegation')) { $extra['remote_credential_guard_off'] = $old }
+        if (-not (& $has 'officeUserPolicy')) { $extra['office_macro_settings_weak'] = $old }
+        elseif ($hd.officeInstalled -eq $true -and @($hd.officeUserPolicy | Where-Object { $_ }).Count -eq 0) { $extra['office_macro_settings_weak'] = 'no user profile loaded (the Office policies are per user)' }
+    }
 
     $ne = @(Get-NotEvaluatedChecks -Snapshot $Snapshot -Extra $extra)
     # Opt-in checks are not "not evaluated" when nobody asked for them: pending updates exist only in a
@@ -2114,6 +2172,7 @@ function Invoke-HostChecks {
         'drivers'    = { Invoke-DriverChecks $Snapshot $Config $can }
         'logging'    = { Invoke-LoggingChecks $Snapshot $Config $can $role }
         'baseline'   = { Invoke-BaselineChecks $Snapshot $Config $can $role }
+        'e8'         = { Invoke-E8HostChecks $Snapshot $Config $can }
         'stig'       = { Invoke-StigChecks $Snapshot $Config $can }
         'software'   = { Invoke-SoftwareChecks $Snapshot $Config $can }
         'policy'     = { Invoke-PolicyChecks $Snapshot $Config $can $role }
@@ -2442,6 +2501,7 @@ function Invoke-PrivescChecks {
             if (-not $fileWritable -and "$($svc.executable)" -match '(?i)^[a-z]:\\programdata\\') { $detail += ' The ProgramData folder lets users create files by default and this folder inherits that: the program was installed under ProgramData, not Program Files.' }
             if ($starters.Count -gt 0) { $detail += " $((@($starters | ForEach-Object { Get-SidLabel $_ }) -join ', ')) can start the service, so the planted code runs on demand." }
             elseif ("$($svc.startMode)" -eq 'Auto') { $detail += ' It starts at boot.' }
+            if ($null -eq $svc.startableBy -and -not $fileWritable) { $detail += ' Who may start the service could not be read: if users can, this is High.' }
             Add-Finding -Type 'service_binary_writable' -Object "service: $($svc.name)" -Severity $sev -Detail $detail
         }
     }
@@ -2462,6 +2522,35 @@ function Invoke-PrivescChecks {
             }
             $sev = if ($broad -and "$($svc.account)" -match '(?i)^(localsystem|nt authority\\system)$') { 'High' } else { 'Medium' }
             Add-Finding -Type 'service_path_ancestor_control' -Object "service: $($svc.name)" -Severity $sev -Detail ("Runs as $($svc.account). " + ($parts -join '; ') + '. Whoever controls a parent folder controls the whole path to the program.' + $(if ($unknownAdmins) { ' The local Administrators group could not be read: check that this account is not an administrator.' } else { '' }))
+        }
+    }
+    if (& $can 'service_permissions_weak') {
+        $adminSids = @{}; foreach ($m in @($S.localAccounts.administrators | Where-Object { $_ })) { $adminSids["$($m.sid)"] = $true }
+        $names = @{}; foreach ($u in @($S.localAccounts.users | Where-Object { $_ })) { $names["$($u.sid)"] = "$($u.name)" }
+        $unknownAdmins = ($S.localAccounts.administratorsReadable -ne $true)
+        $takeover = @('ChangeConfig', 'WriteDac', 'WriteOwner', 'GenericAll', 'GenericWrite')
+        foreach ($svc in $services) {
+            # The collector keeps every entry outside SYSTEM, the administrators and service identities;
+            # other built-in groups (Network Configuration Operators...) are Windows' own choice.
+            $items = @($svc.permissions | Where-Object {
+                    $_ -and -not $adminSids.ContainsKey("$($_.sid)") -and
+                    ($script:WellKnownSids.ContainsKey("$($_.sid)") -or "$($_.sid)" -eq 'S-1-5-32-546' -or "$($_.sid)" -match '^S-1-5-21-') })
+            if ($items.Count -eq 0) { continue }
+            $hasTakeover = $false; $hasDelete = $false; $parts = @()
+            foreach ($it in ($items | Sort-Object sid)) {
+                $rights = @("$($it.rights)" -split ',\s*' | Where-Object { $_ })
+                if (@($rights | Where-Object { $takeover -contains $_ }).Count -gt 0) { $hasTakeover = $true }
+                elseif ($rights -contains 'Delete') { $hasDelete = $true }
+                else { continue }
+                $who = if ($names.ContainsKey("$($it.sid)")) { $names["$($it.sid)"] } else { Get-SidLabel "$($it.sid)" }
+                $parts += "$who may $($rights -join ', ')"
+            }
+            if (-not $hasTakeover -and -not $hasDelete) { continue }
+            $sev = if ($hasTakeover) { 'High' } else { 'Medium' }
+            $detail = "Runs as $($svc.account) ($($svc.state), start $($svc.startMode)): $($parts -join '; ')."
+            $detail += $(if ($hasTakeover) { ' Changing the configuration sets the program and the account it runs as: any program runs as SYSTEM.' } else { ' Deleting removes the service until it is reinstalled.' })
+            if ($unknownAdmins -and @($items | Where-Object { "$($_.sid)" -match '^S-1-5-21-' }).Count -gt 0) { $detail += ' The local Administrators group could not be read: check that the account named is not an administrator.' }
+            Add-Finding -Type 'service_permissions_weak' -Object "service: $($svc.name)" -Severity $sev -Detail $detail
         }
     }
     if (& $can 'task_binary_writable') {
@@ -2536,7 +2625,9 @@ function Invoke-LoggingChecks {
         if ((& $can 'powershell_module_logging_off') -and "$($p.moduleLogging)" -ne '1') {
             Add-Finding -Type 'powershell_module_logging_off' -Object 'PowerShell module logging' -Detail 'EnableModuleLogging not set to 1.'
         }
-        if ((& $can 'powershell_v2_enabled') -and "$($p.v2EngineVersion)" -eq '2.0') {
+        # A registration without the engine's assembly is left over from a removed feature (older
+        # snapshots have no v2EngineFile: the registration alone decides).
+        if ((& $can 'powershell_v2_enabled') -and "$($p.v2EngineVersion)" -eq '2.0' -and $p.v2EngineFile -ne $false) {
             Add-Finding -Type 'powershell_v2_enabled' -Object 'PowerShell 2.0' -Detail 'The 2.0 engine is registered (optional feature installed).'
         }
     }
@@ -2556,6 +2647,93 @@ function ConvertTo-Int64OrNull {
     param($Value)
     if ($null -eq $Value -or "$Value" -eq '') { return $null }
     try { return [int64]$Value } catch { return $null }
+}
+
+function Invoke-E8HostChecks {
+    # The Essential Eight requirements that a host shows and no other check covers: application
+    # control, Constrained Language Mode, .NET 3.5, IE11, Remote Credential Guard, Office macros.
+    param($S, $Config, $can)
+    $h = $S.hardening
+    if (-not $h) { return }
+    $n = { param($v) ConvertTo-Int64OrNull $v }
+    $ac = $h.appControl
+    if ($ac) {
+        $umci = & $n $ac.umci
+        $alOn = { param($c) $x = $ac.appLocker.$c; $x -and [int]$x.rules -gt 0 -and (& $n $x.mode) -ne 0 }
+        $alAudit = { param($c) $x = $ac.appLocker.$c; $x -and [int]$x.rules -gt 0 -and (& $n $x.mode) -eq 0 }
+        $appId = @($S.services | Where-Object { $_ -and "$($_.name)" -eq 'AppIDSvc' } | Select-Object -First 1)
+        $appIdOk = $appId.Count -gt 0 -and "$($appId[0].startMode)" -ne 'Disabled'
+        if (& $can 'app_control_not_enforced') {
+            $exeOn = (& $alOn 'exe') -and $appIdOk
+            if ($umci -ne 2 -and -not $exeOn) {
+                $sac = (& $n $ac.smartAppControl) -eq 1
+                $parts = @("WDAC user mode: $(switch ($umci) { 1 { 'audit only' } 0 { 'off' } default { 'unknown' } })")
+                $parts += "AppLocker executables: $(if (& $alOn 'exe') { 'rules enforced, but the Application Identity service is disabled' } elseif (& $alAudit 'exe') { 'audit only' } else { 'no rules' })"
+                if ($sac) { $parts += 'Smart App Control: on (reputation, not an approved list)' }
+                Add-Finding -Type 'app_control_not_enforced' -Object 'Application control' -Severity $(if ($sac) { 'Low' } else { 'Medium' }) -Found ($parts -join '; ') -Expected 'WDAC user-mode policy or AppLocker executable rules, enforced' -Detail "$($parts -join '; ')."
+            }
+        }
+        if (& $can 'powershell_clm_off') {
+            $scriptOn = (& $alOn 'script') -and $appIdOk
+            if ($umci -ne 2 -and -not $scriptOn -and (& $n $ac.psLockdownPolicy) -ne 4) {
+                Add-Finding -Type 'powershell_clm_off' -Object 'PowerShell' -Found 'Full Language Mode' -Expected 'Constrained Language Mode (WDAC or AppLocker script rules enforced)' -Detail "No enforced WDAC user-mode policy or AppLocker script rules$(if (& $alAudit 'script') { ' (AppLocker script rules in audit only)' }): PowerShell runs in Full Language Mode."
+            }
+        }
+    }
+    $of = $h.optionalFeatures
+    if ($of) {
+        if ((& $can 'netfx3_enabled') -and (& $n $of.netFx3) -eq 1) { Add-Finding -Type 'netfx3_enabled' -Object '.NET Framework 3.5' -Found 'enabled' -Expected 'disabled or removed' -Detail 'The NetFx3 optional feature is enabled.' }
+        if ((& $can 'ie11_enabled') -and (& $n $of.internetExplorer) -eq 1 -and (& $n $h.ieDisabledByPolicy) -ne 1) {
+            Add-Finding -Type 'ie11_enabled' -Object 'Internet Explorer 11' -Found 'enabled' -Expected 'disabled or removed' -Detail 'The Internet-Explorer-Optional-amd64 feature is enabled and NotifyDisableIEOptions is not 1.'
+        }
+    }
+    $cd = $h.credentialsDelegation
+    if ((& $can 'remote_credential_guard_off') -and $cd -and $S.host -and $S.host.partOfDomain) {
+        $rra = & $n $cd.restrictedRemoteAdministration; $rraType = & $n $cd.restrictedRemoteAdministrationType
+        if ($rra -ne 1 -or $rraType -notin 2, 3) {
+            $found = if ($rra -ne 1) { 'not set' } else { "set, mode $(switch ($rraType) { 1 { '1 (Require Restricted Admin)' } $null { 'not readable' } default { "$rraType" } })" }
+            Add-Finding -Type 'remote_credential_guard_off' -Object 'Remote Desktop client' -Found $found -Expected '2 (Require Remote Credential Guard) or 3 (Restrict credential delegation)' -Detail "Restrict delegation of credentials to remote servers: $found. Credentials typed into Remote Desktop reach the server."
+        }
+        if ((& $n $cd.allowProtectedCreds) -ne 1) {
+            $v = & $n $cd.allowProtectedCreds
+            Add-Finding -Type 'remote_credential_guard_off' -Object 'Remote Desktop host' -Found $(if ($null -eq $v) { 'not set' } else { "$v" }) -Expected '1' -Detail "AllowProtectedCreds = $(if ($null -eq $v) { 'not set' } else { $v }): connections to this host cannot use Remote Credential Guard."
+        }
+    }
+    if ((& $can 'office_macro_settings_weak') -and $h.officeInstalled -eq $true) {
+        $profiles = @($h.officeUserPolicy | Where-Object { $_ })
+        $total = $profiles.Count
+        $apps = [ordered]@{ Word = 'Word'; Excel = 'Excel'; PowerPoint = 'PowerPoint' }
+        # Per setting: how many profiles miss it, and the values seen (app: value).
+        $judge = {
+            param([string]$Prefix, [scriptblock]$Bad)
+            $miss = 0; $seen = [ordered]@{}
+            foreach ($p in $profiles) {
+                $hit = $false
+                foreach ($a in $apps.Keys) {
+                    $v = & $n $p."$Prefix$a"
+                    if (& $Bad $v) { $hit = $true; $seen["${a}: $(if ($null -eq $v) { 'not set' } else { $v })"] = $true }
+                }
+                if ($hit) { $miss++ }
+            }
+            [PSCustomObject]@{ Miss = $miss; Seen = @($seen.Keys) }
+        }
+        $r = & $judge 'blockInternet' { param($v) $v -ne 1 }
+        if ($r.Miss -gt 0) {
+            $sev = if (@($r.Seen | Where-Object { $_ -notmatch 'not set$' }).Count -gt 0) { 'Medium' } else { 'Low' }
+            Add-Finding -Type 'office_macro_settings_weak' -Object 'Office macros from the internet' -Severity $sev -Found ($r.Seen -join ', ') -Expected '1 (blocked) in Word, Excel, PowerPoint' -Detail "blockcontentexecutionfrominternet not 1 in $($r.Miss) of $total profile(s): $($r.Seen -join ', '). Microsoft 365 Apps block these macros by default since version 2206; the policy makes it hold for every version and keeps users from changing it."
+        }
+        $scanOff = @($profiles | Where-Object { (& $n $_.macroRuntimeScanScope) -eq 0 }).Count
+        if ($scanOff -gt 0) { Add-Finding -Type 'office_macro_settings_weak' -Object 'Office macro antivirus scanning' -Found '0 (disabled)' -Expected '1 or 2 (2: all documents)' -Detail "macroruntimescanscope = 0 in $scanOff of $total profile(s): macros are not scanned by the antivirus at run time." }
+        $r = & $judge 'vbaWarnings' { param($v) $null -eq $v -or $v -eq 1 }
+        if ($r.Miss -gt 0) {
+            $sev = if (@($r.Seen | Where-Object { $_ -match ': 1$' }).Count -gt 0) { 'High' } else { 'Medium' }
+            Add-Finding -Type 'office_macro_settings_weak' -Object 'Office macro security settings' -Severity $sev -Found ($r.Seen -join ', ') -Expected '2, 3 or 4 set by policy' -Detail "vbawarnings not set by policy (users can change it in the Trust Center) or 1 (all macros enabled) in $($r.Miss) of $total profile(s): $($r.Seen -join ', ')."
+        }
+        $r = & $judge 'vbaWarnings' { param($v) $null -eq $v -or $v -in 1, 2 }
+        if ($r.Miss -gt 0) { Add-Finding -Type 'office_macro_settings_weak' -Object 'Office macros: signed or trusted only' -Severity 'Low' -Found ($r.Seen -join ', ') -Expected '3 (digitally signed only) or 4 (none)' -Detail "vbawarnings is not 3 or 4 in $($r.Miss) of $total profile(s): $($r.Seen -join ', '). Users can enable an unsigned macro from the message bar (not set is the Office default, 2)." }
+        $r = & $judge 'packagerPrompt' { param($v) $v -ne 2 }
+        if ($r.Miss -gt 0) { Add-Finding -Type 'office_macro_settings_weak' -Object 'Office OLE packages' -Severity 'Low' -Found ($r.Seen -join ', ') -Expected '2 (no prompt, the object does not run)' -Detail "packagerprompt is not 2 in $($r.Miss) of $total profile(s): $($r.Seen -join ', '). An embedded OLE package runs after one prompt (not set is the Office default)." }
+    }
 }
 
 function Invoke-BaselineChecks {
@@ -2975,19 +3153,111 @@ $script:StigTypeLabel = [ordered]@{
     stig_server2019 = 'Windows Server 2019 V3R8'; stig_server2016 = 'Windows Server 2016 V2R10'; stig_defender = 'Defender Antivirus V2R8'; stig_firewall = 'Windows Firewall V2R2'
     stig_edge = 'Microsoft Edge V2R5'; stig_chrome = 'Google Chrome V2R11'; stig_firefox = 'Mozilla Firefox V6R7'; stig_office = 'Microsoft 365 Apps V3R5'; stig_adobe = 'Adobe Acrobat V2R1'
 }
-# ACSC Essential Eight: the HostBadger checks that bear on each mitigation strategy, from a host. This
-# is coverage of related settings, not an Essential Eight maturity assessment: multi-factor
-# authentication and backups cannot be seen from a host, and application control is only touched at
-# its edges (drivers, script hosts, removable media).
+# ACSC Essential Eight: the requirements of the ASD Essential Eight Maturity Model (November 2023,
+# Appendices A to C) that a host shows, each tied to the HostBadger checks that judge it (Match: a
+# regex on the finding's Object and Detail, for a check that covers several settings). Req is the ASD
+# wording. Roles: the host roles the requirement applies to (all when absent). Product 'office': not
+# applicable on a host without Microsoft Office. Note: how far the check goes. The other requirements
+# (scanning cadence, central logging, MFA, backups, processes) need evidence a host does not hold:
+# Get-E8Maturity judges the maturity level from these only, and says so.
 $script:E8Strategies = [ordered]@{
-    patch_apps = @{ Label = 'Patch applications'; Checks = @('software_eol', 'software_outdated', 'software_cve', 'kev_software_match') }
-    patch_os   = @{ Label = 'Patch operating systems'; Checks = @('os_unsupported', 'os_support_ending', 'updates_stale', 'updates_pending', 'wu_auto_updates_disabled') }
-    mfa        = @{ Label = 'Multi-factor authentication'; Checks = @(); Note = 'not visible from a host' }
-    admin      = @{ Label = 'Restrict administrative privileges'; Checks = @('local_admin_member', 'builtin_admin_enabled', 'laps_not_configured', 'remote_uac_token_filter_off', 'uac_disabled', 'uac_admin_no_prompt', 'user_rights_excessive', 'deny_logon_rights_missing', 'credential_guard_off', 'lsa_not_protected', 'wdigest_cleartext', 'autologon_enabled') }
-    appcontrol = @{ Label = 'Application control'; Checks = @('driver_blocklist_off', 'vulnerable_driver_present', 'script_files_execute_on_open', 'removable_media_execute_allowed', 'lolbin_outbound_not_blocked', 'always_install_elevated') }
-    macros     = @{ Label = 'Restrict Microsoft Office macros'; Checks = @('stig_office', 'asr_other_rules_not_blocking') }
-    userapp    = @{ Label = 'User application hardening'; Checks = @('stig_edge', 'stig_chrome', 'stig_firefox', 'stig_adobe', 'powershell_v2_enabled', 'powershell_scriptblock_logging_off', 'powershell_module_logging_off', 'cmdline_audit_off', 'smartscreen_off') }
-    backups    = @{ Label = 'Regular backups'; Checks = @(); Note = 'not visible from a host' }
+    patch_apps = @{ Label = 'Patch applications' }
+    patch_os   = @{ Label = 'Patch operating systems' }
+    mfa        = @{ Label = 'Multi-factor authentication'; Note = 'not visible from a host' }
+    admin      = @{ Label = 'Restrict administrative privileges' }
+    appcontrol = @{ Label = 'Application control' }
+    macros     = @{ Label = 'Restrict Microsoft Office macros' }
+    userapp    = @{ Label = 'User application hardening' }
+    backups    = @{ Label = 'Regular backups'; Note = 'not visible from a host' }
+}
+$script:E8Requirements = @(
+    @{ S = 'patch_apps'; L = 1; Checks = @('software_outdated'); Req = 'Patches, updates or other vendor mitigations for vulnerabilities in office productivity suites, web browsers and their extensions, email clients, PDF software, and security products are applied within two weeks of release.'; Note = 'judged on the applications HostBadger can place on a release line (needs the release data)' }
+    @{ S = 'patch_apps'; L = 1; Checks = @('software_eol'); Req = 'Office productivity suites, web browsers and their extensions, email clients, PDF software, Adobe Flash Player, and security products that are no longer supported by vendors are removed.' }
+    @{ S = 'patch_apps'; L = 2; Checks = @('software_outdated'); Req = 'Patches, updates or other vendor mitigations for vulnerabilities in applications other than office productivity suites, web browsers and their extensions, email clients, PDF software, and security products are applied within one month of release.'; Note = 'judged on the applications HostBadger can place on a release line (needs the release data)' }
+    @{ S = 'patch_apps'; L = 3; Checks = @('software_cve'); Match = 'in the CISA KEV catalog'; Req = 'Patches, updates or other vendor mitigations for vulnerabilities in office productivity suites, web browsers and their extensions, email clients, PDF software, and security products are applied within 48 hours of release when vulnerabilities are assessed as critical by vendors or when working exploits exist.'; Note = 'the installed version has a vulnerability in the CISA KEV catalog (working exploits), judged by version (needs the CVE data)' }
+    @{ S = 'patch_apps'; L = 3; Checks = @('software_eol'); Req = 'Applications other than office productivity suites, web browsers and their extensions, email clients, PDF software, Adobe Flash Player, and security products that are no longer supported by vendors are removed.' }
+    @{ S = 'patch_os'; L = 1; Checks = @('updates_stale', 'updates_pending'); Req = 'Patches, updates or other vendor mitigations for vulnerabilities in operating systems of workstations, non-internet-facing servers and non-internet-facing network devices are applied within one month of release.'; Note = 'the date of the last Windows update, and the pending updates when the snapshot searched for them' }
+    @{ S = 'patch_os'; L = 1; Checks = @('os_unsupported'); Req = 'Operating systems that are no longer supported by vendors are replaced.' }
+    @{ S = 'admin'; L = 1; Checks = @('local_admin_member'); Req = 'Privileged users are assigned a dedicated privileged user account to be used solely for duties requiring privileged access.'; Note = 'an account other than the built-in Administrator in the local Administrators group is usually an everyday account with admin rights' }
+    @{ S = 'admin'; L = 2; Checks = @('laps_not_configured'); Req = 'Credentials for break glass accounts, local administrator accounts and service accounts are long, unique, unpredictable and managed.'; Note = 'the local administrator account (LAPS), on domain members' }
+    @{ S = 'admin'; L = 3; Checks = @('hvci_off'); Req = 'Memory integrity functionality is enabled.' }
+    @{ S = 'admin'; L = 3; Checks = @('lsa_not_protected'); Req = 'Local Security Authority protection functionality is enabled.' }
+    @{ S = 'admin'; L = 3; Checks = @('credential_guard_off'); Req = 'Credential Guard functionality is enabled.' }
+    @{ S = 'admin'; L = 3; Checks = @('remote_credential_guard_off'); Req = 'Remote Credential Guard functionality is enabled.'; Note = 'domain members' }
+    @{ S = 'appcontrol'; L = 1; Roles = @('workstation'); Checks = @('app_control_not_enforced'); Req = 'Application control is implemented on workstations.' }
+    @{ S = 'appcontrol'; L = 3; Roles = @('server', 'dc'); Checks = @('app_control_not_enforced'); Req = 'Application control is implemented on non-internet-facing servers.'; Note = 'Maturity Level Two already asks for it on internet-facing servers' }
+    @{ S = 'appcontrol'; L = 3; Checks = @('driver_blocklist_off'); Req = 'Microsoft''s vulnerable driver blocklist is implemented.' }
+    @{ S = 'macros'; L = 1; Product = 'office'; Checks = @('office_macro_settings_weak'); Match = 'Office macros from the internet'; Req = 'Microsoft Office macros in files originating from the internet are blocked.' }
+    @{ S = 'macros'; L = 1; Product = 'office'; Checks = @('office_macro_settings_weak'); Match = 'Office macro antivirus scanning'; Req = 'Microsoft Office macro antivirus scanning is enabled.' }
+    @{ S = 'macros'; L = 1; Product = 'office'; Checks = @('office_macro_settings_weak'); Match = 'Office macro security settings'; Req = 'Microsoft Office macro security settings cannot be changed by users.'; Note = 'the macro security level set by policy in Word, Excel and PowerPoint' }
+    @{ S = 'macros'; L = 2; Product = 'office'; Checks = @('asr_other_rules_not_blocking'); Match = 'Block Win32 API calls from Office macros'; Req = 'Microsoft Office macros are blocked from making Win32 API calls.'; Note = 'the attack surface reduction rule' }
+    @{ S = 'macros'; L = 3; Product = 'office'; Checks = @('office_macro_settings_weak'); Match = 'signed or trusted only'; Req = 'Only Microsoft Office macros running from within a sandboxed environment, a Trusted Location or that are digitally signed by a trusted publisher are allowed to execute.' }
+    @{ S = 'userapp'; L = 1; Checks = @('ie11_enabled'); Req = 'Internet Explorer 11 is disabled or removed.' }
+    @{ S = 'userapp'; L = 1; Checks = @('ie11_enabled'); Req = 'Web browsers do not process Java from the internet.'; Note = 'current browsers cannot run Java applets; IE11 was the last one that did' }
+    @{ S = 'userapp'; L = 2; Checks = @('stig_edge', 'stig_chrome', 'stig_firefox'); Req = 'Web browsers are hardened using ASD and vendor hardening guidance, with the most restrictive guidance taking precedence when conflicts occur.'; Note = 'judged against the DISA STIG of each installed browser, not the ASD guide' }
+    @{ S = 'userapp'; L = 2; Product = 'office'; Checks = @('asr_other_rules_not_blocking'); Match = 'Block all Office applications from creating child processes'; Req = 'Microsoft Office is blocked from creating child processes.'; Note = 'the attack surface reduction rule' }
+    @{ S = 'userapp'; L = 2; Product = 'office'; Checks = @('asr_other_rules_not_blocking'); Match = 'Block Office applications from creating executable content'; Req = 'Microsoft Office is blocked from creating executable content.'; Note = 'the attack surface reduction rule' }
+    @{ S = 'userapp'; L = 2; Product = 'office'; Checks = @('asr_other_rules_not_blocking'); Match = 'Block Office applications from injecting code into other processes'; Req = 'Microsoft Office is blocked from injecting code into other processes.'; Note = 'the attack surface reduction rule' }
+    @{ S = 'userapp'; L = 2; Product = 'office'; Checks = @('office_macro_settings_weak'); Match = 'Office OLE packages'; Req = 'Microsoft Office is configured to prevent activation of Object Linking and Embedding packages.' }
+    @{ S = 'userapp'; L = 2; Product = 'office'; Checks = @('stig_office'); Req = 'Office productivity suites are hardened using ASD and vendor hardening guidance, with the most restrictive guidance taking precedence when conflicts occur.'; Note = 'judged against the DISA Microsoft 365 Apps STIG, not the ASD guide' }
+    @{ S = 'userapp'; L = 2; Checks = @('asr_other_rules_not_blocking'); Match = 'Block Adobe Reader from creating child processes'; Req = 'PDF software is blocked from creating child processes.'; Note = 'the attack surface reduction rule (Adobe Reader)' }
+    @{ S = 'userapp'; L = 2; Checks = @('stig_adobe'); Req = 'PDF software is hardened using ASD and vendor hardening guidance, with the most restrictive guidance taking precedence when conflicts occur.'; Note = 'Adobe Acrobat, judged against its DISA STIG' }
+    @{ S = 'userapp'; L = 2; Checks = @('powershell_scriptblock_logging_off', 'powershell_module_logging_off'); Req = 'PowerShell module logging, script block logging and transcription events are centrally logged.'; Note = 'only the local side: the logging is turned on (central collection is not visible from a host)' }
+    @{ S = 'userapp'; L = 2; Checks = @('cmdline_audit_off'); Req = 'Command line process creation events are centrally logged.'; Note = 'only the local side: the command line is recorded (central collection is not visible from a host)' }
+    @{ S = 'userapp'; L = 3; Checks = @('netfx3_enabled'); Req = '.NET Framework 3.5 (includes .NET 2.0 and 3.0) is disabled or removed.' }
+    @{ S = 'userapp'; L = 3; Checks = @('powershell_v2_enabled'); Req = 'Windows PowerShell 2.0 is disabled or removed.' }
+    @{ S = 'userapp'; L = 3; Checks = @('powershell_clm_off'); Req = 'PowerShell is configured to use Constrained Language Mode.' }
+)
+# The checks tied to each strategy, for the framework summary and the per-check line.
+foreach ($k in $script:E8Strategies.Keys) { $script:E8Strategies[$k].Checks = @($script:E8Requirements | Where-Object { $_.S -eq $k } | ForEach-Object { $_.Checks } | Select-Object -Unique) }
+
+function Get-E8Maturity {
+    # The Essential Eight maturity level each strategy reaches on one host, from the requirements a
+    # host shows ($script:E8Requirements). A requirement is unmet when one of its checks has a finding
+    # (matching Match), unknown when one of them was not evaluated or not run, not applicable for another
+    # role or without the product. The level is the highest one whose requirements, and those of the
+    # levels below, are all met; it stops at the first unknown (Capped). $null when no requirement of
+    # the strategy can be seen from a host.
+    param([string]$Role, $Findings, $NotEvaluated, $Off, [hashtable]$StigByType, [bool]$Office, [bool]$SkipStig)
+    $ne = @{}; foreach ($x in @($NotEvaluated | Where-Object { $_ })) { $ne["$($x.Type)"] = $true }
+    foreach ($t in @($Off | Where-Object { $_ })) { $ne["$t"] = $true }
+    $out = [ordered]@{}
+    foreach ($k in $script:E8Strategies.Keys) {
+        $reqs = @($script:E8Requirements | Where-Object { $_.S -eq $k })
+        $rows = @()
+        foreach ($r in $reqs) {
+            $state = 'met'
+            if ($r.Roles -and $Role -ne 'unknown' -and @($r.Roles) -notcontains $Role) { $state = 'na' }
+            elseif ($r.Product -eq 'office' -and -not $Office) { $state = 'na' }
+            else {
+                $checks = @($r.Checks | Where-Object { $script:CheckCatalog.Contains($_) -and ($Role -eq 'unknown' -or $script:CheckCatalog[$_].Roles -contains $Role) })
+                # A STIG product that is not installed has no rule to judge: it does not count.
+                $checks = @($checks | Where-Object { $_ -notlike 'stig_*' -or ($StigByType -and [int]$StigByType[$_] -gt 0) -or $SkipStig })
+                if ($checks.Count -eq 0) { $state = 'na' }
+                else {
+                    $hit = @($Findings | Where-Object { $checks -contains "$($_.Type)" -and (-not $r.Match -or "$($_.Object) $($_.Detail)" -match $r.Match) })
+                    # Met when at least one of its checks was judged clean (pending updates are only
+                    # searched on request; the date of the last update still says something).
+                    if ($hit.Count -gt 0) { $state = 'unmet' }
+                    elseif (@($checks | Where-Object { -not $ne.ContainsKey($_) -and -not ($SkipStig -and $_ -like 'stig_*') }).Count -eq 0) { $state = 'unknown' }
+                }
+            }
+            $rows += [PSCustomObject]@{ Level = [int]$r.L; Req = $r.Req; Checks = @($r.Checks); State = $state; Note = "$($r.Note)" }
+        }
+        $judged = @($rows | Where-Object { $_.State -ne 'na' })
+        $level = $null; $capped = $false
+        if ($judged.Count -gt 0) {
+            $level = 0
+            foreach ($l in 1..3) {
+                $at = @($judged | Where-Object { $_.Level -eq $l })
+                if (@($at | Where-Object { $_.State -eq 'unmet' }).Count -gt 0) { break }
+                if (@($at | Where-Object { $_.State -eq 'unknown' }).Count -gt 0) { $capped = $true; break }
+                $level = $l
+            }
+        }
+        $out[$k] = [PSCustomObject]@{ Level = $level; Capped = $capped; NotApplicable = ($rows.Count -gt 0 -and $judged.Count -eq 0); Requirements = $rows }
+    }
+    return $out
 }
 # Script extensions and the ProgId Windows gives them when they run on a double click.
 $script:ScriptRunProgIds = [ordered]@{ '.js' = 'JSFile'; '.jse' = 'JSEFile'; '.vbs' = 'VBSFile'; '.vbe' = 'VBEFile'; '.wsf' = 'WSFFile'; '.wsh' = 'WSHFile'; '.hta' = 'htafile' }

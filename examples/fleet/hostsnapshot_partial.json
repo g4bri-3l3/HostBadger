@@ -227,7 +227,8 @@
     "scriptBlockLogging": 1,
     "moduleLogging": 1,
     "transcription": 1,
-    "v2EngineVersion": ""
+    "v2EngineVersion": "",
+    "v2EngineFile": false
   },
   "audit": null,
   "securityPolicy": null,
@@ -553,7 +554,60 @@
       "disableIpSourceRoutingV4": 2,
       "disableIpSourceRoutingV6": 2,
       "enableIcmpRedirect": 0
-    }
+    },
+    "appControl": {
+      "umci": 2,
+      "kmci": 2,
+      "smartAppControl": 0,
+      "psLockdownPolicy": null,
+      "appLocker": {
+        "exe": {
+          "mode": null,
+          "rules": 0
+        },
+        "dll": {
+          "mode": null,
+          "rules": 0
+        },
+        "script": {
+          "mode": null,
+          "rules": 0
+        },
+        "msi": {
+          "mode": null,
+          "rules": 0
+        },
+        "appx": {
+          "mode": null,
+          "rules": 0
+        }
+      }
+    },
+    "optionalFeatures": {
+      "netFx3": 2,
+      "internetExplorer": null
+    },
+    "ieDisabledByPolicy": null,
+    "credentialsDelegation": {
+      "allowProtectedCreds": 1,
+      "restrictedRemoteAdministration": 1,
+      "restrictedRemoteAdministrationType": 2
+    },
+    "officeInstalled": true,
+    "officeUserPolicy": [
+      {
+        "blockInternetWord": 1,
+        "vbaWarningsWord": 3,
+        "packagerPromptWord": 2,
+        "blockInternetExcel": 1,
+        "vbaWarningsExcel": 3,
+        "packagerPromptExcel": 2,
+        "blockInternetPowerPoint": 1,
+        "vbaWarningsPowerPoint": 3,
+        "packagerPromptPowerPoint": 2,
+        "macroRuntimeScanScope": 2
+      }
+    ]
   },
   "stig": {
     "products": {
@@ -3328,7 +3382,10 @@
       "pathName": "C:\\Windows\\system32\\svchost.exe -k NetworkService -p",
       "executable": "C:\\Windows\\system32\\svchost.exe",
       "writableBy": [],
-      "ancestorControl": []
+      "ancestorControl": [],
+      "startableBy": [],
+      "permissionsRead": true,
+      "permissions": []
     },
     {
       "name": "CSFalconService",
@@ -3339,7 +3396,10 @@
       "pathName": "\"C:\\Program Files\\CrowdStrike\\CSFalconService.exe\"",
       "executable": "C:\\Program Files\\CrowdStrike\\CSFalconService.exe",
       "writableBy": [],
-      "ancestorControl": []
+      "ancestorControl": [],
+      "startableBy": [],
+      "permissionsRead": true,
+      "permissions": []
     },
     {
       "name": "Spooler",
@@ -3350,7 +3410,10 @@
       "pathName": "C:\\Windows\\System32\\spoolsv.exe",
       "executable": "C:\\Windows\\System32\\spoolsv.exe",
       "writableBy": [],
-      "ancestorControl": []
+      "ancestorControl": [],
+      "startableBy": [],
+      "permissionsRead": true,
+      "permissions": []
     }
   ],
   "drivers": {

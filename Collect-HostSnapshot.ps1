@@ -76,7 +76,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:CollectorVersion = '1.5'
+$script:CollectorVersion = '1.6'
 $script:SchemaVersion = 1
 $script:Errors = New-Object System.Collections.Generic.List[object]
 $script:Sections = New-Object System.Collections.Generic.List[string]
@@ -313,34 +313,66 @@ function Get-LowPrivWriters {
     return $result
 }
 
-function Get-ServiceLowPrivStart {
-    # Who, among the low-privileged principals, may start the service: the SERVICE_START right in the
-    # service's security descriptor (the "Security" value in the "Security" subkey of its registry key,
-    # readable by administrators and SYSTEM). Read only. A service without that subkey has the default
-    # descriptor, which lets only administrators start it. Returns $null when it can't be read, which is
-    # not the same as nobody.
+function Get-ServiceDescriptor {
+    # The security descriptor of a service: the "Security" value in the "Security" subkey of its
+    # registry key (readable by administrators and SYSTEM), else what "sc.exe sdshow" prints (the
+    # service manager answers anyone allowed to read the permissions, so a run without administrator
+    # rights still sees them). Read only. A service without that subkey has the default descriptor,
+    # which lets only administrators change, start or stop it: returns 'default'. $null when neither
+    # source could be read, which is not the same as "nobody".
     param([string]$Name)
-    $out = @()
+    $key = "HKLM:\SYSTEM\CurrentControlSet\Services\$Name\Security"
+    if (-not (Test-Path -LiteralPath $key)) { return 'default' }
     try {
-        $key = "HKLM:\SYSTEM\CurrentControlSet\Services\$Name\Security"
-        if (-not (Test-Path -LiteralPath $key)) { return @() }
         $bytes = (Get-ItemProperty -LiteralPath $key -Name 'Security' -ErrorAction Stop).Security
-        if ($null -eq $bytes) { return $null }
-        $sd = New-Object System.Security.AccessControl.RawSecurityDescriptor -ArgumentList ([byte[]]$bytes), 0
-        foreach ($ace in @($sd.DiscretionaryAcl)) {
-            if ("$($ace.AceType)" -ne 'AccessAllowed') { continue }
-            $sid = $ace.SecurityIdentifier.Value
-            if (-not (Test-LowPrivSid $sid)) { continue }
-            if (([int64]$ace.AccessMask -band (0x10 -bor 0x10000000)) -eq 0) { continue }
-            $out += $sid
-        }
+        if ($bytes) { return (New-Object System.Security.AccessControl.RawSecurityDescriptor -ArgumentList ([byte[]]$bytes), 0) }
     }
-    catch { return $null }
-    # A bare array return (no unary comma): PowerShell streams its elements out one by one, which is
-    # exactly what the caller's @(... | Where-Object { $_ }) expects. A leading comma here would wrap
-    # the whole array as a single element instead, and the caller would read .kind/.sid/.rights off
-    # that wrapper (or off an inner empty array), getting blank values instead of the real ones.
-    return @($out | Select-Object -Unique)
+    catch { }
+    # With ErrorActionPreference set to Stop, Windows PowerShell 5.1 turns stderr of a native command
+    # into an exception, so we read the output with Continue.
+    $prevPref = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $sddl = @(& sc.exe sdshow "$Name" 2>$null | ForEach-Object { "$_".Trim() } | Where-Object { $_ -match '^(O:|G:|D:|S:)' }) | Select-Object -First 1
+        if ($sddl) { return (New-Object System.Security.AccessControl.RawSecurityDescriptor -ArgumentList $sddl) }
+    }
+    catch { }
+    finally { $ErrorActionPreference = $prevPref }
+    return $null
+}
+
+# The service rights that matter here, by bit: changing the configuration (the program and the
+# account it runs as), the permissions or the owner gives the service account to whoever has them;
+# deleting removes the service; starting and stopping run planted code on demand. GENERIC_* as they
+# map for services (GENERIC_WRITE includes CHANGE_CONFIG, GENERIC_EXECUTE start and stop).
+$script:ServiceRightBits = [ordered]@{
+    ChangeConfig = 0x2; Start = 0x10; Stop = 0x20; Delete = 0x10000; WriteDac = 0x40000; WriteOwner = 0x80000
+    GenericAll = 0x10000000; GenericExecute = 0x20000000; GenericWrite = 0x40000000
+}
+function Get-ServicePermissions {
+    # Who, besides SYSTEM, the administrators and service identities, holds one of the rights above on
+    # a service, and which low-privileged principals may start it (startableBy, kept for the checks
+    # that read it). readable = $false when the descriptor could not be read.
+    param([string]$Name)
+    $res = [ordered]@{ readable = $false; startableBy = @(); permissions = @() }
+    $sd = Get-ServiceDescriptor $Name
+    if ($null -eq $sd) { return $res }
+    $res.readable = $true
+    if ($sd -is [string]) { return $res }
+    $trusted = { param($s) $s -in @('S-1-5-18', 'S-1-5-19', 'S-1-5-20', 'S-1-5-6', 'S-1-5-32-544', 'S-1-5-32-547', 'S-1-5-32-549') -or $s -match '^S-1-(3|15)-' -or $s -match '^S-1-5-80-' -or $s -match '^S-1-5-21-\d+-\d+-\d+-(500|512|518|519)$' }
+    $starters = @(); $perms = @()
+    foreach ($ace in @($sd.DiscretionaryAcl)) {
+        if ("$($ace.AceType)" -ne 'AccessAllowed') { continue }
+        $sid = $ace.SecurityIdentifier.Value
+        $mask = [int64]$ace.AccessMask
+        if ((Test-LowPrivSid $sid) -and ($mask -band (0x10 -bor 0x10000000 -bor 0x20000000))) { $starters += $sid }
+        if (& $trusted $sid) { continue }
+        $names = @($script:ServiceRightBits.Keys | Where-Object { $mask -band $script:ServiceRightBits[$_] })
+        if ($names.Count -gt 0) { $perms += [ordered]@{ sid = $sid; rights = ($names -join ', ') } }
+    }
+    $res.startableBy = @($starters | Select-Object -Unique)
+    $res.permissions = $perms
+    return $res
 }
 
 # Who controls a folder: its owner, and every non-administrator entry that lets someone change the
@@ -369,7 +401,8 @@ function Get-FolderControl {
     }
     catch { }
     $script:FolderControlCache[$key] = $res
-    # Bare return, same reason as Get-ServiceLowPrivStart above: no unary comma.
+    # A bare array return (no unary comma): PowerShell streams its elements out one by one, which is
+    # what the caller's @(... | Where-Object { $_ }) expects; a leading comma would wrap the array.
     return $res
 }
 
@@ -807,8 +840,11 @@ $psLogging = Invoke-Section 'powershell' {
         scriptBlockLogging = Get-RegValue "$base\ScriptBlockLogging" 'EnableScriptBlockLogging'
         moduleLogging      = Get-RegValue "$base\ModuleLogging" 'EnableModuleLogging'
         transcription      = Get-RegValue "$base\Transcription" 'EnableTranscripting'
-        # The v2 engine registers itself here for as long as the optional feature is on.
+        # The v2 engine registers itself here while the optional feature is on, but Windows builds
+        # that dropped the feature (Windows 11 24H2 and later) can leave the registration behind:
+        # the engine is its assembly (System.Management.Automation 1.0.0.0 in the .NET 2.0 GAC).
         v2EngineVersion    = "$(Get-RegValue 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\PowerShellEngine' 'PowerShellVersion')"
+        v2EngineFile       = Test-Path -LiteralPath "$env:SystemRoot\assembly\GAC_MSIL\System.Management.Automation\1.0.0.0__31bf3856ad364e35\System.Management.Automation.dll"
     }
 }
 
@@ -873,7 +909,8 @@ $services = Invoke-Section 'services' {
         # Captured into a variable first, not inlined into the hashtable literal: a function call
         # inside $(...) that can return $null, one object or many doesn't reliably collapse to the
         # right array shape when assigned directly as a hashtable value.
-        $lps = if (@($writers).Count -gt 0) { Get-ServiceLowPrivStart "$($s.Name)" } else { @() }
+        $perm = Get-ServicePermissions "$($s.Name)"
+        $lps = if ($perm.readable) { @($perm.startableBy) } else { $null }
         $out += [ordered]@{
             name        = "$($s.Name)"
             displayName = "$($s.DisplayName)"
@@ -886,6 +923,8 @@ $services = Invoke-Section 'services' {
             ancestorControl = $(if ($exe -and -not $underSystem32) { @(Get-AncestorControl $exe) } else { @() })
             # $null here means "could not determine" (no Security registry value readable), not "nobody".
             startableBy = $(if ($null -eq $lps) { $null } else { @($lps) })
+            permissionsRead = $perm.readable
+            permissions = @($perm.permissions)
         }
     }
     $out
@@ -1076,6 +1115,44 @@ $hardening = Invoke-Section 'hardening' {
         }
     }
     $rsd = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices'
+    # Application control. App Control for Business (WDAC): the user-mode and kernel-mode code
+    # integrity enforcement reported by Win32_DeviceGuard (0 off, 1 audit, 2 enforced), and Smart App
+    # Control (VerifiedAndReputablePolicyState: 0 off, 1 on, 2 evaluation). AppLocker: per rule
+    # collection, EnforcementMode (0 audit only, 1 enforced, absent = not configured, which enforces
+    # the rules if there are any) and the number of rules. AppLocker enforces nothing while the
+    # Application Identity service (AppIDSvc) is stopped: the checks read it from the service list.
+    $dgAc = $null
+    try { $dgAc = Get-CimInstance -Namespace 'root\Microsoft\Windows\DeviceGuard' -ClassName Win32_DeviceGuard } catch { }
+    $srp = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\SrpV2'
+    $appLocker = [ordered]@{}
+    foreach ($coll in @('Exe', 'Dll', 'Script', 'Msi', 'Appx')) {
+        $rules = @(Get-ChildItem -LiteralPath "$srp\$coll" -ErrorAction SilentlyContinue).Count
+        $appLocker[$coll.ToLower()] = [ordered]@{ mode = Get-RegValue "$srp\$coll" 'EnforcementMode'; rules = $rules }
+    }
+    # Optional Windows features the Essential Eight wants off (InstallState 1 enabled, 2 disabled,
+    # 3 absent; a feature this Windows does not have is not listed).
+    $features = [ordered]@{ netFx3 = $null; internetExplorer = $null }
+    try {
+        foreach ($of in @(Get-CimInstance -ClassName Win32_OptionalFeature -Filter "Name='NetFx3' OR Name='Internet-Explorer-Optional-amd64'")) {
+            if ("$($of.Name)" -eq 'NetFx3') { $features.netFx3 = [int]$of.InstallState } else { $features.internetExplorer = [int]$of.InstallState }
+        }
+    }
+    catch { $features = $null }
+    # Office macro and OLE settings set by policy, per loaded user profile (HKU, what a SYSTEM run sees).
+    # Only the values and how many profiles were read are kept, not the user SIDs.
+    $offPol = 'Software\Policies\Microsoft\Office\16.0'
+    $offNames = [ordered]@{
+        blockInternetWord = @('word\security', 'blockcontentexecutionfrominternet'); blockInternetExcel = @('excel\security', 'blockcontentexecutionfrominternet'); blockInternetPowerPoint = @('powerpoint\security', 'blockcontentexecutionfrominternet')
+        vbaWarningsWord = @('word\security', 'vbawarnings'); vbaWarningsExcel = @('excel\security', 'vbawarnings'); vbaWarningsPowerPoint = @('powerpoint\security', 'vbawarnings')
+        packagerPromptWord = @('word\security', 'packagerprompt'); packagerPromptExcel = @('excel\security', 'packagerprompt'); packagerPromptPowerPoint = @('powerpoint\security', 'packagerprompt')
+        macroRuntimeScanScope = @('common\security', 'macroruntimescanscope')
+    }
+    $offProfiles = @()
+    foreach ($hive in @(Get-ChildItem -LiteralPath 'Registry::HKEY_USERS' -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^S-1-5-21-[\d-]+$' })) {
+        $vals = [ordered]@{}
+        foreach ($k in $offNames.Keys) { $vals[$k] = Get-RegValue ("Registry::HKEY_USERS\$($hive.PSChildName)\$offPol\" + $offNames[$k][0]) $offNames[$k][1] }
+        $offProfiles += $vals
+    }
     [ordered]@{
         schannel                 = [ordered]@{ protocols = $schProtocols; ciphers = $schCiphers }
         ldapServer               = [ordered]@{ integrity = Get-RegValue $ntdsP 'LDAPServerIntegrity'; channelBinding = Get-RegValue $ntdsP 'LdapEnforceChannelBinding' }
@@ -1214,6 +1291,27 @@ $hardening = Invoke-Section 'hardening' {
             disksDenyWrite   = Get-RegValue "$rsd\{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}" 'Deny_Write'
             disksDenyExecute = Get-RegValue "$rsd\{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}" 'Deny_Execute'
         }
+        appControl               = [ordered]@{
+            umci             = $(if ($dgAc) { [int]$dgAc.UsermodeCodeIntegrityPolicyEnforcementStatus } else { $null })
+            kmci             = $(if ($dgAc) { [int]$dgAc.CodeIntegrityPolicyEnforcementStatus } else { $null })
+            smartAppControl  = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' 'VerifiedAndReputablePolicyState'
+            appLocker        = $appLocker
+            # Unsupported by Microsoft but honored by PowerShell: 4 forces Constrained Language Mode.
+            psLockdownPolicy = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' '__PSLockdownPolicy'
+        }
+        optionalFeatures         = $features
+        # Internet Explorer 11 turned off as a standalone browser by policy (1 = always).
+        ieDisabledByPolicy       = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Internet Explorer\Main' 'NotifyDisableIEOptions'
+        # Remote Credential Guard: the host accepts it (AllowProtectedCreds, CIS 18.9.4.2) and the
+        # Remote Desktop client is told to use it (RestrictedRemoteAdministrationType 2 require Remote
+        # Credential Guard, 3 restrict credential delegation, 1 require Restricted Admin).
+        credentialsDelegation    = [ordered]@{
+            allowProtectedCreds  = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CredentialsDelegation' 'AllowProtectedCreds'
+            restrictedRemoteAdministration = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CredentialsDelegation' 'RestrictedRemoteAdministration'
+            restrictedRemoteAdministrationType = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CredentialsDelegation' 'RestrictedRemoteAdministrationType'
+        }
+        officeInstalled          = [bool]((Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration') -or (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Office\16.0\Common\InstallRoot'))
+        officeUserPolicy         = $offProfiles
     }
 }
 # ------------------------------------------------------------------ installed software
@@ -1984,11 +2082,11 @@ $json = $snapshot | ConvertTo-Json -Depth 10
 $json = [regex]::Replace($json, '(?<=[^\\]"):\s*\{\s*\}', ': []')
 # A conditional that can produce an empty array in one branch (…$(if (cond) { @(...) } else { @() })…)
 # can come out of ConvertTo-Json as a bare null instead of [], even on PowerShell 7, once it sits deep
-# enough inside a large nested structure. Harmless for the analyzer (every reader of these two fields
+# enough inside a large nested structure. Harmless for the analyzer (every reader of these fields
 # wraps with @(... | Where-Object { $_ })), but it should read as an empty array like every other list
 # field in the schema, not as null. Scoped by field name: other fields use null on purpose (for
 # example startableBy, where null means "could not be determined", not "nobody").
-foreach ($arrayField in 'writableBy', 'ancestorControl') {
+foreach ($arrayField in 'writableBy', 'ancestorControl', 'permissions') {
     $json = [regex]::Replace($json, "`"$arrayField`":\s*null", "`"$arrayField`": []")
 }
 if ($EncryptPassword -or $script:EncCert) {

@@ -17,6 +17,7 @@
         tasks, the registry, accounts, BitLocker or SMB. The only exceptions
         are New-Item, Remove-Item and Set-Content on HostBadger's own files;
       - auditpol with anything other than /get or /backup;
+      - sc.exe with anything other than sdshow (it prints a service's permissions);
       - secedit with anything other than /export. /configure, /import,
         /analyze, /generaterollback and /validate change or rebuild policy;
       - ADSI or COM used for more than reading (InvokeMember with anything
@@ -66,7 +67,7 @@ $allowed = [ordered]@{
     'Read host configuration (no write cmdlet in this list)' = @(
         'Get-ItemProperty', 'Get-Item', 'Get-CimInstance', 'Get-MpComputerStatus', 'Get-MpPreference', 'Get-BitLockerVolume',
         'Get-SmbServerConfiguration', 'Get-SmbClientConfiguration', 'Get-NetFirewallProfile', 'Get-NetTCPConnection', 'Get-NetUDPEndpoint',
-        'Get-Process', 'Get-LocalUser', 'Get-ScheduledTask', 'Get-Acl', 'Get-WinEvent', 'auditpol.exe', 'secedit.exe')
+        'Get-Process', 'Get-LocalUser', 'Get-ScheduledTask', 'Get-Acl', 'Get-WinEvent', 'auditpol.exe', 'secedit.exe', 'sc.exe')
     'Read driver files to hash them (SHA-256, matched against the LOLDrivers catalog)' = @('Get-FileHash')
     'Files: read snapshots, write the snapshot / report' = @('Get-Content', 'Set-Content', 'Export-Csv', 'Import-Csv', 'Get-ChildItem', 'Test-Path', 'Resolve-Path',
         'Join-Path', 'Split-Path', 'New-Item', 'Remove-Item', 'Compress-Archive')
@@ -88,7 +89,7 @@ $restrictedCommands = @{ 'start-sleep' = @('lib/AI.ps1'); 'read-host' = @('HostB
 foreach ($c in 'checkpoint-computer', 'get-appxpackage', 'get-appxprovisionedpackage', 'remove-appxpackage', 'remove-appxprovisionedpackage', 'invoke-item', 'start-process', 'set-location') { $restrictedCommands[$c] = @('Start-HostBadger.ps1') }
 $bannedCommands = @('Invoke-Expression', 'iex','Invoke-WebRequest', 'Invoke-RestMethod', 'iwr', 'irm', 'curl', 'wget', 'Start-Job',
     'Invoke-CimMethod', 'Invoke-WmiMethod', 'Set-ItemProperty', 'New-ItemProperty', 'Remove-ItemProperty', 'Set-MpPreference', 'Add-MpPreference',
-    'reg', 'reg.exe', 'net', 'net.exe', 'sc', 'sc.exe', 'schtasks', 'schtasks.exe', 'Enter-PSSession', 'Invoke-Command', 'New-PSSession')
+    'reg', 'reg.exe', 'net', 'net.exe', 'sc', 'schtasks', 'schtasks.exe', 'Enter-PSSession', 'Invoke-Command', 'New-PSSession')
 $bannedText = [ordered]@{
     'Base64 decoding'         = 'FromBase64String'
     'Encoded command'         = '(?i)-e(nc(odedcommand)?)?\s+[A-Za-z0-9+/=]{20,}'
@@ -173,6 +174,10 @@ foreach ($f in $files) {
         if ($lc -eq 'auditpol.exe') {
             $argText = ($c.CommandElements | Select-Object -Skip 1 | ForEach-Object { $_.Extent.Text }) -join ' '
             if ($argText -notmatch '^/(get|backup)\b') { $problems.Add("${rel}:${line}: auditpol $argText (only /get and /backup read the policy)") }
+        }
+        if ($lc -eq 'sc.exe') {
+            $argText = ($c.CommandElements | Select-Object -Skip 1 | ForEach-Object { $_.Extent.Text }) -join ' '
+            if ($argText -notmatch '^sdshow\b') { $problems.Add("${rel}:${line}: sc.exe $argText (only sdshow reads a service's permissions)") }
         }
         if ($lc -eq 'start-process') {
             # Only the launcher restarting itself elevated: its own script, -Verb RunAs (Windows asks for confirmation).

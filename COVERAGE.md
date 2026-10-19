@@ -1,6 +1,6 @@
 # HostBadger coverage
 
-Every check in `lib\Checks.ps1`, generated from the catalog (138 checks, of which 13 cover the 1475 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
+Every check in `lib\Checks.ps1`, generated from the catalog (145 checks, of which 13 cover the 1475 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
 
 The CIS column gives the rule number in the *CIS Microsoft Windows 11 Enterprise Benchmark v3.0.0* and its profile level (L1 corporate, L2 high security); the descriptions are HostBadger's own. A check is a read-only comparison of the host's setting with the rule; it is not a certification of conformity, and the benchmark covers many more settings (most of the administrative templates, for instance) than HostBadger reads. On Windows 10 and on Windows Server 2022, 2019 and 2016 the findings quote the same setting in that version's CIS benchmark instead (Windows 10 Enterprise v3.0.0, Server 2022 and 2019 v4.0.0, Server 2016 v3.0.0). Checks marked *Server* follow a rule that only the server benchmarks have.
 
@@ -24,6 +24,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `lsa_weak_auth_options` | Medium | T1557 | 2.3.11.2, 2.3.11.3 (L1) | W, S, DC | yes | LocalSystem NULL session fallback or PKU2U online identities allowed |
 | `hvci_off` | Low | T1068 |  | W, S | no | Memory integrity (HVCI) not running |
 | `dc_security_policy_gaps` | Medium | T1556 | Server 18.9.39.1, 2.3.11.13 (L1) | DC | no | Domain controller is missing a CIS Windows Server security setting |
+| `remote_credential_guard_off` | Low | T1550.002 |  | W, S, DC | no | Remote Credential Guard is not in use |
 
 ## Antivirus
 
@@ -131,6 +132,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `spooler_on_dc` | Medium | T1187 |  | DC | yes | Print Spooler running on a domain controller |
 | `user_rights_excessive` | Medium | T1134 | 2.2.1 - 2.2.39, Level 1 rights (L1) | W, S, DC | no | User right granted to more principals than the baseline |
 | `service_path_ancestor_control` | Medium | T1574.010 |  | W, S, DC | no | Service program under a folder that a non-administrator controls |
+| `service_permissions_weak` | High | T1543.003 |  | W, S, DC | no | Service permissions let non-administrators change or delete it |
 | `print_point_and_print_weak` | Medium | T1068 | 18.7.8, 18.7.10, 18.7.11 (L1) | W, S, DC | no | Point and Print allows driver installation without elevation |
 
 ## Logging
@@ -175,6 +177,11 @@ The last column says whether HostBadger can write a remediation script for the c
 | `brave_policy_gaps` | Medium | T1189 |  | W, S, DC | no | Brave policy weaker than the Chrome STIG |
 | `script_files_execute_on_open` | Medium | T1204.002 |  | W, S, DC | yes | Script files run when they are double-clicked |
 | `removable_media_execute_allowed` | Low | T1091 |  | W | no | Programs can run from removable disks |
+| `app_control_not_enforced` | Medium | T1204.002 |  | W, S, DC | no | No application control enforced |
+| `powershell_clm_off` | Low | T1059.001 |  | W, S, DC | no | PowerShell is not held to Constrained Language Mode |
+| `netfx3_enabled` | Low | T1562.010 |  | W, S, DC | no | .NET Framework 3.5 (2.0 and 3.0) is enabled |
+| `ie11_enabled` | Medium | T1189 |  | W, S, DC | no | Internet Explorer 11 is enabled |
+| `office_macro_settings_weak` | Medium | T1566.001 |  | W, S, DC | no | Office macro settings not enforced by policy |
 
 ## Software
 
@@ -224,4 +231,47 @@ The registry rules of the DISA STIGs (STIG content published by DISA). Each rule
 | `stig_server2019` | Windows Server 2019 V3R8 (DC + member) | 200 | 25 | 159 | 16 |
 | `stig_server2022` | Windows Server 2022 V2R8 (DC + member) | 201 | 25 | 160 | 16 |
 | `stig_server2025` | Windows Server 2025 V1R1 (DC + member) | 188 | 21 | 151 | 16 |
+
+## ACSC Essential Eight requirements judged from a host
+
+The requirements of the ASD Essential Eight Maturity Model (November 2023) that a host shows, in the ASD wording, with the checks that judge them. The dashboard gives each strategy the highest maturity level whose requirements here, and those of the levels below, are all met. The other requirements (vulnerability scanning cadence, central logging, multi-factor authentication, backups, processes) need evidence a host does not hold, so the level is an upper bound. Multi-factor authentication and regular backups have no requirement a host shows.
+
+| Strategy | ML | Requirement | Checks | Notes |
+|---|---|---|---|---|
+| Patch applications | 1 | Patches, updates or other vendor mitigations for vulnerabilities in office productivity suites, web browsers and their extensions, email clients, PDF software, and security products are applied within two weeks of release. | `software_outdated` | judged on the applications HostBadger can place on a release line (needs the release data) |
+| Patch applications | 1 | Office productivity suites, web browsers and their extensions, email clients, PDF software, Adobe Flash Player, and security products that are no longer supported by vendors are removed. | `software_eol` |  |
+| Patch applications | 2 | Patches, updates or other vendor mitigations for vulnerabilities in applications other than office productivity suites, web browsers and their extensions, email clients, PDF software, and security products are applied within one month of release. | `software_outdated` | judged on the applications HostBadger can place on a release line (needs the release data) |
+| Patch applications | 3 | Patches, updates or other vendor mitigations for vulnerabilities in office productivity suites, web browsers and their extensions, email clients, PDF software, and security products are applied within 48 hours of release when vulnerabilities are assessed as critical by vendors or when working exploits exist. | `software_cve` | finding matching `in the CISA KEV catalog`; the installed version has a vulnerability in the CISA KEV catalog (working exploits), judged by version (needs the CVE data) |
+| Patch applications | 3 | Applications other than office productivity suites, web browsers and their extensions, email clients, PDF software, Adobe Flash Player, and security products that are no longer supported by vendors are removed. | `software_eol` |  |
+| Patch operating systems | 1 | Patches, updates or other vendor mitigations for vulnerabilities in operating systems of workstations, non-internet-facing servers and non-internet-facing network devices are applied within one month of release. | `updates_stale`, `updates_pending` | the date of the last Windows update, and the pending updates when the snapshot searched for them |
+| Patch operating systems | 1 | Operating systems that are no longer supported by vendors are replaced. | `os_unsupported` |  |
+| Restrict administrative privileges | 1 | Privileged users are assigned a dedicated privileged user account to be used solely for duties requiring privileged access. | `local_admin_member` | an account other than the built-in Administrator in the local Administrators group is usually an everyday account with admin rights |
+| Restrict administrative privileges | 2 | Credentials for break glass accounts, local administrator accounts and service accounts are long, unique, unpredictable and managed. | `laps_not_configured` | the local administrator account (LAPS), on domain members |
+| Restrict administrative privileges | 3 | Memory integrity functionality is enabled. | `hvci_off` |  |
+| Restrict administrative privileges | 3 | Local Security Authority protection functionality is enabled. | `lsa_not_protected` |  |
+| Restrict administrative privileges | 3 | Credential Guard functionality is enabled. | `credential_guard_off` |  |
+| Restrict administrative privileges | 3 | Remote Credential Guard functionality is enabled. | `remote_credential_guard_off` | domain members |
+| Application control | 1 | Application control is implemented on workstations. | `app_control_not_enforced` | roles: W |
+| Application control | 3 | Application control is implemented on non-internet-facing servers. | `app_control_not_enforced` | roles: S, DC; Maturity Level Two already asks for it on internet-facing servers |
+| Application control | 3 | Microsoft's vulnerable driver blocklist is implemented. | `driver_blocklist_off` |  |
+| Restrict Microsoft Office macros | 1 | Microsoft Office macros in files originating from the internet are blocked. | `office_macro_settings_weak` | with Microsoft Office; finding matching `Office macros from the internet` |
+| Restrict Microsoft Office macros | 1 | Microsoft Office macro antivirus scanning is enabled. | `office_macro_settings_weak` | with Microsoft Office; finding matching `Office macro antivirus scanning` |
+| Restrict Microsoft Office macros | 1 | Microsoft Office macro security settings cannot be changed by users. | `office_macro_settings_weak` | with Microsoft Office; finding matching `Office macro security settings`; the macro security level set by policy in Word, Excel and PowerPoint |
+| Restrict Microsoft Office macros | 2 | Microsoft Office macros are blocked from making Win32 API calls. | `asr_other_rules_not_blocking` | with Microsoft Office; finding matching `Block Win32 API calls from Office macros`; the attack surface reduction rule |
+| Restrict Microsoft Office macros | 3 | Only Microsoft Office macros running from within a sandboxed environment, a Trusted Location or that are digitally signed by a trusted publisher are allowed to execute. | `office_macro_settings_weak` | with Microsoft Office; finding matching `signed or trusted only` |
+| User application hardening | 1 | Internet Explorer 11 is disabled or removed. | `ie11_enabled` |  |
+| User application hardening | 1 | Web browsers do not process Java from the internet. | `ie11_enabled` | current browsers cannot run Java applets; IE11 was the last one that did |
+| User application hardening | 2 | Web browsers are hardened using ASD and vendor hardening guidance, with the most restrictive guidance taking precedence when conflicts occur. | `stig_edge`, `stig_chrome`, `stig_firefox` | judged against the DISA STIG of each installed browser, not the ASD guide |
+| User application hardening | 2 | Microsoft Office is blocked from creating child processes. | `asr_other_rules_not_blocking` | with Microsoft Office; finding matching `Block all Office applications from creating child processes`; the attack surface reduction rule |
+| User application hardening | 2 | Microsoft Office is blocked from creating executable content. | `asr_other_rules_not_blocking` | with Microsoft Office; finding matching `Block Office applications from creating executable content`; the attack surface reduction rule |
+| User application hardening | 2 | Microsoft Office is blocked from injecting code into other processes. | `asr_other_rules_not_blocking` | with Microsoft Office; finding matching `Block Office applications from injecting code into other processes`; the attack surface reduction rule |
+| User application hardening | 2 | Microsoft Office is configured to prevent activation of Object Linking and Embedding packages. | `office_macro_settings_weak` | with Microsoft Office; finding matching `Office OLE packages` |
+| User application hardening | 2 | Office productivity suites are hardened using ASD and vendor hardening guidance, with the most restrictive guidance taking precedence when conflicts occur. | `stig_office` | with Microsoft Office; judged against the DISA Microsoft 365 Apps STIG, not the ASD guide |
+| User application hardening | 2 | PDF software is blocked from creating child processes. | `asr_other_rules_not_blocking` | finding matching `Block Adobe Reader from creating child processes`; the attack surface reduction rule (Adobe Reader) |
+| User application hardening | 2 | PDF software is hardened using ASD and vendor hardening guidance, with the most restrictive guidance taking precedence when conflicts occur. | `stig_adobe` | Adobe Acrobat, judged against its DISA STIG |
+| User application hardening | 2 | PowerShell module logging, script block logging and transcription events are centrally logged. | `powershell_scriptblock_logging_off`, `powershell_module_logging_off` | only the local side: the logging is turned on (central collection is not visible from a host) |
+| User application hardening | 2 | Command line process creation events are centrally logged. | `cmdline_audit_off` | only the local side: the command line is recorded (central collection is not visible from a host) |
+| User application hardening | 3 | .NET Framework 3.5 (includes .NET 2.0 and 3.0) is disabled or removed. | `netfx3_enabled` |  |
+| User application hardening | 3 | Windows PowerShell 2.0 is disabled or removed. | `powershell_v2_enabled` |  |
+| User application hardening | 3 | PowerShell is configured to use Constrained Language Mode. | `powershell_clm_off` |  |
 

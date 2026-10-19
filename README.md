@@ -22,7 +22,7 @@ is weak. It works in two steps. A single PowerShell script takes a
 Lines for a SIEM. Hand it one snapshot or a folder with hundreds and you get
 the whole fleet in one report, or one report per host.
 
-- **138 checks** and about 1,600 settings: 125 hand-written checks plus 1475 DISA
+- **145 checks** and about 1,600 settings: 132 hand-written checks plus 1475 DISA
   STIG registry rules, with the CIS Windows 11 benchmark as the baseline, and
   the drivers matched against 2,198 known vulnerable or malicious driver files
   (LOLDrivers).
@@ -165,9 +165,11 @@ should.
 ### Reporting and fixing
 
 - **Dashboard** first: score ring, DISA STIG compliance per product and
-  release, CIS-based compliance, ACSC Essential Eight coverage (the related
-  checks, judged and clean, per strategy; not a maturity assessment),
-  categories and top risks, for the fleet or one host picked in a selector.
+  release, CIS-based compliance, the ACSC Essential Eight maturity level each
+  strategy reaches from the requirements a host shows (ASD model, November
+  2023, listed in `COVERAGE.md`; an upper bound, since MFA, backups, central
+  logging and scanning cadence are not visible from a host), categories and
+  top risks, for the fleet or one host picked in a selector.
 - **HTML report** with scores per host (A to F), pie charts (severity,
   category, grades, compliance, software, and local accounts: enabled
   administrators versus standard users and disabled accounts), findings grouped
@@ -527,7 +529,9 @@ or, without one, when they have the same title.
   ACLs (`Get-Acl`), and it reads each driver file to compute its SHA-256
   (`Get-FileHash`). It reads the audit policy with `auditpol /backup` and the
   local security policy with `secedit /export`, each into a temporary file
-  that is deleted right away. It never uses `/configure` or `/import`. It
+  that is deleted right away. It never uses `/configure` or `/import`. When
+  the registry does not let it read a service's permissions (a run without
+  administrator rights), it asks `sc.exe sdshow`, which only prints them. It
   changes no setting and starts no process. Network traffic exists only when
   you ask for it, and the address is named each time: the Windows Update
   Agent's own search (`-CheckUpdates`, the WSUS server set by policy or
@@ -819,8 +823,10 @@ on the host and the value the CIS benchmark or the DISA STIG requires (null
 when the check has no single value, such as the list of audit subcategories),
 and `cis_benchmark` names the CIS benchmark the `cis` rule comes from. A `resolved` line says the finding has
 gone. There is also one `host_summary` per host, with score, grade, counts,
-`not_evaluated_checks` and whether it was collected as SYSTEM. Fields are only
-ever added, never renamed.
+`not_evaluated_checks`, whether it was collected as SYSTEM, and `e8_levels`
+(the Essential Eight maturity level per strategy, null when a host cannot show
+it) with `e8_capped` (strategies where a requirement of the next level could
+not be judged). Fields are only ever added, never renamed.
 
 ## Testing
 
@@ -874,12 +880,13 @@ the reply are kept, invented checks are dropped, and nothing is sent without
   permission-changing rights held by a non-administrator
   (`service_path_ancestor_control`), and who may start a service whose
   folder is writable is read from its security descriptor
-  (`service_binary_writable`). None of this inspects the program's actual
+  (`service_binary_writable`). The same descriptor tells who may reconfigure
+  a service (`CHANGE_CONFIG`, `WRITE_DAC`, `WRITE_OWNER`) or delete it
+  (`service_permissions_weak`). None of this inspects the program's actual
   DLL imports, so it tells you who could plant a file there, not whether the
   program would load it; confirming that needs a tool like Process Monitor.
   Scheduled tasks and autoruns still only get the plain file-and-folder
-  check. It does not cover who may reconfigure a service (`CHANGE_CONFIG`,
-  `WRITE_DAC`) or per-user AlwaysInstallElevated.
+  check. It does not cover per-user AlwaysInstallElevated.
 - **Defender only.** With a third-party antivirus, Defender runs in passive
   mode and its checks (the ones about Defender's own settings, such as
   real-time protection or ASR rules) are reported as not evaluated. The other

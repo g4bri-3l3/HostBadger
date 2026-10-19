@@ -59,5 +59,17 @@ foreach ($type in $srvRel.Keys) {
     $null = $sb.AppendLine("| ``$type`` | $($srvRel[$type][0]) (DC + member) | $($e.Count) | $(@($e | Where-Object { $_.s -eq 'H' }).Count) | $(@($e | Where-Object { $_.s -eq 'M' }).Count) | $(@($e | Where-Object { $_.s -eq 'L' }).Count) |")
 }
 $null = $sb.AppendLine()
+$null = $sb.AppendLine('## ACSC Essential Eight requirements judged from a host')
+$null = $sb.AppendLine()
+$null = $sb.AppendLine("The requirements of the ASD Essential Eight Maturity Model (November 2023) that a host shows, in the ASD wording, with the checks that judge them. The dashboard gives each strategy the highest maturity level whose requirements here, and those of the levels below, are all met. The other requirements (vulnerability scanning cadence, central logging, multi-factor authentication, backups, processes) need evidence a host does not hold, so the level is an upper bound. Multi-factor authentication and regular backups have no requirement a host shows.")
+$null = $sb.AppendLine()
+$null = $sb.AppendLine('| Strategy | ML | Requirement | Checks | Notes |')
+$null = $sb.AppendLine('|---|---|---|---|---|')
+foreach ($r in $script:E8Requirements) {
+    $scope = @(); if ($r.Roles) { $scope += "roles: $(@($r.Roles | ForEach-Object { $roleShort[$_] }) -join ', ')" }; if ($r.Product) { $scope += 'with Microsoft Office' }; if ($r.Match) { $scope += "finding matching ``$($r.Match)``" }; if ($r.Note) { $scope += $r.Note }
+    $checks = (@($r.Checks) | ForEach-Object { '`' + $_ + '`' }) -join ', '
+    $null = $sb.AppendLine("| $($script:E8Strategies[$r.S].Label) | $($r.L) | $($r.Req) | $checks | $($scope -join '; ') |")
+}
+$null = $sb.AppendLine()
 [System.IO.File]::WriteAllText($OutFile, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
 "Wrote $OutFile ($($script:CheckCatalog.Count) checks, $($stig.Count) STIG rules)."

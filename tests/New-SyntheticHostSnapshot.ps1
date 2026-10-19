@@ -28,8 +28,18 @@ $machineSid = @{ weak = 'S-1-5-21-4000000001-4000000002-4000000003'; hardened = 
 $name = @{ weak = 'WKS-ACCT-017'; hardened = 'SRV-APP-02'; laptop = 'LT-SALES-112'; dc = 'DC01'; partial = 'WKS-HR-004'; dc2016 = 'DC16-01'; srv2025 = 'SRV-2025-01' }[$Scenario]
 $role = @{ weak = 'workstation'; hardened = 'server'; laptop = 'workstation'; dc = 'dc'; partial = 'workstation'; dc2016 = 'dc'; srv2025 = 'server' }[$Scenario]
 
-function Svc([string]$n, [string]$path, [string]$exe, [string]$account = 'LocalSystem', [string]$state = 'Running', $writable = @(), $ancestors = @()) {
-    [ordered]@{ name = $n; displayName = $n; startMode = 'Auto'; state = $state; account = $account; pathName = $path; executable = $exe; writableBy = @($writable); ancestorControl = @($ancestors) }
+function Svc([string]$n, [string]$path, [string]$exe, [string]$account = 'LocalSystem', [string]$state = 'Running', $writable = @(), $ancestors = @(), $perms = @()) {
+    $starters = @(@($perms) | Where-Object { $_ -and "$($_.rights)" -match 'Start' } | ForEach-Object { $_.sid })
+    [ordered]@{ name = $n; displayName = $n; startMode = 'Auto'; state = $state; account = $account; pathName = $path; executable = $exe; writableBy = @($writable); ancestorControl = @($ancestors)
+        startableBy = $starters; permissionsRead = $true; permissions = @($perms) }
+}
+function SvcPerm([string]$sid, [string]$rights) { [ordered]@{ sid = $sid; rights = $rights } }
+# One loaded profile's Office macro policies, the same value in Word, Excel and PowerPoint.
+function OfficeProfile($block, $vba, $packager, $scan) {
+    $p = [ordered]@{}
+    foreach ($a in 'Word', 'Excel', 'PowerPoint') { $p["blockInternet$a"] = $block; $p["vbaWarnings$a"] = $vba; $p["packagerPrompt$a"] = $packager }
+    $p.macroRuntimeScanScope = $scan
+    $p
 }
 function W([string]$scope, [string]$sid, [string]$rights = 'Modify, Synchronize') { [ordered]@{ scope = $scope; sid = $sid; rights = $rights } }
 function Audit([string]$guid, [int]$value, [string]$n) { [ordered]@{ name = $n; guid = $guid; inclusion = ''; value = $value } }
@@ -181,7 +191,7 @@ $s = [ordered]@{
     }
     laps                 = [ordered]@{ windowsLapsPolicyRoot = 'gpo'; windowsLapsBackupDirectory = 2; windowsLapsPasswordExpirationProtection = 1; legacyLapsEnabled = $null; legacyLapsCseInstalled = $false }
     uac                  = [ordered]@{ enableLua = 1; consentPromptBehaviorAdmin = 2; localAccountTokenFilterPolicy = $null; filterAdministratorToken = 1; alwaysInstallElevated = $null }
-    powershell           = [ordered]@{ scriptBlockLogging = 1; moduleLogging = 1; transcription = 1; v2EngineVersion = '' }
+    powershell           = [ordered]@{ scriptBlockLogging = 1; moduleLogging = 1; transcription = 1; v2EngineVersion = ''; v2EngineFile = $false }
     audit                = [ordered]@{ processCreationIncludeCmdLine = 1; securityLogMaxSizeBytes = 1073741824; subcategories = $fullAudit }
     securityPolicy       = [ordered]@{
         systemAccess = [ordered]@{ PasswordHistorySize = 24; MaximumPasswordAge = 365; MinimumPasswordAge = 1; MinimumPasswordLength = 14; PasswordComplexity = 1; ClearTextPassword = 0
@@ -217,6 +227,15 @@ $s = [ordered]@{
         eventLogs = @([ordered]@{ name = 'Application'; maxSizeBytes = 33554432 }, [ordered]@{ name = 'System'; maxSizeBytes = 33554432 })
         mrxsmb10Start = 4; disableExceptionChainValidation = 0; safeDllSearchMode = 1
         ipStack = [ordered]@{ disableIpSourceRoutingV4 = 2; disableIpSourceRoutingV6 = 2; enableIcmpRedirect = 0 }
+        # Essential Eight: WDAC enforced, .NET 3.5 off, no IE11, Remote Credential Guard required and
+        # accepted, Office macros locked down by policy in the one loaded profile.
+        appControl = [ordered]@{ umci = 2; kmci = 2; smartAppControl = 0; psLockdownPolicy = $null
+            appLocker = [ordered]@{ exe = [ordered]@{ mode = $null; rules = 0 }; dll = [ordered]@{ mode = $null; rules = 0 }; script = [ordered]@{ mode = $null; rules = 0 }; msi = [ordered]@{ mode = $null; rules = 0 }; appx = [ordered]@{ mode = $null; rules = 0 } } }
+        optionalFeatures = [ordered]@{ netFx3 = 2; internetExplorer = $null }
+        ieDisabledByPolicy = $null
+        credentialsDelegation = [ordered]@{ allowProtectedCreds = 1; restrictedRemoteAdministration = 1; restrictedRemoteAdministrationType = 2 }
+        officeInstalled = $true
+        officeUserPolicy = @((OfficeProfile 1 3 2 2))
     }
     # The baseline is a Windows Server 2022 member server; the scenarios set their own product.
     stig                 = Get-StigSection $stigMachine $stigUser ([ordered]@{ edge = $true; chrome = $true; firefox = $true; office = $true }) 'srv2022ms'
@@ -311,7 +330,7 @@ switch ($Scenario) {
             [ordered]@{ path = 'CORP/Helpdesk'; sid = "$domainSid-1201"; class = 'Group' })
         $s.laps = [ordered]@{ windowsLapsPolicyRoot = $null; windowsLapsBackupDirectory = $null; windowsLapsPasswordExpirationProtection = $null; legacyLapsEnabled = $null; legacyLapsCseInstalled = $false }
         $s.uac = [ordered]@{ enableLua = 0; consentPromptBehaviorAdmin = 0; localAccountTokenFilterPolicy = 1; filterAdministratorToken = 0; alwaysInstallElevated = 1 }
-        $s.powershell = [ordered]@{ scriptBlockLogging = $null; moduleLogging = $null; transcription = $null; v2EngineVersion = '2.0' }
+        $s.powershell = [ordered]@{ scriptBlockLogging = $null; moduleLogging = $null; transcription = $null; v2EngineVersion = '2.0'; v2EngineFile = $true }
         $s.audit = [ordered]@{ processCreationIncludeCmdLine = $null; securityLogMaxSizeBytes = 20971520
             subcategories = @($allAudit | ForEach-Object { $v = if ($_[1] -in @('Logon', 'Credential Validation')) { 1 } else { 0 }; Audit $_[0] $v $_[1] }) }
         $s.defender.puaProtection = 0
@@ -380,6 +399,15 @@ switch ($Scenario) {
         # A consumer image: Candy Crush installed, Solitaire provisioned for new users.
         $s.appx = @($s.appx) + @([ordered]@{ name = 'king.com.CandyCrushSaga'; provisioned = $false; users = 2 }, [ordered]@{ name = 'Microsoft.MicrosoftSolitaireCollection'; provisioned = $true; users = 0 })
         $s.hardening.removableStorage = [ordered]@{ denyAll = $null; disksDenyRead = $null; disksDenyWrite = $null; disksDenyExecute = $null }
+        # Essential Eight: AppLocker executable rules in audit only, no WDAC; .NET 3.5 and IE11 on;
+        # no credential delegation policy; one profile with weak Office macro settings, one locked down.
+        $s.hardening.appControl.umci = 0; $s.hardening.appControl.kmci = 0
+        $s.hardening.appControl.appLocker.exe = [ordered]@{ mode = 0; rules = 3 }
+        $s.hardening.optionalFeatures = [ordered]@{ netFx3 = 1; internetExplorer = 1 }
+        $s.hardening.credentialsDelegation = [ordered]@{ allowProtectedCreds = $null; restrictedRemoteAdministration = $null; restrictedRemoteAdministrationType = $null }
+        $weakOffice = OfficeProfile $null 2 $null 0
+        $weakOffice.blockInternetWord = 1; $weakOffice.vbaWarningsExcel = 1
+        $s.hardening.officeUserPolicy = @($weakOffice, (OfficeProfile 1 3 2 2))
         $s.services = @($baseServices | Where-Object { $_.name -ne 'CSFalconService' }) + @(
             (Svc 'WebClient' 'C:\Windows\system32\svchost.exe -k LocalService -p' 'C:\Windows\system32\svchost.exe' 'NT AUTHORITY\LocalService' 'Stopped'),
             (Svc 'SSDPSRV' 'C:\Windows\system32\svchost.exe -k LocalServiceAndNoImpersonation -p' 'C:\Windows\system32\svchost.exe' 'NT AUTHORITY\LocalService'),
@@ -387,7 +415,12 @@ switch ($Scenario) {
             (Svc 'LxssManager' 'C:\Windows\system32\svchost.exe -k LxssManagerUser -p' 'C:\Windows\system32\svchost.exe'),
             (Svc 'ContosoUpdater' 'C:\Program Files\Contoso Tools\Updater Service\updater.exe -service' 'C:\Program Files\Contoso Tools\Updater Service\updater.exe' 'LocalSystem' 'Running' @() @([ordered]@{ level = 2; kind = 'acl'; sid = "$machineSid-1002"; rights = 'FullControl' }, [ordered]@{ level = 3; kind = 'owner'; sid = "$machineSid-1002"; rights = 'Owner' })),
             (Svc 'VendorAgent' '"C:\ProgramData\Vendor\agent.exe"' 'C:\ProgramData\Vendor\agent.exe' 'LocalSystem' 'Running' @((W 'file' 'S-1-5-11'), (W 'folder' 'S-1-5-32-545' 'Write'))),
-            (Svc 'PrintHelper' '"C:\Tools\PrintHelper\helper.exe"' 'C:\Tools\PrintHelper\helper.exe' 'LocalSystem' 'Stopped' @((W 'folder' 'S-1-5-32-545' 'AppendData, Synchronize'))))
+            (Svc 'PrintHelper' '"C:\Tools\PrintHelper\helper.exe"' 'C:\Tools\PrintHelper\helper.exe' 'LocalSystem' 'Stopped' @((W 'folder' 'S-1-5-32-545' 'AppendData, Synchronize'))),
+            # Service permissions: a game launcher anyone may delete (Medium), a backup agent users may
+            # reconfigure (High), a tray helper users may only start (not reported).
+            (Svc 'GameLauncherSvc' '"C:\Program Files\GameCo\launcher_svc.exe"' 'C:\Program Files\GameCo\launcher_svc.exe' 'LocalSystem' 'Stopped' @() @() @((SvcPerm 'S-1-1-0' 'Start, Stop, Delete'))),
+            (Svc 'LegacyBackup' '"C:\Program Files\LegacyBackup\agent.exe"' 'C:\Program Files\LegacyBackup\agent.exe' 'LocalSystem' 'Running' @() @() @((SvcPerm 'S-1-5-32-545' 'ChangeConfig, Start, Stop'))),
+            (Svc 'TrayAssist' '"C:\Program Files\TrayAssist\assist.exe"' 'C:\Program Files\TrayAssist\assist.exe' 'LocalSystem' 'Running' @() @() @((SvcPerm 'S-1-5-11' 'Start'))))
         $s.scheduledTasks = @(
             [ordered]@{ path = '\Contoso\'; name = 'Inventory'; state = 'Ready'; userId = 'SYSTEM'; groupId = ''; runLevel = 'Highest'; author = 'CORP\it'
                 actions = @([ordered]@{ execute = 'C:\Users\Public\inventory.exe'; arguments = ''; executable = 'C:\Users\Public\inventory.exe'; writableBy = @((W 'file' 'S-1-1-0' 'FullControl')) }) },

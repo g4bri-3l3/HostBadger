@@ -212,7 +212,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:HostBadgerVersion = '1.5'
+$script:HostBadgerVersion = '1.6'
 . (Join-Path $PSScriptRoot 'lib\Common.ps1')
 . (Join-Path $PSScriptRoot 'lib\Checks.ps1')
 . (Join-Path $PSScriptRoot 'lib\AI.ps1')
@@ -222,7 +222,7 @@ $script:HostBadgerVersion = '1.5'
 Write-Host @'
      _.--""--._
    .'  |    |  '.
-  /    |    |    \      HostBadger v1.5
+  /    |    |    \      HostBadger v1.6
  |  (o)|    |(o)  |     Windows host hardening
  |     |    |     |     read-only snapshots, offline analysis
   \    '.__.'    /
@@ -458,6 +458,7 @@ foreach ($name in ($latest.Keys | Sort-Object)) {
             StigEvaluated = $(if ($SkipStig) { 0 } else { [int]$r.StigEvaluated })
             StigByType   = $(if ($SkipStig) { @{} } else { $r.StigByType })
             OptionalOff  = @($r.Off)
+            E8           = Get-E8Maturity -Role (Get-SnapshotRole $s) -Findings $r.Findings -NotEvaluated $r.NotEvaluated -Off $r.Off -StigByType $r.StigByType -SkipStig ([bool]$SkipStig) -Office ([bool]($s.hardening.officeInstalled -eq $true -or ($s.stig -and $s.stig.products.office -eq $true)))
             Software     = @($s.software | Where-Object { $_ })
             AccountMix   = Get-LocalAccountMix $s
             UpdatesSource = $(if ($s.updatesPending) { "$($s.updatesPending.source)" } else { '' })

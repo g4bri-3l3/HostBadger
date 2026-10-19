@@ -6,6 +6,56 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
+## [1.6] - 2026-10-19
+### Added
+- `service_permissions_weak`: the permissions of the service itself let an
+  account that is not an administrator change its configuration, permissions
+  or owner (High: `sc config` points it at any program, as LocalSystem) or
+  delete it (Medium). Starting and stopping alone are not reported (many
+  vendors allow them on purpose). The collector now reads every service's
+  descriptor (`permissions`, `permissionsRead`, and `startableBy` for all
+  services, not only those with a writable folder). A snapshot from an older
+  collector lists the check as not evaluated.
+- Essential Eight maturity levels. The dashboard no longer shows "related
+  checks clean": each strategy gets the highest maturity level whose
+  requirements, and those of the levels below, a host shows as met. The
+  requirements come from the ASD Essential Eight Maturity Model (November
+  2023, Appendices A to C, still the current model), quoted word for word,
+  each tied to the checks that judge it (`$script:E8Requirements`, listed in
+  `COVERAGE.md`). A requirement no check could judge (release or CVE data not
+  loaded) stops the level and shows as `ML<n>+?`. MFA, backups, central
+  logging and scanning cadence are not visible from a host, so the level is
+  an upper bound. Checks that were mapped to a strategy only through
+  third-party guides (UAC, user rights, WDigest, script file associations,
+  removable media...) are no longer counted under the Essential Eight. JSON
+  Lines `host_summary`: `e8_levels` and `e8_capped` (added).
+- Six checks for Essential Eight requirements that nothing judged yet:
+  `app_control_not_enforced` (no enforced WDAC user-mode policy or AppLocker
+  executable rules; Smart App Control does not count), `powershell_clm_off`,
+  `netfx3_enabled`, `ie11_enabled`, `remote_credential_guard_off` (domain
+  members: the Remote Desktop client policy and AllowProtectedCreds on the
+  host) and `office_macro_settings_weak` (per loaded profile: macros from the
+  internet, macro antivirus scanning, macro security level set by policy,
+  signed macros only, OLE packages). New collector fields
+  `hardening.appControl`, `optionalFeatures`, `ieDisabledByPolicy`,
+  `credentialsDelegation`, `officeInstalled`, `officeUserPolicy` (read only;
+  Win32_OptionalFeature and the HKU Office policies, without user SIDs).
+
+### Fixed
+- Without administrator rights the collector could not read who may start a
+  service (the registry copy of the descriptor is for administrators and
+  SYSTEM), and a writable service folder that users can start read as Medium
+  instead of High. It now falls back to `sc.exe sdshow`, which only prints the
+  descriptor; the safety review allows `sc.exe` with `sdshow` only (`sc` and
+  every other `sc.exe` verb stay banned). When it still cannot be read, the
+  finding says so.
+- `powershell_v2_enabled` fired on Windows builds that removed PowerShell 2.0
+  (Windows 11 24H2 and later): they leave the engine registration behind.
+  The collector now also checks for the engine's assembly
+  (`powershell.v2EngineFile`) and a registration without it is not reported.
+- Dashboard: the DISA STIG panel also says how many rules are not met (one
+  finding each), the number the summary by framework shows.
+
 ## [1.5] - 2026-10-16
 ### Added
 - Guided menu: it says at the start whether it runs as administrator. If not,

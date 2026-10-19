@@ -297,7 +297,8 @@
     "scriptBlockLogging": null,
     "moduleLogging": null,
     "transcription": null,
-    "v2EngineVersion": "2.0"
+    "v2EngineVersion": "2.0",
+    "v2EngineFile": true
   },
   "audit": {
     "processCreationIncludeCmdLine": null,
@@ -851,7 +852,72 @@
       "disableIpSourceRoutingV4": 0,
       "disableIpSourceRoutingV6": 1,
       "enableIcmpRedirect": 1
-    }
+    },
+    "appControl": {
+      "umci": 0,
+      "kmci": 0,
+      "smartAppControl": 0,
+      "psLockdownPolicy": null,
+      "appLocker": {
+        "exe": {
+          "mode": 0,
+          "rules": 3
+        },
+        "dll": {
+          "mode": null,
+          "rules": 0
+        },
+        "script": {
+          "mode": null,
+          "rules": 0
+        },
+        "msi": {
+          "mode": null,
+          "rules": 0
+        },
+        "appx": {
+          "mode": null,
+          "rules": 0
+        }
+      }
+    },
+    "optionalFeatures": {
+      "netFx3": 1,
+      "internetExplorer": 1
+    },
+    "ieDisabledByPolicy": null,
+    "credentialsDelegation": {
+      "allowProtectedCreds": null,
+      "restrictedRemoteAdministration": null,
+      "restrictedRemoteAdministrationType": null
+    },
+    "officeInstalled": true,
+    "officeUserPolicy": [
+      {
+        "blockInternetWord": 1,
+        "vbaWarningsWord": 2,
+        "packagerPromptWord": null,
+        "blockInternetExcel": null,
+        "vbaWarningsExcel": 1,
+        "packagerPromptExcel": null,
+        "blockInternetPowerPoint": null,
+        "vbaWarningsPowerPoint": 2,
+        "packagerPromptPowerPoint": null,
+        "macroRuntimeScanScope": 0
+      },
+      {
+        "blockInternetWord": 1,
+        "vbaWarningsWord": 3,
+        "packagerPromptWord": 2,
+        "blockInternetExcel": 1,
+        "vbaWarningsExcel": 3,
+        "packagerPromptExcel": 2,
+        "blockInternetPowerPoint": 1,
+        "vbaWarningsPowerPoint": 3,
+        "packagerPromptPowerPoint": 2,
+        "macroRuntimeScanScope": 2
+      }
+    ]
   },
   "stig": {
     "products": {
@@ -3623,7 +3689,10 @@
       "pathName": "C:\\Windows\\system32\\svchost.exe -k NetworkService -p",
       "executable": "C:\\Windows\\system32\\svchost.exe",
       "writableBy": [],
-      "ancestorControl": []
+      "ancestorControl": [],
+      "startableBy": [],
+      "permissionsRead": true,
+      "permissions": []
     },
     {
       "name": "Spooler",
@@ -3634,7 +3703,10 @@
       "pathName": "C:\\Windows\\System32\\spoolsv.exe",
       "executable": "C:\\Windows\\System32\\spoolsv.exe",
       "writableBy": [],
-      "ancestorControl": []
+      "ancestorControl": [],
+      "startableBy": [],
+      "permissionsRead": true,
+      "permissions": []
     },
     {
       "name": "WebClient",
@@ -3645,7 +3717,10 @@
       "pathName": "C:\\Windows\\system32\\svchost.exe -k LocalService -p",
       "executable": "C:\\Windows\\system32\\svchost.exe",
       "writableBy": [],
-      "ancestorControl": []
+      "ancestorControl": [],
+      "startableBy": [],
+      "permissionsRead": true,
+      "permissions": []
     },
     {
       "name": "SSDPSRV",
@@ -3656,7 +3731,10 @@
       "pathName": "C:\\Windows\\system32\\svchost.exe -k LocalServiceAndNoImpersonation -p",
       "executable": "C:\\Windows\\system32\\svchost.exe",
       "writableBy": [],
-      "ancestorControl": []
+      "ancestorControl": [],
+      "startableBy": [],
+      "permissionsRead": true,
+      "permissions": []
     },
     {
       "name": "XblAuthManager",
@@ -3667,7 +3745,10 @@
       "pathName": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p",
       "executable": "C:\\Windows\\system32\\svchost.exe",
       "writableBy": [],
-      "ancestorControl": []
+      "ancestorControl": [],
+      "startableBy": [],
+      "permissionsRead": true,
+      "permissions": []
     },
     {
       "name": "LxssManager",
@@ -3678,7 +3759,10 @@
       "pathName": "C:\\Windows\\system32\\svchost.exe -k LxssManagerUser -p",
       "executable": "C:\\Windows\\system32\\svchost.exe",
       "writableBy": [],
-      "ancestorControl": []
+      "ancestorControl": [],
+      "startableBy": [],
+      "permissionsRead": true,
+      "permissions": []
     },
     {
       "name": "ContosoUpdater",
@@ -3702,7 +3786,10 @@
           "sid": "S-1-5-21-4000000001-4000000002-4000000003-1002",
           "rights": "Owner"
         }
-      ]
+      ],
+      "startableBy": [],
+      "permissionsRead": true,
+      "permissions": []
     },
     {
       "name": "VendorAgent",
@@ -3724,7 +3811,10 @@
           "rights": "Write"
         }
       ],
-      "ancestorControl": []
+      "ancestorControl": [],
+      "startableBy": [],
+      "permissionsRead": true,
+      "permissions": []
     },
     {
       "name": "PrintHelper",
@@ -3741,7 +3831,73 @@
           "rights": "AppendData, Synchronize"
         }
       ],
-      "ancestorControl": []
+      "ancestorControl": [],
+      "startableBy": [],
+      "permissionsRead": true,
+      "permissions": []
+    },
+    {
+      "name": "GameLauncherSvc",
+      "displayName": "GameLauncherSvc",
+      "startMode": "Auto",
+      "state": "Stopped",
+      "account": "LocalSystem",
+      "pathName": "\"C:\\Program Files\\GameCo\\launcher_svc.exe\"",
+      "executable": "C:\\Program Files\\GameCo\\launcher_svc.exe",
+      "writableBy": [],
+      "ancestorControl": [],
+      "startableBy": [
+        "S-1-1-0"
+      ],
+      "permissionsRead": true,
+      "permissions": [
+        {
+          "sid": "S-1-1-0",
+          "rights": "Start, Stop, Delete"
+        }
+      ]
+    },
+    {
+      "name": "LegacyBackup",
+      "displayName": "LegacyBackup",
+      "startMode": "Auto",
+      "state": "Running",
+      "account": "LocalSystem",
+      "pathName": "\"C:\\Program Files\\LegacyBackup\\agent.exe\"",
+      "executable": "C:\\Program Files\\LegacyBackup\\agent.exe",
+      "writableBy": [],
+      "ancestorControl": [],
+      "startableBy": [
+        "S-1-5-32-545"
+      ],
+      "permissionsRead": true,
+      "permissions": [
+        {
+          "sid": "S-1-5-32-545",
+          "rights": "ChangeConfig, Start, Stop"
+        }
+      ]
+    },
+    {
+      "name": "TrayAssist",
+      "displayName": "TrayAssist",
+      "startMode": "Auto",
+      "state": "Running",
+      "account": "LocalSystem",
+      "pathName": "\"C:\\Program Files\\TrayAssist\\assist.exe\"",
+      "executable": "C:\\Program Files\\TrayAssist\\assist.exe",
+      "writableBy": [],
+      "ancestorControl": [],
+      "startableBy": [
+        "S-1-5-11"
+      ],
+      "permissionsRead": true,
+      "permissions": [
+        {
+          "sid": "S-1-5-11",
+          "rights": "Start"
+        }
+      ]
     }
   ],
   "drivers": {
