@@ -405,9 +405,10 @@ function Invoke-HttpPostWithSpinner {
     $content = New-Object System.Net.Http.StringContent($JsonBody, [System.Text.Encoding]::UTF8, 'application/json')
     try {
         $task = $client.PostAsync($Uri, $content)
-        $spin = @('|', '/', '-', '\'); $i = 0
-        while (-not $task.IsCompleted) { Write-Host -NoNewline "`r$Message $($spin[$i % 4])  "; Start-Sleep -Milliseconds 120; $i++ }
-        Write-Host "`r$Message... done.          "
+        # The progress cursor (Step-Spinner) stays out of a run log, which keeps only the "done" line.
+        while (-not $task.IsCompleted) { Step-Spinner $Message; Start-Sleep -Milliseconds 120 }
+        Stop-Spinner
+        Write-Host "$Message... done."
         $resp = $task.GetAwaiter().GetResult()
         return [PSCustomObject]@{ StatusCode = [int]$resp.StatusCode; IsSuccess = $resp.IsSuccessStatusCode; Body = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult() }
     }
@@ -440,11 +441,11 @@ function Get-CatalogText {
         $req = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Get, $Uri)
         foreach ($h in $Headers.Keys) { [void]$req.Headers.TryAddWithoutValidation($h, "$($Headers[$h])") }
         $task = $client.SendAsync($req)
-        $spin = @('|', '/', '-', '\'); $i = 0
-        while (-not $task.IsCompleted) { Write-Host -NoNewline "`rDownloading the $Label catalog $($spin[$i % 4])  "; Start-Sleep -Milliseconds 120; $i++ }
+        while (-not $task.IsCompleted) { Step-Spinner "Downloading the $Label catalog"; Start-Sleep -Milliseconds 120 }
+        Stop-Spinner
         $resp = $task.GetAwaiter().GetResult()
-        if (-not $resp.IsSuccessStatusCode) { Write-Host "`r$Label download failed: HTTP $([int]$resp.StatusCode).          " -ForegroundColor Red; return $null }
-        Write-Host "`rDownloading the $Label catalog... done.          "
+        if (-not $resp.IsSuccessStatusCode) { Write-Host "$Label download failed: HTTP $([int]$resp.StatusCode)." -ForegroundColor Red; return $null }
+        Write-Host "Downloading the $Label catalog... done."
         if ($Binary) { return , $resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult() }
         return $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
     }

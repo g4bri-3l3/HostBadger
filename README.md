@@ -195,6 +195,11 @@ should.
   hundreds per host, and a prompt that large may time out).
 - **Guided menu** (`Start-HostBadger.ps1`) for collecting, analyzing, the AI
   step and the safety review.
+- **Logs**: every analysis writes `<report>.log` next to the report (the
+  settings of the run, then everything it printed), and every menu session
+  `output\hostbadger-menu_<time>.log` (the questions, the answers typed and
+  what the collection and the analysis printed). Passwords and the Gemini key
+  are typed hidden and never reach a log. `-NoLog` / `-OutLog` change it.
 
 
 ## How it compares
@@ -626,6 +631,7 @@ standard user with Defender in passive mode.
     [-HideCis] [-HideStig]                       # keep those findings out of the HTML listing (CSV and JSON Lines keep them)
     [-AiIncludeStig]                             # also send the STIG findings to Gemini (large prompt, may time out)
     [-SendToAI [-AiConfirm]] [-AiDryRun prompt.txt] [-ApiKey <key>] [-Model gemini-3.8-flash] [-AiMaxAttempts 3]
+    [-OutLog run.log] | [-NoLog]                 # run log, default <report>.log next to the report
 
 .\Collect-HostSnapshot.ps1 [-OutDir <folder>] [-NoZip] [-SkipAcl] [-CheckUpdates]   # -CheckUpdates: the Windows Update service searches for missing updates (network)
     [-EncryptPassword <text> | -EncryptCertificate <.cer file or thumbprint>]   # write an encrypted .hbx, nothing in clear

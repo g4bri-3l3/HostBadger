@@ -29,6 +29,7 @@ $env:GEMINI_API_KEY = 'regression-fake-key'
 # The guided menu's saved progress is off in every test but the one that checks it: a test that stopped
 # halfway must not leave a "resume?" question that shifts the typed answers of the next one.
 $env:HOSTBADGER_NO_RESUME = '1'
+$savedNoSpinner = $env:HOSTBADGER_NO_SPINNER; $env:HOSTBADGER_NO_SPINNER = '1'
 $script:NoGemini = 'http://127.0.0.1:9'
 $env:HOSTBADGER_GEMINI_BASEURL = $script:NoGemini
 # Every test writes under $work: the project folder must not gain a report or an AI file.
@@ -556,6 +557,15 @@ Assert-True ($wizNo -match 'Report ready:' -and -not $wizNoPrompt -and [regex]::
 Assert-True ($wizNo -match 'remediate_<host>\.ps1' -and @(Get-ChildItem (Join-Path $wizDir 'w_remediation') -Filter 'remediate_*.ps1' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name } | Sort-Object) -join ',' -eq 'remediate_DC01.ps1,remediate_WKS-ACCT-017.ps1') 'launcher: asks about per-host remediation scripts and writes them next to the report (the hosts with a fix)'
 Assert-True ($wizEdit -match 'Settings for this run:' -and $wizEdit -match '\[ 4\] DISA STIG rules\s+no' -and (Test-Path (Join-Path $wizDir 'e.csv')) -and @(Import-Csv (Join-Path $wizDir 'e.csv') | Where-Object { $_.Type -like 'stig_*' }).Count -eq 0 -and @(Import-Csv (Join-Path $wizDir 'e.csv')).Count -gt 0) 'launcher: the answers are listed before the run and one can be changed (DISA STIG turned off)'
 Assert-True ((Test-Path (Join-Path $wizDir 'w_prompt.txt')) -and $wizDry -match 'Nothing sent') 'launcher: "d" after the report writes the prompt and sends nothing'
+# Logs: each menu session writes output\hostbadger-menu_<time>.log and each analysis a .log next to its
+# report: the settings, then what the run printed; the Gemini key never, the progress cursor never.
+$menuLogs = @(Get-ChildItem (Join-Path $wizDir 'output') -Filter 'hostbadger-menu_*.log' -ErrorAction SilentlyContinue)
+$menuText = ($menuLogs | ForEach-Object { [System.IO.File]::ReadAllText($_.FullName) }) -join "`n"
+Assert-True ($menuLogs.Count -ge 1 -and $menuText -match 'HostBadger guided menu session log' -and $menuText -match 'Hosts analyzed: 5' -and $menuText -match 'Settings for this run:' -and $wizNo -match 'Session log: ') 'logs: the menu session is logged in .\output, with the analysis it ran'
+$runLog = Join-Path $wizDir 'w.log'
+$runText = if (Test-Path $runLog) { [System.IO.File]::ReadAllText($runLog) } else { '' }
+Assert-True ($runText -match 'HostBadger v[\d.]+ run log' -and $runText -match 'Settings given:' -and $runText -match '-Snapshot ' -and $runText -match 'Hosts analyzed: 5' -and $runText -match 'Gemini key: set \(not written here\)') 'logs: the analysis writes its run log next to the report, settings first, then what it printed'
+Assert-True ($menuText -notmatch 'regression-fake-key' -and $runText -notmatch 'regression-fake-key' -and $runText -notmatch 'Analyzing host \d+ of \d+ [|/\\-]') 'logs: the Gemini key and the progress cursor stay out of the logs'
 # The launcher looks for snapshots by itself: it lists what it finds in a "snapshots" folder, marks an older
 # snapshot of the same host, takes the whole folder on Enter, or just the one you pick by number.
 $scanDir = Join-Path $work 'scan'; New-Item -ItemType Directory -Path (Join-Path $scanDir 'snapshots') -Force | Out-Null
@@ -599,6 +609,11 @@ New-Item -ItemType Directory -Path $noKey -Force | Out-Null
 $savedKey = $env:GEMINI_API_KEY; $env:GEMINI_API_KEY = ''
 try { & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $noKey 'r.html') -SendToAI -ApiKey '' *>&1 | Out-Null } finally { $env:GEMINI_API_KEY = $savedKey }
 Assert-True (-not (Test-Path (Join-Path $noKey 'r_ai_response.json'))) 'no key: nothing is sent'
+# -NoLog writes no run log; -OutLog puts it elsewhere; a password given for encrypted snapshots is not written.
+& (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $noKey 'nolog.html') -NoLog *>&1 | Out-Null
+& (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $noKey 'pw.html') -OutLog (Join-Path $noKey 'custom.log') -SnapshotPassword (ConvertTo-SecureString 'Log-Secret-123' -AsPlainText -Force) *>&1 | Out-Null
+$pwLog = if (Test-Path (Join-Path $noKey 'custom.log')) { [System.IO.File]::ReadAllText((Join-Path $noKey 'custom.log')) } else { '' }
+Assert-True (-not (Test-Path (Join-Path $noKey 'nolog.log')) -and $pwLog -match '-SnapshotPassword \(given, not written here\)' -and $pwLog -notmatch 'Log-Secret-123' -and -not (Test-Path (Join-Path $noKey 'pw.log'))) 'logs: -NoLog writes none, -OutLog moves it, a snapshot password is not written'
 # ------------------------------------------------------------------ local security policy
 # The collector's INF parser, cut out of the collector (which can't be dot-sourced) and fed a policy
 # export written the way secedit writes it, in UTF-16.
@@ -728,8 +743,16 @@ Assert-True (@(Import-Csv (Join-Path $skipOut 'r.csv') | Where-Object { $_.Type 
 # The progress cursor draws only on an interactive console, moves its frame, and clears its line.
 $script:SpinEnabled = $null; $script:SpinWidth = 0; Step-Spinner 'x' 6>&1 | Out-Null
 Assert-True ($script:SpinEnabled -eq $false -or [Console]::IsOutputRedirected -eq $false) 'spinner: off when output is redirected'
-$script:SpinEnabled = $true; $script:SpinWidth = 0; $script:SpinLast = 0; $spA = (Step-Spinner 'Reading' 6>&1 | Out-String); Start-Sleep -Milliseconds 120; $spB = (Step-Spinner 'Reading' 6>&1 | Out-String); $spC = (Stop-Spinner 6>&1 | Out-String)
-Assert-True ($spA -match 'Reading \|' -and $spB -match 'Reading /' -and $spC -match ' {5,}' -and $script:SpinWidth -eq 0) 'spinner: frames advance and the line is cleared'
+# The cursor is written straight to the console (so a run log, a transcript of the host, never keeps it).
+$spOut = New-Object System.IO.StringWriter; $spOld = [Console]::Out
+try {
+    [Console]::SetOut($spOut)
+    $script:SpinEnabled = $true; $script:SpinWidth = 0; $script:SpinLast = 0; $spA = (Step-Spinner 'Reading' 6>&1 | Out-String); $spTxtA = $spOut.ToString()
+    Start-Sleep -Milliseconds 120; $null = Step-Spinner 'Reading' 6>&1; $spTxtB = $spOut.ToString(); $spC = (Stop-Spinner 6>&1 | Out-String); $spTxtC = $spOut.ToString()
+}
+finally { [Console]::SetOut($spOld) }
+Assert-True ($spTxtA -match 'Reading \|' -and $spTxtB -match 'Reading /' -and $spTxtC -match ' {5,}\r$' -and $script:SpinWidth -eq 0) 'spinner: frames advance and the line is cleared'
+Assert-True (-not $spA.Trim() -and -not $spC.Trim()) 'spinner: nothing goes through the host, so the run log does not keep the frames'
 $script:SpinEnabled = $null; $script:SpinWidth = 0
 # Compliance charts on top, and the options to hide CIS / STIG from the report or keep STIG away from Gemini.
 $cmp = Get-ComplianceStats -Hosts @(foreach ($sn in 'weak', 'hardened', 'laptop', 'dc', 'partial') { $rr = Invoke-One (Join-Path $fleet "hostsnapshot_$sn.json"); $sx = Import-HostSnapshot (Join-Path $fleet "hostsnapshot_$sn.json"); [PSCustomObject]@{ Name = (Get-SnapshotHostName $sx); Role = Get-SnapshotRole $sx; NotEvaluated = @($rr.NotEvaluated); StigEvaluated = $rr.StigEvaluated } }) -Findings $all
@@ -1250,7 +1273,7 @@ Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 $rootNew = @(Get-ChildItem -LiteralPath $root -File | Where-Object { $rootFilesBefore -notcontains $_.Name } | ForEach-Object { $_.Name })
 Assert-Equal ($rootNew -join ', ') '' 'the tests leave no file in the project folder'
 # Put the developer's Gemini settings back (they matter only when the suite runs in an open session).
-$env:GEMINI_API_KEY = $savedGeminiKey; $env:HOSTBADGER_GEMINI_BASEURL = $savedGeminiBase
+$env:GEMINI_API_KEY = $savedGeminiKey; $env:HOSTBADGER_GEMINI_BASEURL = $savedGeminiBase; $env:HOSTBADGER_NO_SPINNER = $savedNoSpinner
 Write-Host "HostBadger regression ($($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion)): $script:pass passed, $script:fail failed"
 if ($script:fail -gt 0) { exit 1 }
 exit 0

@@ -6,6 +6,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
+## [Unreleased]
+### Added
+- Run logs. Every analysis writes `<report>.log` next to the report: the
+  settings of the run (`-OutLog` to put it elsewhere, `-NoLog` for none),
+  then everything it printed. Every guided menu session writes
+  `output\hostbadger-menu_<time>.log`: the questions, the answers typed and
+  what the collection and the analysis printed. Both are PowerShell
+  transcripts; the safety review allows `Start-Transcript`/`Stop-Transcript`
+  in the two entry points only.
+
+### Changed
+- The Gemini key pasted in the guided menu is typed hidden, so it is neither
+  shown nor logged; passwords already were.
+- Progress cursors (analysis, collection, downloads, the Gemini call) are
+  drawn straight on the console, so the logs keep one line per step instead
+  of every frame; `HOSTBADGER_NO_SPINNER` turns them off.
+
 ## [1.6] - 2026-10-19
 ### Added
 - `service_permissions_weak`: the permissions of the service itself let an

@@ -94,7 +94,7 @@ function Step-Spinner {
     param([string]$Message)
     if ($null -eq $script:SpinEnabled) {
         $script:SpinEnabled = $false
-        try { $script:SpinEnabled = [bool]([Environment]::UserInteractive -and -not [Console]::IsOutputRedirected) } catch { }
+        try { $script:SpinEnabled = [bool]([Environment]::UserInteractive -and -not [Console]::IsOutputRedirected -and -not $env:HOSTBADGER_NO_SPINNER) } catch { }
     }
     if (-not $script:SpinEnabled) { return }
     $now = [Environment]::TickCount
@@ -103,11 +103,12 @@ function Step-Spinner {
     $text = "$Message $($script:SpinFrames[$script:SpinIndex % 4])"
     $script:SpinIndex++
     $pad = [Math]::Max(0, $script:SpinWidth - $text.Length)
-    Write-Host -NoNewline "`r$text$(' ' * $pad)"
+    # Straight to the console, not through the host: a transcript of the guided menu would keep every frame.
+    [Console]::Write("`r$text$(' ' * $pad)")
     $script:SpinWidth = $text.Length
 }
 function Stop-Spinner {
-    if ($script:SpinEnabled -and $script:SpinWidth -gt 0) { Write-Host -NoNewline "`r$(' ' * $script:SpinWidth)`r" }
+    if ($script:SpinEnabled -and $script:SpinWidth -gt 0) { [Console]::Write("`r$(' ' * $script:SpinWidth)`r") }
     $script:SpinWidth = 0
 }
 

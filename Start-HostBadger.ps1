@@ -28,6 +28,11 @@
     resumed at the next start; a finished run removes the file. At the end of
     an analysis the menu offers to open the report in the default browser.
 
+    Each session is logged in output\hostbadger-menu_<time>.log: the questions,
+    the answers typed and what the collection and the analysis printed (each
+    analysis also writes <report>.log next to its report). Passwords and the
+    Gemini key are typed hidden and never reach a log.
+
     At the start the menu says whether it runs as administrator. If not, it
     marks the options that need it and, at an interactive console, offers to
     restart itself elevated (Windows asks you to confirm, UAC).
@@ -138,23 +143,50 @@ function Read-PathRaw {
     $label = "$Prompt" + $(if ($Default) { " [$Default]" } else { "" })
     $redirected = $true; try { $redirected = [Console]::IsInputRedirected } catch { }
     if ($redirected) { $v = Read-Host $label; if ([string]::IsNullOrWhiteSpace($v)) { return $Default } return $v.Trim() }
-    Write-Host -NoNewline "${label}: "; $buf = ''; $tm = @(); $ti = 0
+    # The typing is echoed straight to the console; on Enter the whole line is written again through
+    # the host (same text, same place), so the session log gets "prompt: answer" once.
+    [Console]::Write("${label}: "); $buf = ''; $tm = @(); $ti = 0
     while ($true) {
         $key = [Console]::ReadKey($true)
-        if ($key.Key -eq 'Enter') { Write-Host ''; if ([string]::IsNullOrWhiteSpace($buf)) { return $Default } return $buf.Trim() }
-        elseif ($key.Key -eq 'Backspace') { if ($buf.Length) { $buf = $buf.Substring(0, $buf.Length - 1); Write-Host -NoNewline "`b `b" }; $tm = @() }
+        if ($key.Key -eq 'Enter') { Write-Host "`r${label}: $buf"; if ([string]::IsNullOrWhiteSpace($buf)) { return $Default } return $buf.Trim() }
+        elseif ($key.Key -eq 'Backspace') { if ($buf.Length) { $buf = $buf.Substring(0, $buf.Length - 1); [Console]::Write("`b `b") }; $tm = @() }
         elseif ($key.Key -eq 'Tab') {
             if ($tm.Count -eq 0) {
                 $hd = $buf -match '[\\/]'; $dir = if ($hd) { Split-Path $buf -Parent } else { '.' }; $leaf = if ($buf) { Split-Path $buf -Leaf } else { '' }
                 try { $tm = @(Get-ChildItem -LiteralPath $dir -Filter ($leaf + '*') -ErrorAction SilentlyContinue | ForEach-Object { $n = if ($_.PSIsContainer) { $_.Name + [IO.Path]::DirectorySeparatorChar } else { $_.Name }; if ($hd) { Join-Path $dir $n } else { $n } }) } catch { $tm = @() }
                 $ti = 0
             }
-            if ($tm.Count) { $c = $tm[$ti % $tm.Count]; $ti++; if ($buf.Length) { Write-Host -NoNewline (("`b" * $buf.Length) + (" " * $buf.Length) + ("`b" * $buf.Length)) }; $buf = $c; Write-Host -NoNewline $buf }
+            if ($tm.Count) { $c = $tm[$ti % $tm.Count]; $ti++; if ($buf.Length) { [Console]::Write(("`b" * $buf.Length) + (" " * $buf.Length) + ("`b" * $buf.Length)) }; $buf = $c; [Console]::Write($buf) }
         }
-        elseif ($key.KeyChar -and -not [char]::IsControl($key.KeyChar)) { $buf += $key.KeyChar; Write-Host -NoNewline $key.KeyChar; $tm = @() }
+        elseif ($key.KeyChar -and -not [char]::IsControl($key.KeyChar)) { $buf += $key.KeyChar; [Console]::Write($key.KeyChar); $tm = @() }
     }
 }
 function Ts { Get-Date -Format 'yyyyMMdd_HHmmss' }
+
+# ---------------- Session log: the whole menu session (the questions and the answers typed, and what the
+# collector and the analysis print) in output\hostbadger-menu_<time>.log, a PowerShell transcript. An
+# analysis also writes its own log next to its report. Passwords and the Gemini key are asked with
+# hidden input and never reach either file.
+$script:SessionLog = ''
+function Start-SessionLog {
+    try {
+        $dir = Join-Path $PWD.ProviderPath 'output'
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        $path = Join-Path $dir "hostbadger-menu_$(Ts).log"
+        $head = @("HostBadger guided menu session log", "Started:    $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) ($((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC)",
+            "PowerShell: $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))", "Folder:     $($PWD.ProviderPath)")
+        [System.IO.File]::WriteAllText($path, (($head -join [Environment]::NewLine) + [Environment]::NewLine), (New-Object System.Text.UTF8Encoding($false)))
+        Start-Transcript -LiteralPath $path -Append | Out-Null
+        $script:SessionLog = $path
+    }
+    catch { Write-Warning "Session log not written: $($_.Exception.Message)" }
+}
+function Stop-SessionLog {
+    if (-not $script:SessionLog) { return }
+    try { Stop-Transcript | Out-Null } catch { }
+    Write-Host "Session log: $($script:SessionLog)" -ForegroundColor DarkGray
+    $script:SessionLog = ''
+}
 function Test-Yes { param([string]$Prompt) return ((Read-Line $Prompt) -match '^[YySs]') }
 
 # At the end of an analysis: open the report with the program Windows uses for .html (the default
@@ -184,6 +216,7 @@ function Request-Elevation {
     try {
         Start-Process -FilePath $exe -ArgumentList $argList -Verb RunAs -ErrorAction Stop
         Write-Host 'The menu goes on in the new administrator window.' -ForegroundColor Green
+        Stop-SessionLog
         exit 0
     }
     catch { Write-Host "Not restarted ($($_.Exception.Message)): the menu goes on without administrator rights." -ForegroundColor Yellow }
@@ -544,7 +577,9 @@ function Add-AiParams {
     }
     if ($Mode -eq 'S' -or $Mode -eq 'C') {
         if (-not $env:GEMINI_API_KEY) {
-            $k = Read-Host "GEMINI_API_KEY not set. Paste the key for this session (or Enter to do a dry run instead)"
+            # Hidden input: the key is not echoed and does not reach the session log.
+            $ks = Read-Host "GEMINI_API_KEY not set. Paste the key for this session (or Enter to do a dry run instead)" -AsSecureString
+            $k = if ($ks -and $ks.Length) { (New-Object System.Net.NetworkCredential('', $ks)).Password } else { '' }
             if ($k) { $env:GEMINI_API_KEY = $k.Trim() }
         }
         if ($env:GEMINI_API_KEY) {
@@ -681,107 +716,112 @@ function Invoke-RestoreStep {
     try { & $fix[0].FullName -Restore $rb -Apply | Out-Host } catch { Write-Host "The restore stopped: $($_.Exception.Message)" -ForegroundColor Red }
 }
 
-Show-Banner
-# Administrator or not, said up front: it decides what a collection sees and whether 6 and 7 can run.
-$script:IsAdmin = Test-IsAdmin
-if ($script:IsAdmin) { Write-Host '  Running as administrator: full collection, remediation and restore available.' -ForegroundColor Green }
-else {
-    Write-Host "  Not running as administrator: a collection of this machine (1, 3) has gaps, listed as 'not evaluated' in the report, and remediation and restore (6, 7) cannot change anything. Analysis (2, 4) and the safety review (5) work as they are." -ForegroundColor Yellow
-    Request-Elevation
-}
-# An unfinished run from last time: offered again (a remediation is only explained, never resumed).
-if ((Test-ResumeEnabled) -and (Test-Path -LiteralPath $script:StatePath)) {
-    $st = $null; try { $st = Get-Content -LiteralPath $script:StatePath -Raw | ConvertFrom-Json } catch { }
-    $flowNames = @{ collect = 'Collect this machine'; analyze = 'Analyze snapshots'; 'collect-analyze' = 'Collect and analyze this machine'; ai = 'Analyze with an AI summary'; remediate = 'Remediate this machine' }
-    $flowChoice = @{ collect = '1'; analyze = '2'; 'collect-analyze' = '3'; ai = '4' }
-    if ($st -and $flowNames.ContainsKey("$($st.flow)")) {
-        Write-Host "`nUnfinished run, saved $($st.savedUtc): $($flowNames["$($st.flow)"])" -ForegroundColor Cyan
-        if ("$($st.flow)" -eq 'remediate') {
-            if ("$($st.stage)" -eq 'applying') { Write-Host "It stopped while applying fixes: some settings may have changed. The previous values are in $($st.answers.run)\rollback.json; option 7 puts them back." -ForegroundColor Yellow }
-            else { Write-Host 'It stopped before anything was applied: nothing changed. Choose 6 to start again.' -ForegroundColor Yellow }
-            Clear-WizardState
+Start-SessionLog
+# The menu in try/finally: the session log is closed on Q, on an error and on Ctrl+C.
+try {
+    Show-Banner
+    # Administrator or not, said up front: it decides what a collection sees and whether 6 and 7 can run.
+    $script:IsAdmin = Test-IsAdmin
+    if ($script:IsAdmin) { Write-Host '  Running as administrator: full collection, remediation and restore available.' -ForegroundColor Green }
+    else {
+        Write-Host "  Not running as administrator: a collection of this machine (1, 3) has gaps, listed as 'not evaluated' in the report, and remediation and restore (6, 7) cannot change anything. Analysis (2, 4) and the safety review (5) work as they are." -ForegroundColor Yellow
+        Request-Elevation
+    }
+    # An unfinished run from last time: offered again (a remediation is only explained, never resumed).
+    if ((Test-ResumeEnabled) -and (Test-Path -LiteralPath $script:StatePath)) {
+        $st = $null; try { $st = Get-Content -LiteralPath $script:StatePath -Raw | ConvertFrom-Json } catch { }
+        $flowNames = @{ collect = 'Collect this machine'; analyze = 'Analyze snapshots'; 'collect-analyze' = 'Collect and analyze this machine'; ai = 'Analyze with an AI summary'; remediate = 'Remediate this machine' }
+        $flowChoice = @{ collect = '1'; analyze = '2'; 'collect-analyze' = '3'; ai = '4' }
+        if ($st -and $flowNames.ContainsKey("$($st.flow)")) {
+            Write-Host "`nUnfinished run, saved $($st.savedUtc): $($flowNames["$($st.flow)"])" -ForegroundColor Cyan
+            if ("$($st.flow)" -eq 'remediate') {
+                if ("$($st.stage)" -eq 'applying') { Write-Host "It stopped while applying fixes: some settings may have changed. The previous values are in $($st.answers.run)\rollback.json; option 7 puts them back." -ForegroundColor Yellow }
+                else { Write-Host 'It stopped before anything was applied: nothing changed. Choose 6 to start again.' -ForegroundColor Yellow }
+                Clear-WizardState
+            }
+            else {
+                $saved = @{}; foreach ($pp in @($st.answers.PSObject.Properties)) { $saved[$pp.Name] = "$($pp.Value)" }
+                foreach ($k in @('Snapshot', 'Report HTML path', 'Snapshot folder', 'collectedDir')) { if ($saved.ContainsKey($k) -and $saved[$k]) { Write-Host "  $k`: $($saved[$k])" -ForegroundColor DarkGray } }
+                Write-Host "  $($saved.Count) answer(s) saved$(if ("$($st.stage)" -eq 'running') { '; it stopped while the analysis was running' }). Passwords and keys are asked again." -ForegroundColor DarkGray
+                if ("$(Read-Host 'Resume it? (Y/n)')".Trim() -notmatch '^[Nn]') { $script:Resume = $saved; $script:ResumeChoice = $flowChoice["$($st.flow)"] }
+                else { Clear-WizardState }
+            }
+        }
+        else { Clear-WizardState }
+    }
+    while ($true) {
+        Write-Host ""
+        # Without administrator rights the options that need them say so.
+        $na = -not $script:IsAdmin
+        $gapColor = if ($na) { 'DarkYellow' } else { 'White' }
+        Write-Host "  [1] Collect this machine        (read-only snapshot$(if ($na) { '; not administrator: with gaps' }))" -ForegroundColor $gapColor
+        Write-Host "  [2] Analyze snapshots           (a file, a zip or a folder of many hosts)" -ForegroundColor White
+        Write-Host "  [3] Collect and analyze this machine$(if ($na) { '   (not administrator: with gaps)' })" -ForegroundColor $gapColor
+        Write-Host "  [4] Analyze with an AI summary  (Gemini, names tokenized, dry run available)" -ForegroundColor White
+        Write-Host "  [5] Safety review               (what the scripts can and cannot do)" -ForegroundColor White
+        if ($na) {
+            Write-Host "  [6] Remediate this machine      (needs administrator)" -ForegroundColor DarkGray
+            Write-Host "  [7] Restore a remediation backup (preview only; restoring needs administrator)" -ForegroundColor DarkGray
         }
         else {
-            $saved = @{}; foreach ($pp in @($st.answers.PSObject.Properties)) { $saved[$pp.Name] = "$($pp.Value)" }
-            foreach ($k in @('Snapshot', 'Report HTML path', 'Snapshot folder', 'collectedDir')) { if ($saved.ContainsKey($k) -and $saved[$k]) { Write-Host "  $k`: $($saved[$k])" -ForegroundColor DarkGray } }
-            Write-Host "  $($saved.Count) answer(s) saved$(if ("$($st.stage)" -eq 'running') { '; it stopped while the analysis was running' }). Passwords and keys are asked again." -ForegroundColor DarkGray
-            if ("$(Read-Host 'Resume it? (Y/n)')".Trim() -notmatch '^[Nn]') { $script:Resume = $saved; $script:ResumeChoice = $flowChoice["$($st.flow)"] }
-            else { Clear-WizardState }
+            Write-Host "  [6] Remediate this machine      (preview, apply after YES, restore point and rollback)" -ForegroundColor White
+            Write-Host "  [7] Restore a remediation backup" -ForegroundColor White
         }
+        Write-Host "  [Q] Quit" -ForegroundColor White
+        if ($script:ResumeChoice) { $choice = $script:ResumeChoice; $script:ResumeChoice = ''; Write-Host "`nChoice: $choice   (resumed)" -ForegroundColor DarkGray }
+        else { $choice = (Read-Host "`nChoice").Trim().ToUpper() }
+        switch ($choice) {
+            '1' {
+                Start-WizardState 'collect'
+                if ([string](@(Invoke-CollectStep) | Select-Object -Last 1)) { Write-Host 'To analyze it: option 2 lists it.' -ForegroundColor DarkGray }
+                Clear-WizardState
+            }
+            '2' {
+                Start-WizardState 'analyze'
+                $ap = Get-AnalysisParams
+                if ($ap) {
+                    Set-WizardStage 'running'
+                    Invoke-Sub 'HostBadger.ps1' $ap
+                    # Kept when the report did not come out, so the same answers can be tried again.
+                    if (Test-Path -LiteralPath $ap['OutHtml']) { Clear-WizardState }
+                    Invoke-AiOffer $ap; Open-Report $ap['OutHtml']
+                }
+                else { Clear-WizardState }
+            }
+            '3' {
+                Start-WizardState 'collect-analyze'
+                # A run that stopped after the collection resumes with the analysis.
+                $dir = Get-Answer 'collectedDir' { [string](@(Invoke-CollectStep) | Select-Object -Last 1) }
+                # The password just typed for the collection opens the snapshot without asking again
+                # (Get-AnalysisParams passes $script:CollectPassword on).
+                $ap = if ($dir) { Get-AnalysisParams -Snapshot $dir } else { $null }
+                if ($ap) {
+                    Set-WizardStage 'running'
+                    Invoke-Sub 'HostBadger.ps1' $ap
+                    if (Test-Path -LiteralPath $ap['OutHtml']) { Clear-WizardState }
+                    Invoke-AiOffer $ap; Open-Report $ap['OutHtml']
+                }
+                else { Clear-WizardState }
+            }
+            '4' {
+                Start-WizardState 'ai'
+                $ap = Get-AnalysisParams -WithAi $true
+                if ($ap) {
+                    Set-WizardStage 'running'
+                    Invoke-Sub 'HostBadger.ps1' $ap
+                    if (Test-Path -LiteralPath $ap['OutHtml']) { Clear-WizardState }
+                    Open-Report $ap['OutHtml']
+                }
+                else { Clear-WizardState }
+            }
+            '5' { Invoke-Sub 'Test-HostBadgerSafety.ps1' }
+            '6' { Invoke-RemediateStep; Clear-WizardState }
+            '7' { Invoke-RestoreStep }
+            'Q' { break }
+            default { Write-Host "Pick 1-7 or Q." -ForegroundColor Yellow }
+        }
+        if ($choice -eq 'Q') { break }
     }
-    else { Clear-WizardState }
+    Write-Host "Bye." -ForegroundColor DarkYellow
 }
-while ($true) {
-    Write-Host ""
-    # Without administrator rights the options that need them say so.
-    $na = -not $script:IsAdmin
-    $gapColor = if ($na) { 'DarkYellow' } else { 'White' }
-    Write-Host "  [1] Collect this machine        (read-only snapshot$(if ($na) { '; not administrator: with gaps' }))" -ForegroundColor $gapColor
-    Write-Host "  [2] Analyze snapshots           (a file, a zip or a folder of many hosts)" -ForegroundColor White
-    Write-Host "  [3] Collect and analyze this machine$(if ($na) { '   (not administrator: with gaps)' })" -ForegroundColor $gapColor
-    Write-Host "  [4] Analyze with an AI summary  (Gemini, names tokenized, dry run available)" -ForegroundColor White
-    Write-Host "  [5] Safety review               (what the scripts can and cannot do)" -ForegroundColor White
-    if ($na) {
-        Write-Host "  [6] Remediate this machine      (needs administrator)" -ForegroundColor DarkGray
-        Write-Host "  [7] Restore a remediation backup (preview only; restoring needs administrator)" -ForegroundColor DarkGray
-    }
-    else {
-        Write-Host "  [6] Remediate this machine      (preview, apply after YES, restore point and rollback)" -ForegroundColor White
-        Write-Host "  [7] Restore a remediation backup" -ForegroundColor White
-    }
-    Write-Host "  [Q] Quit" -ForegroundColor White
-    if ($script:ResumeChoice) { $choice = $script:ResumeChoice; $script:ResumeChoice = ''; Write-Host "`nChoice: $choice   (resumed)" -ForegroundColor DarkGray }
-    else { $choice = (Read-Host "`nChoice").Trim().ToUpper() }
-    switch ($choice) {
-        '1' {
-            Start-WizardState 'collect'
-            if ([string](@(Invoke-CollectStep) | Select-Object -Last 1)) { Write-Host 'To analyze it: option 2 lists it.' -ForegroundColor DarkGray }
-            Clear-WizardState
-        }
-        '2' {
-            Start-WizardState 'analyze'
-            $ap = Get-AnalysisParams
-            if ($ap) {
-                Set-WizardStage 'running'
-                Invoke-Sub 'HostBadger.ps1' $ap
-                # Kept when the report did not come out, so the same answers can be tried again.
-                if (Test-Path -LiteralPath $ap['OutHtml']) { Clear-WizardState }
-                Invoke-AiOffer $ap; Open-Report $ap['OutHtml']
-            }
-            else { Clear-WizardState }
-        }
-        '3' {
-            Start-WizardState 'collect-analyze'
-            # A run that stopped after the collection resumes with the analysis.
-            $dir = Get-Answer 'collectedDir' { [string](@(Invoke-CollectStep) | Select-Object -Last 1) }
-            # The password just typed for the collection opens the snapshot without asking again
-            # (Get-AnalysisParams passes $script:CollectPassword on).
-            $ap = if ($dir) { Get-AnalysisParams -Snapshot $dir } else { $null }
-            if ($ap) {
-                Set-WizardStage 'running'
-                Invoke-Sub 'HostBadger.ps1' $ap
-                if (Test-Path -LiteralPath $ap['OutHtml']) { Clear-WizardState }
-                Invoke-AiOffer $ap; Open-Report $ap['OutHtml']
-            }
-            else { Clear-WizardState }
-        }
-        '4' {
-            Start-WizardState 'ai'
-            $ap = Get-AnalysisParams -WithAi $true
-            if ($ap) {
-                Set-WizardStage 'running'
-                Invoke-Sub 'HostBadger.ps1' $ap
-                if (Test-Path -LiteralPath $ap['OutHtml']) { Clear-WizardState }
-                Open-Report $ap['OutHtml']
-            }
-            else { Clear-WizardState }
-        }
-        '5' { Invoke-Sub 'Test-HostBadgerSafety.ps1' }
-        '6' { Invoke-RemediateStep; Clear-WizardState }
-        '7' { Invoke-RestoreStep }
-        'Q' { break }
-        default { Write-Host "Pick 1-7 or Q." -ForegroundColor Yellow }
-    }
-    if ($choice -eq 'Q') { break }
-}
-Write-Host "Bye." -ForegroundColor DarkYellow
+finally { Stop-SessionLog }
