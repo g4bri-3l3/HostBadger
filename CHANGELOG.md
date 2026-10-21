@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
-## [Unreleased]
+## [1.7] - 2026-10-21
 ### Added
 - Run logs. Every analysis writes `<report>.log` next to the report: the
   settings of the run (`-OutLog` to put it elsewhere, `-NoLog` for none),

@@ -75,7 +75,7 @@ function Show-Banner {
         ''
         '    _.--""--._'
         '  .''  |    |  ''.'
-        ' /    |    |    \      HostBadger v1.6'
+        ' /    |    |    \      HostBadger v1.7'
         '|  (o)|    |(o)  |     Windows host hardening'
         '|     |    |     |     collect, analyze, optional AI summary'
         ' \    ''.__.''    /'
