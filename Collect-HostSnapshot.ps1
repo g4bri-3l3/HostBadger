@@ -19,8 +19,12 @@
 
     It only reads. That means registry values, CIM classes, the Defender,
     SMB, firewall, BitLocker, local account and scheduled task cmdlets, file
-    ACLs, "auditpol /backup" and "secedit /export" (the last two write a
-    temporary file that is deleted right away). It changes no setting, starts
+    ACLs, the Authenticode signer of the DLLs that LSASS, the print spooler
+    and netsh load, the machine's root certificates and saved Wi-Fi profiles
+    (never a key), setup answer files, Group Policy Preferences copies and
+    PowerShell histories (only how many values or lines look like a secret,
+    never the secret), "auditpol /backup" and "secedit /export" (the last two
+    write a temporary file that is deleted right away). It changes no setting, starts
     no process and opens no network connection of its own. The one exception
     is the opt-in -CheckUpdates, where the Windows Update Agent contacts its
     update server. Test-HostBadgerSafety.ps1 checks this claim against the code.
@@ -561,7 +565,13 @@ $patches = Invoke-Section 'patches' {
         }
     }
     catch { }
-    [ordered]@{ hotfixes = $hot; lastUpdateInstalledUtc = $lastWu }
+    # A restart that installed updates are waiting for: Component Based Servicing and Windows Update
+    # each leave a key until the restart.
+    $rebootPending = [ordered]@{
+        cbs           = Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending'
+        windowsUpdate = Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired'
+    }
+    [ordered]@{ hotfixes = $hot; lastUpdateInstalledUtc = $lastWu; rebootPending = $rebootPending }
 }
 
 # ------------------------------------------------------------------ defender
@@ -981,6 +991,8 @@ $tasks = Invoke-Section 'scheduledTasks' {
             state    = "$($t.State)"
             userId   = "$($t.Principal.UserId)"
             groupId  = "$($t.Principal.GroupId)"
+            # Password: the account's password is stored on the host (LSA secrets) to run the task.
+            logonType = "$($t.Principal.LogonType)"
             runLevel = "$($t.Principal.RunLevel)"
             author   = "$($t.Author)"
             actions  = $acts
@@ -1002,6 +1014,242 @@ $autoruns = Invoke-Section 'autoruns' {
     if (Test-Path -LiteralPath $startup) {
         foreach ($f in @(Get-ChildItem -LiteralPath $startup -File -Force | Where-Object { $_.Name -ne 'desktop.ini' })) {
             $out += [ordered]@{ location = 'Common Startup folder'; name = $f.Name; command = $f.FullName; executable = $f.FullName; writableBy = @(Get-LowPrivWriters $f.FullName) }
+        }
+    }
+    $out
+}
+
+# ------------------------------------------------------------------ credentials left on disk
+# Files where Windows setup, Group Policy Preferences or a PowerShell session can leave a password. Only
+# where they are and how many values or lines look like a secret is kept: never the secret, never the
+# line. The user profiles come from ProfileList (the folders of the accounts that ever logged on).
+function Get-ProfileFolders {
+    $out = @()
+    foreach ($k in @(Get-ChildItem -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^S-1-5-21-[\d-]+$' })) {
+        $p = [Environment]::ExpandEnvironmentVariables("$(Get-RegValue $k.PSPath 'ProfileImagePath')")
+        if ($p -and (Test-Path -LiteralPath $p -PathType Container)) { $out += $p }
+    }
+    return $out
+}
+# Secrets typed at a PowerShell prompt, by kind (the history keeps them in clear).
+$script:HistorySecretPatterns = [ordered]@{
+    'plain-text SecureString'     = '(?i)ConvertTo-SecureString\b.*-AsPlainText'
+    'password argument'           = '(?i)(?:^|\s)-(?:password|passwd|pwd|pass)\s*[:\s]\s*[''"]?(?![$''"(\s])\S'
+    'net use with a password'     = '(?i)\bnet(?:\.exe)?\s+use\b.*\s/u(?:ser)?:\S+\s+\S'
+    'cmdkey with a password'      = '(?i)\bcmdkey(?:\.exe)?\b.*\s/pass:\S'
+    'password in a connection string' = '(?i)\b(?:password|pwd)\s*=\s*(?![$''"(\s;])[^\s;]'
+    'API key or token'            = '(?i)\b(?:api[_-]?key|access[_-]?token|secret|bearer)\b\s*[=:]?\s*[''"]?[A-Za-z0-9_\-\.]{20,}'
+}
+$credExposure = Invoke-Section 'credentialExposure' {
+    # Windows setup answer files. Setup replaces what it used with *SENSITIVE*DATA*DELETED*; anything else
+    # in a Password value is a password (in clear or Base64, which is the same).
+    $unattend = @()
+    $win = $env:SystemRoot
+    foreach ($p in @("$win\Panther\Unattend.xml", "$win\Panther\Unattended.xml", "$win\Panther\Unattend\Unattend.xml", "$win\Panther\Unattend\Unattended.xml",
+            "$win\Panther\autounattend.xml", "$win\System32\Sysprep\unattend.xml", "$win\System32\Sysprep\sysprep.xml", "$win\System32\Sysprep\Panther\unattend.xml",
+            "$win\System32\sysprep.inf", "$env:SystemDrive\unattend.xml", "$env:SystemDrive\autounattend.xml", "$env:SystemDrive\sysprep.inf", "$env:SystemDrive\sysprep\sysprep.xml", "$env:SystemDrive\sysprep\sysprep.inf")) {
+        if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { continue }
+        $count = 0; $domainJoin = $false
+        try {
+            $text = [System.IO.File]::ReadAllText($p)
+            $vals = @([regex]::Matches($text, '(?is)<(?:Password|AdministratorPassword)>\s*<Value>([^<]*)</Value>') | ForEach-Object { $_.Groups[1].Value })
+            $vals += @([regex]::Matches($text, '(?is)<Password>([^<]+)</Password>') | ForEach-Object { $_.Groups[1].Value })
+            $vals += @([regex]::Matches($text, '(?im)^\s*(?:AdminPassword|DomainAdminPassword)\s*=\s*(.+)$') | ForEach-Object { $_.Groups[1].Value.Trim().Trim('"') })
+            $count = @($vals | Where-Object { "$_".Trim() -and "$_" -notmatch '\*SENSITIVE\*DATA\*DELETED\*' -and "$_" -ne '*' }).Count
+            $domainJoin = ($text -match '(?is)<UnattendedJoin\b.*<Password>(?!\s*\*SENSITIVE)[^<\s]' -or $text -match '(?im)^\s*DomainAdminPassword\s*=\s*\S')
+        }
+        catch { $count = -1 }
+        $unattend += [ordered]@{ path = $p; passwords = $count; domainJoin = $domainJoin }
+    }
+    # Group Policy Preferences with a cpassword (MS14-025: the AES key is public, so it is a password in
+    # clear): the copies Group Policy keeps on the host, and SYSVOL on a domain controller.
+    $gppDirs = @("$env:ProgramData\Microsoft\Group Policy\History")
+    foreach ($pf in @(Get-ProfileFolders)) { $gppDirs += (Join-Path $pf 'AppData\Local\Microsoft\Group Policy\History') }
+    if (Test-Path -LiteralPath "$win\SYSVOL\domain\Policies") { $gppDirs += "$win\SYSVOL\domain\Policies" }
+    $gpp = @(); $seen = 0
+    foreach ($d in $gppDirs) {
+        if (-not (Test-Path -LiteralPath $d -PathType Container)) { continue }
+        foreach ($f in @(Get-ChildItem -LiteralPath $d -Recurse -File -Filter '*.xml' -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(Groups|Services|ScheduledTasks|DataSources|Drives|Printers)\.xml$' })) {
+            Step-Spinner 'Collecting credentialExposure (Group Policy Preferences)'
+            if (++$seen -gt 2000) { break }
+            try {
+                $n = @([regex]::Matches([System.IO.File]::ReadAllText($f.FullName), '(?i)\bcpassword="([^"]+)"') | Where-Object { $_.Groups[1].Value.Trim() }).Count
+                if ($n -gt 0) { $gpp += [ordered]@{ path = $f.FullName; kind = $f.BaseName; cpasswords = $n } }
+            }
+            catch { }
+        }
+    }
+    # PowerShell history (PSReadLine) of every profile: how many lines look like they hold a secret, by kind.
+    $history = @()
+    foreach ($pf in @(Get-ProfileFolders)) {
+        $hf = Join-Path $pf 'AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt'
+        if (-not (Test-Path -LiteralPath $hf -PathType Leaf)) { continue }
+        Step-Spinner 'Collecting credentialExposure (PowerShell history)'
+        $kinds = [ordered]@{}; $lines = 0
+        try {
+            $len = (Get-Item -LiteralPath $hf -Force).Length
+            # The last 5 MB at most: older lines are the least likely to still be valid.
+            $all = [System.IO.File]::ReadAllLines($hf)
+            if ($len -gt 5MB) { $all = @($all | Select-Object -Last 50000) }
+            foreach ($line in $all) {
+                $hit = $false
+                foreach ($k in $script:HistorySecretPatterns.Keys) { if ($line -match $script:HistorySecretPatterns[$k]) { $kinds[$k] = 1 + [int]$kinds[$k]; $hit = $true } }
+                if ($hit) { $lines++ }
+            }
+        }
+        catch { $lines = -1 }
+        if ($lines -ne 0) { $history += [ordered]@{ profile = (Split-Path -Leaf $pf); lines = $lines; kinds = @($kinds.Keys | ForEach-Object { "$_ ($($kinds[$_]))" }) } }
+    }
+    [ordered]@{ unattendFiles = $unattend; gppFiles = $gpp; psHistory = $history }
+}
+
+# ------------------------------------------------------------------ persistence points
+# Places where code is planted to start with Windows, with a process or with every logon, read only.
+# Stock Windows entries are kept too (the analyzer knows them); a DLL is described by its Authenticode
+# signer, so a vendor's entry can be told from an unsigned one.
+function Get-SignerInfo {
+    param([string]$Path)
+    $r = [ordered]@{ path = $Path; exists = $false; signer = $null; status = $null }
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $r }
+    $r.exists = $true
+    try {
+        $sig = Get-AuthenticodeSignature -LiteralPath $Path -ErrorAction Stop
+        $r.status = "$($sig.Status)"
+        if ($sig.SignerCertificate) { $r.signer = ([regex]::Match($sig.SignerCertificate.Subject, 'CN=("[^"]+"|[^,]+)').Groups[1].Value.Trim('"')) }
+    }
+    catch { }
+    return $r
+}
+function Resolve-SystemDll {
+    # A bare DLL name (LSA packages, print monitors, netsh helpers) is loaded from System32.
+    param([string]$Name)
+    $n = [Environment]::ExpandEnvironmentVariables("$Name".Trim().Trim('"'))
+    if (-not $n) { return $null }
+    if ($n -notmatch '[\\/]') { if ($n -notmatch '\.dll$') { $n += '.dll' }; return (Join-Path "$env:SystemRoot\System32" $n) }
+    return $n
+}
+$persistence = Invoke-Section 'persistence' {
+    $p = [ordered]@{ wmiConsumers = @(); ifeoDebuggers = @(); silentProcessExit = @(); appInit = @(); winlogon = $null; lsa = $null; printMonitors = @(); netshHelpers = @() }
+    # WMI event subscriptions: the consumers that run something (a command line or a script) and whether a
+    # binding ties them to an event filter.
+    try {
+        $bound = @{}
+        foreach ($b in @(Get-CimInstance -Namespace 'root/subscription' -ClassName '__FilterToConsumerBinding' -ErrorAction Stop)) {
+            $cn = if ("$($b.Consumer)" -match 'Name\s*=\s*"([^"]+)"') { $Matches[1] } else { "$($b.Consumer)" }
+            $fq = ''
+            if ("$($b.Filter)" -match 'Name\s*=\s*"([^"]+)"') {
+                $fn = $Matches[1]
+                try { $fq = "$((Get-CimInstance -Namespace 'root/subscription' -ClassName '__EventFilter' -Filter "Name='$($fn -replace "'", "''")'" -ErrorAction Stop).Query)" } catch { }
+            }
+            $bound[$cn] = $fq
+        }
+        foreach ($cls in @('CommandLineEventConsumer', 'ActiveScriptEventConsumer')) {
+            foreach ($c in @(Get-CimInstance -Namespace 'root/subscription' -ClassName $cls -ErrorAction SilentlyContinue)) {
+                $p.wmiConsumers += [ordered]@{
+                    name    = "$($c.Name)"
+                    type    = $cls
+                    command = Protect-CommandLine "$(if ($cls -eq 'CommandLineEventConsumer') { if ($c.CommandLineTemplate) { $c.CommandLineTemplate } else { $c.ExecutablePath } } else { $c.ScriptFileName })"
+                    engine  = "$($c.ScriptingEngine)"
+                    scriptLength = $(if ($cls -eq 'ActiveScriptEventConsumer') { "$($c.ScriptText)".Length } else { 0 })
+                    bound   = $bound.ContainsKey("$($c.Name)")
+                    filter  = $(if ($bound.ContainsKey("$($c.Name)")) { $bound["$($c.Name)"] } else { '' })
+                }
+            }
+        }
+    }
+    catch { Add-CollectionError -Section 'persistence.wmi' -Message $_.Exception.Message }
+    # Image File Execution Options: a Debugger starts instead of the program (sethc.exe -> cmd.exe);
+    # SilentProcessExit starts a monitor when a program exits.
+    foreach ($root in @('HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows NT\CurrentVersion')) {
+        foreach ($k in @(Get-ChildItem -LiteralPath "$root\Image File Execution Options" -ErrorAction SilentlyContinue)) {
+            $dbg = "$(Get-RegValue $k.PSPath 'Debugger')"
+            if ($dbg.Trim()) { $p.ifeoDebuggers += [ordered]@{ image = $k.PSChildName; debugger = Protect-CommandLine $dbg; wow64 = ($root -like '*WOW6432Node*') } }
+        }
+        foreach ($k in @(Get-ChildItem -LiteralPath "$root\SilentProcessExit" -ErrorAction SilentlyContinue)) {
+            $mon = "$(Get-RegValue $k.PSPath 'MonitorProcess')"
+            if ($mon.Trim()) { $p.silentProcessExit += [ordered]@{ image = $k.PSChildName; monitor = Protect-CommandLine $mon; wow64 = ($root -like '*WOW6432Node*') } }
+        }
+        $dlls = "$(Get-RegValue "$root\Windows" 'AppInit_DLLs')"
+        $p.appInit += [ordered]@{ wow64 = ($root -like '*WOW6432Node*'); dlls = $dlls.Trim(); load = Get-RegValue "$root\Windows" 'LoadAppInit_DLLs' }
+    }
+    $wl = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+    $p.winlogon = [ordered]@{ shell = "$(Get-RegValue $wl 'Shell')"; userinit = "$(Get-RegValue $wl 'Userinit')" }
+    # LSA packages: DLLs loaded into LSASS, which see every password typed at logon.
+    $lsaKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'
+    $lsa = [ordered]@{}
+    foreach ($kv in @(@('security', 'Security Packages'), @('authentication', 'Authentication Packages'), @('notification', 'Notification Packages'))) {
+        $names = @(@(Get-RegValue $lsaKey $kv[1]) + @(Get-RegValue "$lsaKey\OSConfig" $kv[1]) | ForEach-Object { "$_".Trim().Trim('"') } | Where-Object { $_ } | Select-Object -Unique)
+        $lsa[$kv[0]] = @(foreach ($n in $names) { $si = Get-SignerInfo (Resolve-SystemDll $n); [ordered]@{ name = $n; exists = $si.exists; signer = $si.signer; status = $si.status } })
+    }
+    $p.lsa = $lsa
+    foreach ($k in @(Get-ChildItem -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Print\Monitors' -ErrorAction SilentlyContinue)) {
+        $drv = "$(Get-RegValue $k.PSPath 'Driver')"
+        $si = Get-SignerInfo (Resolve-SystemDll $drv)
+        $p.printMonitors += [ordered]@{ name = $k.PSChildName; driver = $drv; exists = $si.exists; signer = $si.signer; status = $si.status }
+    }
+    foreach ($v in @(Get-RegSubkeyValues 'HKLM:\SOFTWARE\Microsoft\NetSh')) {
+        $si = Get-SignerInfo (Resolve-SystemDll $v.value)
+        $p.netshHelpers += [ordered]@{ name = $v.name; dll = $v.value; exists = $si.exists; signer = $si.signer; status = $si.status }
+    }
+    $p
+}
+
+# ------------------------------------------------------------------ trusted root certificates
+# The root certificates of the machine store that someone added (the Root store, Group Policy and
+# Enterprise), not the ones Windows downloads from Microsoft's trusted root program (AuthRoot). Each is
+# looked up in Microsoft's list of trusted roots that Windows keeps (AuthRoot\AutoUpdate\EncodedCtl),
+# so a public CA added by an installer is told from a private one. Read only.
+$certificates = Invoke-Section 'certificates' {
+    $ctlHex = $null
+    try {
+        $ctl = (Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\SystemCertificates\AuthRoot\AutoUpdate' -Name 'EncodedCtl' -ErrorAction Stop).EncodedCtl
+        if ($ctl) { $ctlHex = [BitConverter]::ToString([byte[]]$ctl).Replace('-', '') }
+    }
+    catch { }
+    $authRoot = @{}
+    foreach ($k in @(Get-ChildItem -LiteralPath 'HKLM:\SOFTWARE\Microsoft\SystemCertificates\AuthRoot\Certificates' -ErrorAction SilentlyContinue)) { $authRoot[$k.PSChildName.ToUpper()] = $true }
+    $roots = @()
+    foreach ($st in @(@('machine', 'HKLM:\SOFTWARE\Microsoft\SystemCertificates\ROOT\Certificates'), @('gpo', 'HKLM:\SOFTWARE\Policies\Microsoft\SystemCertificates\Root\Certificates'), @('enterprise', 'HKLM:\SOFTWARE\Microsoft\EnterpriseCertificates\Root\Certificates'))) {
+        foreach ($k in @(Get-ChildItem -LiteralPath $st[1] -ErrorAction SilentlyContinue)) {
+            $tp = $k.PSChildName.ToUpper()
+            if ($tp -notmatch '^[0-9A-F]{40}$' -or $authRoot.ContainsKey($tp)) { continue }
+            $c = $null
+            try { $c = Get-Item -LiteralPath "Cert:\LocalMachine\Root\$tp" -ErrorAction Stop } catch { }
+            # A hex match at an odd offset would straddle two bytes: only byte-aligned hits count.
+            $inMs = $null
+            if ($ctlHex) { $inMs = $false; $i = $ctlHex.IndexOf($tp); while ($i -ge 0) { if ($i % 2 -eq 0) { $inMs = $true; break }; $i = $ctlHex.IndexOf($tp, $i + 1) } }
+            $roots += [ordered]@{
+                thumbprint = $tp; store = $st[0]
+                subject    = $(if ($c) { "$($c.Subject)" } else { '' })
+                notAfterUtc = $(if ($c) { ConvertTo-IsoUtc $c.NotAfter } else { $null })
+                selfSigned = $(if ($c) { "$($c.Subject)" -eq "$($c.Issuer)" } else { $null })
+                hasPrivateKey = $(if ($c) { [bool]$c.HasPrivateKey } else { $null })
+                inMicrosoftProgram = $inMs
+            }
+        }
+    }
+    [ordered]@{ microsoftListAvailable = [bool]$ctlHex; roots = $roots }
+}
+
+# ------------------------------------------------------------------ saved Wi-Fi networks
+# The machine's wireless profiles (WLAN AutoConfig keeps them as XML, readable by administrators and
+# SYSTEM): network name, authentication, encryption and whether Windows joins it on its own. The key is
+# never read.
+$wifi = Invoke-Section 'wifi' {
+    $root = "$env:ProgramData\Microsoft\Wlansvc\Profiles\Interfaces"
+    $out = @()
+    if (Test-Path -LiteralPath $root) {
+        foreach ($f in @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter '*.xml' -ErrorAction Stop)) {
+            try {
+                $x = [xml][System.IO.File]::ReadAllText($f.FullName)
+                $wp = $x.WLANProfile
+                $sec = $wp.MSM.security.authEncryption
+                $out += [ordered]@{
+                    name = "$($wp.name)"; authentication = "$($sec.authentication)"; encryption = "$($sec.encryption)"
+                    connectionMode = "$($wp.connectionMode)"; nonBroadcast = ("$($wp.SSIDConfig.nonBroadcast)" -eq 'true')
+                }
+            }
+            catch { }
         }
     }
     $out
@@ -1313,6 +1561,10 @@ $hardening = Invoke-Section 'hardening' {
         }
         officeInstalled          = [bool]((Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration') -or (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Office\16.0\Common\InstallRoot'))
         officeUserPolicy         = $offProfiles
+        # Kerberos encryption types allowed (CIS 2.3.11.4): a bit mask, 0x4 = RC4, 0x1/0x2 = DES.
+        kerberosEncryptionTypes  = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters' 'SupportedEncryptionTypes'
+        # Windows Event Forwarding: whether a subscription manager is set by policy (the address is not kept).
+        wefSubscriptionManager   = (@(Get-RegSubkeyValues 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\EventLog\EventForwarding\SubscriptionManager' | Where-Object { "$($_.value)".Trim() }).Count -gt 0)
     }
 }
 # ------------------------------------------------------------------ installed software
@@ -2073,6 +2325,10 @@ $snapshot = [ordered]@{
     drivers              = $drivers
     scheduledTasks       = @($tasks | Where-Object { $_ })
     autoruns             = @($autoruns | Where-Object { $_ })
+    credentialExposure   = $credExposure
+    persistence          = $persistence
+    certificates         = $certificates
+    wifi                 = @($wifi | Where-Object { $_ })
 }
 
 if (-not (Test-Path -LiteralPath $OutDir)) { New-Item -ItemType Directory -Path $OutDir -Force | Out-Null }

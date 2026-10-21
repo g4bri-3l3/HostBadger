@@ -33,7 +33,11 @@
       "appx",
       "services",
       "scheduledTasks",
-      "autoruns"
+      "autoruns",
+      "credentialExposure",
+      "persistence",
+      "certificates",
+      "wifi"
     ],
     "collectionErrors": [
       {
@@ -89,7 +93,11 @@
         "installedOnUtc": "2026-09-10T00:00:00Z"
       }
     ],
-    "lastUpdateInstalledUtc": "2026-09-10T03:12:00Z"
+    "lastUpdateInstalledUtc": "2026-09-10T03:12:00Z",
+    "rebootPending": {
+      "cbs": false,
+      "windowsUpdate": false
+    }
   },
   "defender": {
     "present": true,
@@ -607,7 +615,9 @@
         "packagerPromptPowerPoint": 2,
         "macroRuntimeScanScope": 2
       }
-    ]
+    ],
+    "kerberosEncryptionTypes": 2147483640,
+    "wefSubscriptionManager": true
   },
   "stig": {
     "products": {
@@ -3449,6 +3459,7 @@
       "state": "Ready",
       "userId": "SYSTEM",
       "groupId": "",
+      "logonType": "ServiceAccount",
       "runLevel": "Highest",
       "author": "CORP\\backupadm",
       "actions": [
@@ -3468,6 +3479,155 @@
       "command": "%windir%\\system32\\SecurityHealthSystray.exe",
       "executable": "C:\\Windows\\system32\\SecurityHealthSystray.exe",
       "writableBy": []
+    }
+  ],
+  "credentialExposure": {
+    "unattendFiles": [
+      {
+        "path": "C:\\Windows\\Panther\\unattend.xml",
+        "passwords": 0,
+        "domainJoin": false
+      }
+    ],
+    "gppFiles": [],
+    "psHistory": []
+  },
+  "persistence": {
+    "wmiConsumers": [],
+    "ifeoDebuggers": [],
+    "silentProcessExit": [],
+    "appInit": [
+      {
+        "wow64": false,
+        "dlls": "",
+        "load": 0
+      },
+      {
+        "wow64": true,
+        "dlls": "",
+        "load": 0
+      }
+    ],
+    "winlogon": {
+      "shell": "explorer.exe",
+      "userinit": "C:\\Windows\\system32\\userinit.exe,"
+    },
+    "lsa": {
+      "security": [
+        {
+          "name": "kerberos",
+          "exists": true,
+          "signer": "Microsoft Windows",
+          "status": "Valid"
+        },
+        {
+          "name": "msv1_0",
+          "exists": true,
+          "signer": "Microsoft Windows",
+          "status": "Valid"
+        },
+        {
+          "name": "schannel",
+          "exists": true,
+          "signer": "Microsoft Windows",
+          "status": "Valid"
+        },
+        {
+          "name": "wdigest",
+          "exists": true,
+          "signer": "Microsoft Windows",
+          "status": "Valid"
+        },
+        {
+          "name": "tspkg",
+          "exists": true,
+          "signer": "Microsoft Windows",
+          "status": "Valid"
+        },
+        {
+          "name": "pku2u",
+          "exists": true,
+          "signer": "Microsoft Windows",
+          "status": "Valid"
+        },
+        {
+          "name": "cloudAP",
+          "exists": true,
+          "signer": "Microsoft Windows",
+          "status": "Valid"
+        }
+      ],
+      "authentication": [
+        {
+          "name": "msv1_0",
+          "exists": true,
+          "signer": "Microsoft Windows",
+          "status": "Valid"
+        }
+      ],
+      "notification": [
+        {
+          "name": "scecli",
+          "exists": true,
+          "signer": "Microsoft Windows",
+          "status": "Valid"
+        }
+      ]
+    },
+    "printMonitors": [
+      {
+        "name": "Local Port",
+        "driver": "localspl.dll",
+        "exists": true,
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "Standard TCP/IP Port",
+        "driver": "tcpmon.dll",
+        "exists": true,
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      }
+    ],
+    "netshHelpers": [
+      {
+        "name": "ifmon",
+        "dll": "ifmon.dll",
+        "exists": true,
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "nshhttp",
+        "dll": "nshhttp.dll",
+        "exists": true,
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      }
+    ]
+  },
+  "certificates": {
+    "microsoftListAvailable": true,
+    "roots": [
+      {
+        "thumbprint": "245C97DF7514E7CF2DF8BE72AE957B9E04741E85",
+        "store": "machine",
+        "subject": "OU=Copyright (c) 1997 Microsoft Corp., OU=Microsoft Time Stamping Service Root, OU=Microsoft Corporation, O=Microsoft Trust Network",
+        "notAfterUtc": "1999-12-30T23:00:00Z",
+        "selfSigned": true,
+        "hasPrivateKey": false,
+        "inMicrosoftProgram": false
+      }
+    ]
+  },
+  "wifi": [
+    {
+      "name": "CORP-WLAN",
+      "authentication": "WPA2",
+      "encryption": "AES",
+      "connectionMode": "auto",
+      "nonBroadcast": false
     }
   ]
 }

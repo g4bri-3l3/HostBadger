@@ -568,6 +568,78 @@ $script:CheckCatalog = [ordered]@{
         Description = 'Microsoft Office is installed and the Office policies of the loaded user profiles (HKU, what a SYSTEM run sees) leave macros open: macros in files from the internet not blocked by policy (blockcontentexecutionfrominternet), macro antivirus scanning turned off (macroruntimescanscope = 0), the macro security level not set by policy so users can change it in the Trust Center (vbawarnings), users able to enable unsigned macros (vbawarnings not 3 or 4), or OLE packages that can run (packagerprompt not 2). Word, Excel and PowerPoint are read. One finding per setting, with how many profiles miss it. The Essential Eight levels: internet block, scanning and settings users cannot change at One, OLE packages at Two, signed or trusted macros only at Three.'
         Remediation = 'In the Office administrative templates (user configuration), for Word, Excel and PowerPoint: "Block macros from running in Office files from the Internet" Enabled; "VBA Macro Notification Settings" Disable all except digitally signed macros (or all macros where nobody needs them); "Macro Runtime Scan Scope" Enable for all documents; "Packager Prompt" No prompt, Object does not execute.' }
 
+    # ---------------- Credentials left on the host ----------------
+    unattend_credentials = @{ Category = 'Credential Protection'; Severity = 'High'; Mitre = 'T1552.001'; Needs = @('credentialExposure'); Roles = $script:AllRoles
+        Title = 'Password left in a Windows setup answer file'
+        Description = 'A Windows setup answer file (Unattend.xml, autounattend.xml, sysprep.xml or sysprep.inf in the Panther, Sysprep or root folder) still holds a password: the local administrator, an autologon account or the account that joined the domain. Setup replaces the values it used with *SENSITIVE*DATA*DELETED*; these were not. Base64 in these files is not encryption. Every user who can read the file has the password, and an image built from the same answer file shares it. A domain join account in the file is Critical.'
+        Remediation = 'Delete the answer file (or remove the password values), change the passwords it held on every host built from it, and keep answer files with credentials out of images: use a provisioning account that is disabled after the build, and LAPS for the local administrator.' }
+    gpp_cpassword_cached = @{ Category = 'Credential Protection'; Severity = 'High'; Mitre = 'T1552.006'; Needs = @('credentialExposure'); Roles = $script:AllRoles
+        Title = 'Group Policy Preferences password (cpassword) on the host'
+        Description = 'A Group Policy Preferences file (Groups.xml, Services.xml, ScheduledTasks.xml, DataSources.xml, Drives.xml or Printers.xml) holds a cpassword: in the copy Group Policy keeps on the host, or in SYSVOL on a domain controller. The AES key that encrypts it was published by Microsoft (MS14-025), so it is a password in clear for every user who can read the file, and in SYSVOL for every domain user. Since 2014 Windows no longer lets you create these, but old policies and their copies stay.'
+        Remediation = 'Delete the preference items that hold a password from the Group Policy objects (and the leftover files on the hosts), change every password they held, and use Windows LAPS for local administrator passwords and gMSAs for service accounts.' }
+    powershell_history_secrets = @{ Category = 'Credential Protection'; Severity = 'Medium'; Mitre = 'T1552.001'; Needs = @('credentialExposure'); Roles = $script:AllRoles
+        Title = 'PowerShell history holds what looks like a password'
+        Description = 'The PowerShell command history of a user profile (PSReadLine ConsoleHost_history.txt, kept in clear) has lines that look like they hold a secret: ConvertTo-SecureString -AsPlainText, a -Password argument with a value, net use or cmdkey with a password, a connection string with a password, or a long API key or token. HostBadger reads only how many lines match and of which kind, never the line. The file is the first thing an attacker on the host reads.'
+        Remediation = 'Open the history of that profile, change every password or key it holds, and clear the lines (or the file). Pass credentials with Get-Credential, a secret vault or a managed identity, not on the command line; PSReadLine can be told not to save sensitive lines (Set-PSReadLineOption -AddToHistoryHandler).' }
+    service_domain_account = @{ Category = 'Credential Protection'; Severity = 'Medium'; Mitre = 'T1003.004'; Needs = @('services', 'scheduledTasks', 'host'); Roles = $script:AllRoles
+        Title = 'Service or task runs as a domain account with a stored password'
+        Description = 'A service, or a scheduled task set to run whether the user is logged on or not, uses a domain user account. Windows keeps its password in the LSA secrets of this host, where any local administrator can read it in clear (secretsdump, Mimikatz lsadump::secrets). One compromised host then gives the account on every system it can reach, and such accounts are often administrators of many hosts. Group managed service accounts (name ending in $) are not reported: their password is changed by the domain and cannot be read this way.'
+        Remediation = 'Run the service as a group managed service account (gMSA), a virtual account (NT SERVICE\name) or LocalSystem/NetworkService where it only needs the computer account on the network. Where a domain account is unavoidable, give it only the rights it needs, deny it interactive logon, and do not use it on workstations.' }
+    kerberos_rc4_allowed = @{ Category = 'Credential Protection'; Severity = 'Medium'; Mitre = 'T1558.003'; Cis = '2.3.11.4 (L1)'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'Kerberos allows RC4 or DES'
+        Description = 'Network security: Configure encryption types allowed for Kerberos (SupportedEncryptionTypes) is not set to AES only, or is not set, which leaves RC4 (and on old builds DES) in use. Kerberos tickets encrypted with RC4 use the NT hash as the key, so Kerberoasting and AS-REP roasting crack them quickly, and an NT hash can be passed as a Kerberos key (overpass-the-hash). DES is High.'
+        Remediation = 'Set "Network security: Configure encryption types allowed for Kerberos" to AES128_HMAC_SHA1, AES256_HMAC_SHA1 and Future encryption types (SupportedEncryptionTypes = 2147483640) through Group Policy, after checking that no service account or appliance still needs RC4 (msDS-SupportedEncryptionTypes on the accounts, and the Kerberos events 4768/4769 with ticket encryption type 0x17).' }
+
+    # ---------------- Persistence ----------------
+    persistence_wmi_subscription = @{ Category = 'Persistence'; Severity = 'High'; Mitre = 'T1546.003'; Needs = @('persistence.wmi'); Roles = $script:AllRoles
+        Title = 'WMI event subscription runs a command or a script'
+        Description = 'A permanent WMI event subscription (root\subscription) has a consumer that runs a command line (CommandLineEventConsumer) or a script (ActiveScriptEventConsumer). Bound to an event filter, it runs as SYSTEM whenever the event happens (a logon, a time, a process start), leaves no file in the usual autostart places and survives reboots: a favourite of fileless malware. Some management tools use them; a consumer that no binding uses is Medium.'
+        Remediation = 'Find out which product created the consumer. If nobody does, remove the binding, the consumer and the filter (Get-CimInstance -Namespace root/subscription ... | Remove-CimInstance) and investigate the host as compromised. Keep the WMI-Activity operational log and the ASR rule "Block persistence through WMI event subscription" on.' }
+    persistence_registry_hijack = @{ Category = 'Persistence'; Severity = 'High'; Mitre = 'T1546.012'; Needs = @('persistence'); Roles = $script:AllRoles
+        Title = 'Code planted in a Windows load point'
+        Description = 'A registry load point starts code that is not part of Windows: an Image File Execution Options Debugger (the program named runs instead of the one started; on sethc.exe or utilman.exe it gives a SYSTEM prompt at the logon screen), a SilentProcessExit monitor, AppInit_DLLs (loaded into every program that uses user32.dll), a Winlogon Shell or Userinit other than Windows'' own, or an LSA security, authentication or notification package, a print monitor or a netsh helper whose DLL is not signed by Microsoft. LSA packages see every password typed at logon. High: an unsigned LSA package, SilentProcessExit, AppInit_DLLs, a changed Winlogon value or a debugger on the logon screen tools. Medium: a vendor-signed LSA package (verify the product), an unsigned print monitor or netsh helper, another IFEO debugger. Low: a vendor-signed monitor or helper, or an entry whose file does not exist.'
+        Remediation = 'Find the product the entry belongs to. If none, remove the value, delete the file it points to and investigate the host as compromised. For a legitimate vendor component, keep it current and accept it with an exception; protect LSASS (RunAsPPL) so unsigned LSA packages cannot load.' }
+
+    # ---------------- Trust and exposure ----------------
+    root_ca_added = @{ Category = 'Network Exposure'; Severity = 'Medium'; Mitre = 'T1553.004'; Needs = @('certificates'); Roles = $script:AllRoles
+        Title = 'Root certificate added outside the Microsoft trusted root program'
+        Description = 'The machine''s Trusted Root store has a certificate that is neither one of Windows'' own nor in the Microsoft trusted root program (checked against the list of trusted roots Windows keeps, AuthRoot EncodedCtl). Whoever holds its private key can issue a certificate for any website, which every browser and program on the host trusts: TLS interception, signed malware. Games, VPNs, proxies and security tools install such roots; a root whose private key is on the host (any local administrator can export it) is High, because the same key is often on every installation. Roots pushed by Group Policy or enterprise enrollment are the organization''s own choice and are not reported.'
+        Remediation = 'Find the program that added the root. If the organization does not need it, remove it (certlm.msc > Trusted Root Certification Authorities) and the program; if it does, push it through Group Policy so it is a documented choice, or accept it with an exception. Without Microsoft''s list on the host (no automatic root update) the finding is Low: check the certificate by hand.' }
+    remote_access_tool = @{ Category = 'Remote Access'; Severity = 'Medium'; Mitre = 'T1219'; Needs = @('services', 'software'); Roles = $script:AllRoles
+        Title = 'Remote access tool installed'
+        Description = 'A remote access or remote management tool is installed (AnyDesk, TeamViewer, RustDesk, ScreenConnect, Splashtop, VNC, Radmin, NetSupport, Atera, MeshCentral and others). Each is a way into the host from the internet that bypasses the VPN and often the firewall, and attackers install the same tools after they get in, because they look legitimate. Name the ones the organization approves with -AllowedRemoteTools: the others are Medium. Without that list every tool found is Low, to be verified.'
+        Remediation = 'Remove the tools the organization did not approve, block their installers (application control) and their cloud relays (web proxy), and keep the approved one behind multifactor authentication with access logs.' }
+    wifi_profile_insecure = @{ Category = 'Network Exposure'; Severity = 'Medium'; Mitre = 'T1557'; Needs = @('wifi'); Roles = $script:AllRoles
+        Title = 'Saved Wi-Fi network without encryption or with WEP'
+        Description = 'The host keeps a Wi-Fi profile for an open network (no encryption), a WEP network or a WPA network with TKIP. If it joins on its own (connection mode auto), anyone can set up an access point with the same name nearby and the host connects to it (evil twin): its traffic and its NTLM authentication go through the attacker. Open networks joined manually and WPA with TKIP are Low. Enhanced Open (OWE) is encrypted and is not reported.'
+        Remediation = 'Delete the profile (netsh wlan delete profile name="..."), or set it to connect manually, and push the corporate Wi-Fi with WPA2/WPA3-Enterprise through Group Policy or Intune. An always-on VPN protects the traffic on networks you cannot avoid.' }
+    log_forwarding_missing = @{ Category = 'Logging'; Severity = 'Low'; Mitre = 'T1070.001'; Needs = @('services', 'hardening'); Roles = $script:AllRoles
+        Title = 'Event logs are not sent anywhere'
+        Description = 'No Windows Event Forwarding subscription manager is set by policy, no known log shipping agent runs (Splunk Universal Forwarder, Elastic Agent or Winlogbeat, NXLog, Wazuh, Azure Monitor Agent, QRadar WinCollect, Graylog Sidecar, Fluent Bit and others) and no EDR agent sends telemetry. The logs stay on the host, where an attacker with administrator rights clears them (wevtutil cl Security) and where nobody looks during an incident. Low on a workstation, Medium on a server or domain controller.'
+        Remediation = 'Forward the Security, System, PowerShell and Sysmon logs to a collector: Windows Event Forwarding (Group Policy: Configure target Subscription Manager) or the agent of your SIEM. If the host uses an agent HostBadger does not know, accept the finding with an exception.' }
+    sysmon_missing = @{ Category = 'Logging'; Severity = 'Low'; Mitre = 'T1562.002'; Needs = @('services'); Roles = $script:AllRoles
+        Title = 'No process telemetry: neither Sysmon nor an EDR'
+        Description = 'Sysmon is not installed and no EDR agent runs, so nothing records process starts with their hashes and parents, network connections by process, driver loads or changes to autostart keys. The Security log (process creation with command line) covers part of it at best. Investigating an incident on this host means guessing.'
+        Remediation = 'Install an EDR, or Sysmon with a maintained configuration (for example the SwiftOnSecurity or Olaf Hartong sysmon-modular configuration), and forward its log.' }
+    reboot_overdue = @{ Category = 'Patching'; Severity = 'Low'; Mitre = 'T1068'; Needs = @('host', 'patches'); Roles = $script:AllRoles
+        Title = 'Restart overdue: installed updates are not active'
+        Description = 'The host has not restarted for more than 30 days, or Windows is waiting for a restart to finish installing updates (Component Based Servicing or Windows Update reboot flag) and the host has been up for more than a week. Updates to the kernel, drivers and system services take effect only after a restart, so the host stays exposed to what was patched. Over 60 days, or a pending restart, is Medium.'
+        Remediation = 'Restart the host, and set a maintenance window with Windows Update for Business, WSUS or Intune that restarts within days of the monthly updates (deadline policies).' }
+
+    # ---------------- Fleet: findings that only a view of several hosts shows ----------------
+    local_admin_password_shared = @{ Category = 'Credential Protection'; Severity = 'High'; Mitre = 'T1550.002'; Needs = @('localAccounts'); Roles = @('workstation', 'server')
+        Title = 'Local account password probably shared with other hosts'
+        Description = 'The same local account (the built-in Administrator by its RID 500, or the same name) had its password set at the very same second on this host and on others of the fleet: the hosts were built from one image or one script, so the password is almost certainly the same. One stolen hash then opens all of them (pass-the-hash), which is exactly what LAPS is for. Only enabled accounts are compared; domain controllers have no local accounts.'
+        Remediation = 'Give each host its own password: deploy Windows LAPS (it manages the built-in Administrator or a named account) and let it rotate the password now. Disable local accounts that are not needed, and deny local accounts network and Remote Desktop logon.' }
+    machine_sid_duplicate = @{ Category = 'System Hardening'; Severity = 'Medium'; Mitre = 'T1078.003'; Needs = @('host'); Roles = @('workstation', 'server')
+        Title = 'Machine SID shared with other hosts'
+        Description = 'This host has the same machine SID as other hosts of the fleet: it was cloned without Sysprep. The SIDs of its local accounts and groups are then the same on all of them, so a local account (and its permissions on files and shares) is valid across the clones, and some products (WSUS, some EDR and management tools) mix the hosts up. Domain controllers share the domain SID and are not compared.'
+        Remediation = 'Rebuild the hosts from an image that was generalized with Sysprep (/generalize). Changing the SID afterwards (NewSID) is not supported by Microsoft.' }
+    config_drift = @{ Category = 'System Hardening'; Severity = 'Low'; Mitre = 'T1112'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'Settings differ from the rest of the fleet'
+        Description = 'Settings where this host differs from what at least 80% of the other hosts with the same role have, in a fleet of at least five of them: the values of the hardening, credential protection, UAC, PowerShell logging and network sections, whether HostBadger judges them or not. A difference from the majority is often an exception nobody removed, a Group Policy that does not reach the host or a host that was set up by hand. One finding per host lists them; it is left out of the score (the settings HostBadger judges have their own findings).'
+        Remediation = 'Check why the host differs: Group Policy results (gpresult /h), its OU and filters, manual changes. Bring it in line, or document the difference with an exception.' }
+
     # ---------------- DISA STIG, registry settings (data\stig-catalog.json) ----------------
     stig_windows10 = @{ Category = 'DISA STIG'; Severity = 'Medium'; Mitre = 'T1112'; Needs = @('stig'); Roles = @('workstation')
         Title = 'Windows 10 setting differs from the DISA STIG'
@@ -771,6 +843,22 @@ $script:CheckAttacks = [ordered]@{
     removable_media_execute_allowed = 'Removable-media infection and insider attacks: a program brought on a USB drive or SD card (a dropped "found" stick, a rubber-ducky payload, an unapproved tool) runs directly from the device.'
     wpad_not_disabled = 'Traffic interception and credential capture: an attacker answers WPAD discovery, becomes the host''s web proxy and collects NTLM authentications.'
     wu_auto_updates_disabled = 'Exploitation of known vulnerabilities: security updates are not installed on their own, so the host falls behind on fixes.'
+    unattend_credentials = 'Credential theft from files: any user reads the administrator or domain join password left by Windows setup and logs on with it, on this host and on every host built from the same image.'
+    gpp_cpassword_cached = 'Credential theft from Group Policy files: the cpassword is decrypted with Microsoft''s published key (Get-GPPPassword) and the account is used wherever it is valid.'
+    powershell_history_secrets = 'Credential theft from the command history: an attacker on the host reads ConsoleHost_history.txt and finds passwords and keys typed by administrators.'
+    service_domain_account = 'LSA secrets dumping: a local administrator reads the domain account''s password in clear (secretsdump, Mimikatz) and moves to every system the account can reach.'
+    kerberos_rc4_allowed = 'Kerberoasting and overpass-the-hash: RC4 tickets are cracked offline quickly, and an NT hash is usable as a Kerberos key.'
+    persistence_wmi_subscription = 'Fileless persistence: a WMI event subscription runs the attacker''s command as SYSTEM on every logon, timer or process start.'
+    persistence_registry_hijack = 'Persistence and credential capture: a debugger on the logon screen tools, a DLL loaded by every program, or an LSA package that sees every password typed at logon.'
+    root_ca_added = 'TLS interception and trusted malware: whoever holds the root''s private key issues certificates the host trusts for any site or code.'
+    remote_access_tool = 'Persistent remote control: an attacker uses (or installs) a legitimate remote access tool to come back from the internet, past the VPN and the firewall.'
+    wifi_profile_insecure = 'Evil twin access point: the host joins an attacker''s network with the same name, which then intercepts its traffic and relays its NTLM authentication.'
+    log_forwarding_missing = 'Covering tracks: an attacker with administrator rights clears the local logs and nothing of the intrusion remains elsewhere.'
+    sysmon_missing = 'Undetected intrusion: without process and network telemetry, the attacker''s tools and movements leave no usable trace.'
+    reboot_overdue = 'Exploitation of patched vulnerabilities: updates installed but not active leave the kernel and services exposed to known exploits.'
+    local_admin_password_shared = 'Pass-the-hash across the fleet: the hash of the shared local password, taken from one host, logs on to all the others.'
+    machine_sid_duplicate = 'Lateral movement between clones: local accounts and permissions are the same SIDs on every cloned host.'
+    config_drift = 'Gaps in hardening: a host that missed a Group Policy or was changed by hand is the weak point of an otherwise uniform fleet.'
 }
 foreach ($t in @($script:CheckAttacks.Keys)) { if ($script:CheckCatalog.Contains($t)) { $script:CheckCatalog[$t]['Attacks'] = $script:CheckAttacks[$t] } }
 
@@ -2146,6 +2234,8 @@ function Invoke-HostChecks {
         if (-not (& $has 'credentialsDelegation')) { $extra['remote_credential_guard_off'] = $old }
         if (-not (& $has 'officeUserPolicy')) { $extra['office_macro_settings_weak'] = $old }
         elseif ($hd.officeInstalled -eq $true -and @($hd.officeUserPolicy | Where-Object { $_ }).Count -eq 0) { $extra['office_macro_settings_weak'] = 'no user profile loaded (the Office policies are per user)' }
+        if (-not (& $has 'kerberosEncryptionTypes')) { $extra['kerberos_rc4_allowed'] = $old }
+        if (-not (& $has 'wefSubscriptionManager')) { $extra['log_forwarding_missing'] = $old }
     }
 
     $ne = @(Get-NotEvaluatedChecks -Snapshot $Snapshot -Extra $extra)
@@ -2178,6 +2268,7 @@ function Invoke-HostChecks {
         'policy'     = { Invoke-PolicyChecks $Snapshot $Config $can $role }
         'edr'        = { Invoke-EdrChecks $Snapshot $Config $can $role }
         'patching'   = { Invoke-PatchChecks $Snapshot $Config $can }
+        'exposure'   = { Invoke-ExposureChecks $Snapshot $Config $can $role }
     }
     foreach ($g in $groups.Keys) {
         # One broken group becomes a warning, not a lost report.
@@ -3493,6 +3584,417 @@ function Invoke-PatchChecks {
             }
         }
     }
+    if ((& $can 'reboot_overdue') -and $S.host.os.lastBootUtc) {
+        $up = Get-AgeDays $S.host.os.lastBootUtc
+        $rp = $S.patches.rebootPending
+        $pending = @()
+        if ($rp -and $rp.cbs -eq $true) { $pending += 'Component Based Servicing' }
+        if ($rp -and $rp.windowsUpdate -eq $true) { $pending += 'Windows Update' }
+        $sev = ''
+        if ($null -ne $up -and $up -gt 60) { $sev = 'Medium' } elseif ($null -ne $up -and $up -gt 30) { $sev = 'Low' }
+        if ($pending.Count -gt 0 -and $null -ne $up -and $up -gt 7) { $sev = 'Medium' }
+        if ($sev) {
+            Add-Finding -Type 'reboot_overdue' -Object 'restart' -Severity $sev -Found "up $up days$(if ($pending.Count) { ', restart pending' })" -Expected 'restart after updates' -Detail "Last restart $((ConvertTo-UtcDate $S.host.os.lastBootUtc).ToString('yyyy-MM-dd')), $up days before collection$(if ($pending.Count) { "; a restart is pending to finish installing updates ($($pending -join ', '))" })."
+        }
+    }
+}
+
+# --------------------------------------------------------------------------
+# Credentials left on the host, persistence points, trust and exposure
+# --------------------------------------------------------------------------
+# Built-in names of the persistence points: Windows' own entries, so only additions are judged. A DLL
+# signed by Microsoft (Valid) is also Windows' own.
+$script:StockLsaPackages = @('kerberos', 'msv1_0', 'schannel', 'wdigest', 'tspkg', 'pku2u', 'cloudap', 'negoexts', 'scecli', 'rassfm', 'kdcsvc', 'livessp')
+$script:StockPrintMonitorDlls = @('appmon.dll', 'localspl.dll', 'fxsmon.dll', 'tcpmon.dll', 'usbmon.dll', 'virtualmon.dll', 'apmon.dll', 'wsdmon.dll')
+$script:StockNetshHelpers = @('2', '4', 'ifmon', 'rasmontr', 'authfwcfg', 'dhcpcmonitor', 'nshdnsclient', 'dot3cfg', 'fwcfg', 'hnetmon', 'netiohlp', 'netprofm', 'nettrace', 'nshhttp', 'nshipsec', 'nshwfp', 'rpcnsh', 'wcnnetsh', 'whhelper', 'wlancfg', 'wshelper', 'wwancfg', 'p2pnetsh', 'peerdistsh')
+# The accessibility programs the logon screen starts: a debugger on them is a SYSTEM prompt without a password.
+$script:LogonScreenTools = @('sethc.exe', 'utilman.exe', 'osk.exe', 'narrator.exe', 'magnify.exe', 'displayswitch.exe', 'atbroker.exe')
+# Roots that ship with Windows but are not (or no longer) in Microsoft's trusted root list.
+$script:DefaultRootThumbprints = @(
+    'CDD4EEAE6000AC7F40C3802C171E30148030C072', 'A43489159A520F0D93D032CCAF37E7FE20A8B419', '92B46C76E13054E104F230517E6E504D43AB10B5',
+    '8F43288AD272F3103B6FB1428485EA3014C0BCFE', '7F88CD7223F3C813818C994614A89C99FA3B5247', '3B1EFD3A66EA28B16697394703A72CA340A05BD5',
+    '31F9FC8BA3805986B721EA7295C65B3A44534274', '245C97DF7514E7CF2DF8BE72AE957B9E04741E85', '06F1AA330B927B753A40E68CDF22E34BCBEF3352',
+    '0119E81BE9A14CD8E22F40AC118C687ECBA3F4D8', 'F40042E2E5F7E8EF8189FED15519AECE42C3BFA2', '73A5E64A3BFF8316FF0EDCCC618A906E4EAE4D74',
+    '18F7C1FCC3090203FD5BAA2F861A754976C8DD25', 'BE36A4562FB2EE05DBB3D32323ADF445084ED656'
+)
+# Remote access and remote management tools, by service (name or display name) and by Programs and
+# Features name. Key is what -AllowedRemoteTools matches, as is the Name.
+$script:RemoteAccessTools = @(
+    @{ Key = 'AnyDesk'; Name = 'AnyDesk'; Service = '^AnyDesk'; Software = '^AnyDesk\b' }
+    @{ Key = 'TeamViewer'; Name = 'TeamViewer'; Service = '^TeamViewer'; Software = '^TeamViewer\b' }
+    @{ Key = 'RustDesk'; Name = 'RustDesk'; Service = '^RustDesk'; Software = '^RustDesk\b' }
+    @{ Key = 'ScreenConnect'; Name = 'ConnectWise ScreenConnect'; Service = '^ScreenConnect Client|^ConnectWise Control'; Software = '^(ScreenConnect Client|ConnectWise Control Client)' }
+    @{ Key = 'Splashtop'; Name = 'Splashtop'; Service = '^Splashtop|^SplashtopRemoteService'; Software = '^Splashtop' }
+    @{ Key = 'LogMeIn'; Name = 'LogMeIn'; Service = '^LogMeIn|^LMIGuardianSvc'; Software = '^LogMeIn\b' }
+    @{ Key = 'GoTo'; Name = 'GoTo Resolve / GoToAssist'; Service = '^GoTo ?(Resolve|Assist)|^GoToAssist'; Software = '^GoTo ?(Resolve|Assist)' }
+    @{ Key = 'Atera'; Name = 'Atera'; Service = '^AteraAgent'; Software = '^AteraAgent\b' }
+    @{ Key = 'NinjaOne'; Name = 'NinjaOne'; Service = '^NinjaRMMAgent'; Software = '^NinjaRMMAgent\b' }
+    @{ Key = 'ChromeRemoteDesktop'; Name = 'Chrome Remote Desktop'; Service = '^chromoting$|^Chrome Remote Desktop'; Software = '^Chrome Remote Desktop Host' }
+    @{ Key = 'VNC'; Name = 'VNC server'; Service = '^(tvnserver|uvnc_service|vncserver|winvnc\d?|TigerVNC)$|VNC Server'; Software = '^(RealVNC|TightVNC|UltraVNC|TigerVNC|VNC Server)\b' }
+    @{ Key = 'Radmin'; Name = 'Radmin Server'; Service = '^RServer3$|^Radmin'; Software = '^Radmin Server' }
+    @{ Key = 'DameWare'; Name = 'DameWare Mini Remote Control'; Service = '^DWMRCS$|DameWare'; Software = '^DameWare' }
+    @{ Key = 'RemoteUtilities'; Name = 'Remote Utilities'; Service = '^RManService$'; Software = '^Remote Utilities' }
+    @{ Key = 'NetSupport'; Name = 'NetSupport Manager'; Service = '^Client32$|NetSupport'; Software = '^NetSupport (Manager|School)' }
+    @{ Key = 'MeshCentral'; Name = 'MeshCentral agent'; Service = '^Mesh Agent$'; Software = '^Mesh Agent\b' }
+    @{ Key = 'ZohoAssist'; Name = 'Zoho Assist'; Service = '^Zoho ?Assist'; Software = '^Zoho Assist' }
+    @{ Key = 'BeyondTrust'; Name = 'BeyondTrust Remote Support (Bomgar)'; Service = '^bomgar-|^BeyondTrust'; Software = '^(BeyondTrust Remote Support|Bomgar)' }
+    @{ Key = 'Supremo'; Name = 'Supremo'; Service = '^Supremo'; Software = '^Supremo\b' }
+    @{ Key = 'Ammyy'; Name = 'Ammyy Admin'; Service = '^Ammyy'; Software = '^Ammyy' }
+    @{ Key = 'AeroAdmin'; Name = 'AeroAdmin'; Service = '^AeroAdmin'; Software = '^AeroAdmin' }
+    @{ Key = 'Parsec'; Name = 'Parsec'; Service = '^Parsec$'; Software = '^Parsec\b' }
+    @{ Key = 'Action1'; Name = 'Action1'; Service = '^A1Agent$|^Action1'; Software = '^Action1 Agent' }
+    @{ Key = 'Kaseya'; Name = 'Kaseya VSA'; Service = '^Kaseya Agent'; Software = '^Kaseya Agent' }
+    @{ Key = 'N-able'; Name = 'N-able (SolarWinds MSP)'; Service = '^N-able|^Advanced Monitoring Agent'; Software = '^(N-able|Advanced Monitoring Agent)' }
+)
+# Log shipping agents, by service name or display name.
+$script:LogAgentServices = '(?i)^(SplunkForwarder|splunkd|Elastic Agent|winlogbeat|nxlog|WazuhSvc|OssecSvc|AzureMonitorAgent|HealthService|WinCollect|graylog-sidecar|fluent-bit|SnareCore|datadogagent|sumo-collector|scsm|ir_agent|cribl)$|Splunk Universal Forwarder|Elastic Agent|Winlogbeat|NXLog|Wazuh|Azure Monitor Agent|WinCollect|Graylog Sidecar|Fluent Bit|Snare|Datadog Agent|Sumo Logic|LogRhythm|Rapid7 Insight|ArcSight'
+
+function Test-StockSigner {
+    # A DLL Windows ships: signed by Microsoft, and the signature checks out.
+    param($Entry)
+    return ("$($Entry.status)" -eq 'Valid' -and "$($Entry.signer)" -match '^Microsoft ')
+}
+
+function Get-SignerText {
+    param($Entry)
+    if ($Entry.exists -eq $false) { return 'the file does not exist' }
+    if ("$($Entry.status)" -eq 'Valid' -and $Entry.signer) { return "signed by $($Entry.signer)" }
+    if ($Entry.signer) { return "signature by $($Entry.signer) not valid ($($Entry.status))" }
+    return 'not signed'
+}
+
+function Get-CertSubjectParts {
+    # The common name and organization of a distinguished name (quoted values included).
+    param([string]$Subject)
+    $get = { param($k) $m = [regex]::Match("$Subject", "(?:^|,\s*)$k=(""[^""]*""|[^,]*)"); if ($m.Success) { $m.Groups[1].Value.Trim().Trim('"') } else { '' } }
+    $cn = & $get 'CN'; $o = & $get 'O'; $ou = & $get 'OU'
+    return @{ CN = $cn; O = $o; OU = $ou }
+}
+
+function Get-CertSubjectShort {
+    param([string]$Subject)
+    $p = Get-CertSubjectParts $Subject
+    $name = if ($p.CN) { $p.CN } elseif ($p.OU) { $p.OU } else { "$Subject".Trim() }
+    if ($p.O -and $p.O -ne $name) { return "$name ($($p.O))" }
+    return $name
+}
+function Invoke-ExposureChecks {
+    param($S, $Config, $can, $role)
+    $ce = $S.credentialExposure
+    if ($ce) {
+        foreach ($u in @($ce.unattendFiles | Where-Object { $_ -and [int]$_.passwords -gt 0 })) {
+            if (& $can 'unattend_credentials') {
+                Add-Finding -Type 'unattend_credentials' -Object "file: $($u.path)" -Severity $(if ($u.domainJoin -eq $true) { 'Critical' } else { 'High' }) -Detail "$($u.passwords) password value(s) that setup did not remove$(if ($u.domainJoin -eq $true) { ', among them the credentials of the account that joins the domain' })."
+            }
+        }
+        foreach ($g in @($ce.gppFiles | Where-Object { $_ -and [int]$_.cpasswords -gt 0 })) {
+            if (& $can 'gpp_cpassword_cached') {
+                $sysvol = "$($g.path)" -match '(?i)\\SYSVOL\\'
+                Add-Finding -Type 'gpp_cpassword_cached' -Object "file: $($g.path)" -Detail "$($g.cpasswords) cpassword value(s) in a $($g.kind) preference$(if ($sysvol) { ', in SYSVOL: readable by every domain user' } else { ', in the copy Group Policy keeps on the host' })."
+            }
+        }
+        foreach ($p in @($ce.psHistory | Where-Object { $_ -and [int]$_.lines -gt 0 })) {
+            if (& $can 'powershell_history_secrets') {
+                Add-Finding -Type 'powershell_history_secrets' -Object "profile: $($p.profile)" -Detail "$($p.lines) line(s) of ConsoleHost_history.txt look like they hold a secret: $(@($p.kinds) -join ', ')."
+            }
+        }
+    }
+
+    if (& $can 'service_domain_account') {
+        $hostName = "$($S.host.name)"
+        $isDomain = {
+            param($acct)
+            $a = "$acct".Trim()
+            if (-not $a -or $a -match '\$$') { return $false }
+            if ($a -match '^(?<d>[^\\]+)\\(?<u>.+)$') {
+                $d = $Matches['d']
+                return ($d -ne '.' -and $d -ine $hostName -and $d -notmatch '(?i)^(NT AUTHORITY|NT SERVICE|BUILTIN|NT VIRTUAL MACHINE|Window Manager|Font Driver Host|IIS APPPOOL|AUTORITE NT|NT-AUTORIT.T|AUTORIDAD NT|AUTORIT. NT)$')
+            }
+            return ($a -match '^[^@\s]+@[^@\s]+\.[^@\s]+$')
+        }
+        $byAcct = [ordered]@{}
+        foreach ($sv in @($S.services | Where-Object { $_ -and (& $isDomain $_.account) })) {
+            $k = "$($sv.account)".ToLower()
+            if (-not $byAcct.Contains($k)) { $byAcct[$k] = @{ Name = "$($sv.account)"; Uses = @() } }
+            $byAcct[$k].Uses += "service $($sv.name) ($($sv.state))"
+        }
+        # A task stores the password only when it runs whether the user is logged on or not (logon type
+        # Password); an older collector did not record the logon type, so only the services are judged then.
+        foreach ($t in @($S.scheduledTasks | Where-Object { $_ -and $_.PSObject.Properties['logonType'] -and "$($_.logonType)" -eq 'Password' -and (& $isDomain $_.userId) })) {
+            $k = "$($t.userId)".ToLower()
+            if (-not $byAcct.Contains($k)) { $byAcct[$k] = @{ Name = "$($t.userId)"; Uses = @() } }
+            $byAcct[$k].Uses += "task $($t.path)$($t.name)"
+        }
+        foreach ($k in $byAcct.Keys) {
+            $e = $byAcct[$k]
+            $list = @($e.Uses | Select-Object -First 8)
+            Add-Finding -Type 'service_domain_account' -Object "account: $($e.Name)" -Detail "Password stored in the LSA secrets for $(@($e.Uses).Count) use(s): $($list -join '; ')$(if (@($e.Uses).Count -gt 8) { '; ...' })."
+        }
+    }
+
+    if (& $can 'kerberos_rc4_allowed') {
+        $v = $S.hardening.kerberosEncryptionTypes
+        if ($null -eq $v -or "$v" -eq '') {
+            Add-Finding -Type 'kerberos_rc4_allowed' -Object 'SupportedEncryptionTypes' -Detail 'SupportedEncryptionTypes not set (CIS 2.3.11.4 expects 2147483640).'
+        }
+        elseif ("$v" -match '^-?\d+$') {
+            $n = [int64]"$v"
+            if ($n -lt 0) { $n = $n + 4294967296 }
+            $weak = @()
+            if ($n -band 0x3) { $weak += 'DES' }
+            if ($n -band 0x4) { $weak += 'RC4' }
+            if ($weak.Count -gt 0) {
+                Add-Finding -Type 'kerberos_rc4_allowed' -Object 'SupportedEncryptionTypes' -Severity $(if ($weak -contains 'DES') { 'High' } else { 'Medium' }) -Detail "SupportedEncryptionTypes = $n (CIS 2.3.11.4 expects 2147483640): allows $($weak -join ' and ')."
+            }
+        }
+    }
+
+    $pe = $S.persistence
+    if ($pe) {
+        if (& $can 'persistence_wmi_subscription') {
+            foreach ($w in @($pe.wmiConsumers | Where-Object { $_ })) {
+                # Windows 7 / Server 2008 R2 ship one (BVTConsumer running KernCap.vbs).
+                if ("$($w.name)" -eq 'BVTConsumer' -and "$($w.command)" -match '(?i)KernCap\.vbs') { continue }
+                $what = if ("$($w.type)" -eq 'ActiveScriptEventConsumer') { "runs a $(if ($w.engine) { $w.engine } else { 'script' }) script$(if ($w.command) { " ($($w.command))" } elseif ([int]$w.scriptLength -gt 0) { " of $($w.scriptLength) characters stored in WMI" })" } else { "runs $($w.command)" }
+                Add-Finding -Type 'persistence_wmi_subscription' -Object "wmi consumer: $($w.name)" -Severity $(if ($w.bound -eq $true) { 'High' } else { 'Medium' }) -Detail "$($w.type) $what; $(if ($w.bound -eq $true) { "bound to the event filter $(if ($w.filter) { "'$($w.filter)'" } else { '(query not readable)' })" } else { 'no binding uses it' })."
+            }
+        }
+        if (& $can 'persistence_registry_hijack') {
+            $bits = { param($x) if ($x.wow64 -eq $true) { ' (32-bit)' } else { '' } }
+            foreach ($i in @($pe.ifeoDebuggers | Where-Object { $_ })) {
+                $logon = $script:LogonScreenTools -contains "$($i.image)".ToLower()
+                Add-Finding -Type 'persistence_registry_hijack' -Object "IFEO debugger: $($i.image)$(& $bits $i)" -Severity $(if ($logon) { 'High' } else { 'Medium' }) -Detail "Starting $($i.image) runs $($i.debugger) instead$(if ($logon) { ': the logon screen starts it as SYSTEM, before anyone signs in' })."
+            }
+            foreach ($i in @($pe.silentProcessExit | Where-Object { $_ })) {
+                Add-Finding -Type 'persistence_registry_hijack' -Object "SilentProcessExit: $($i.image)$(& $bits $i)" -Detail "When $($i.image) exits, Windows starts $($i.monitor)."
+            }
+            foreach ($a in @($pe.appInit | Where-Object { $_ -and "$($_.dlls)".Trim() -and "$($_.load)" -eq '1' })) {
+                Add-Finding -Type 'persistence_registry_hijack' -Object "AppInit_DLLs$(& $bits $a)" -Detail "LoadAppInit_DLLs = 1 and AppInit_DLLs = $($a.dlls): loaded into every program that uses user32.dll."
+            }
+            if ($pe.winlogon) {
+                $sh = "$($pe.winlogon.shell)".Trim()
+                if ($sh -and $sh -notmatch '(?i)^"?((%SystemRoot%|%windir%|[A-Z]:\\Windows)\\)?explorer(\.exe)?"?$') {
+                    Add-Finding -Type 'persistence_registry_hijack' -Object 'Winlogon Shell' -Found $sh -Expected 'explorer.exe' -Detail "Shell = ${sh}: started at every logon instead of (or with) explorer.exe."
+                }
+                $ui = "$($pe.winlogon.userinit)".Trim()
+                $other = @($ui.Split(',') | ForEach-Object { $_.Trim().Trim('"') } | Where-Object { $_ -and $_ -notmatch '(?i)^((%SystemRoot%|%windir%|[A-Z]:\\Windows)\\)?(system32\\)?userinit(\.exe)?$' })
+                if ($other.Count -gt 0) {
+                    Add-Finding -Type 'persistence_registry_hijack' -Object 'Winlogon Userinit' -Found $ui -Expected 'C:\Windows\system32\userinit.exe,' -Detail "Userinit = ${ui}: $($other -join ', ') runs at every logon."
+                }
+            }
+            if ($pe.lsa) {
+                foreach ($kind in @('security', 'authentication', 'notification')) {
+                    foreach ($l in @($pe.lsa.$kind | Where-Object { $_ })) {
+                        $n = "$($l.name)".ToLower() -replace '\.dll$', ''
+                        if ($script:StockLsaPackages -contains $n -or (Test-StockSigner $l)) { continue }
+                        $sev = if ($l.exists -eq $false) { 'Low' } elseif ("$($l.status)" -eq 'Valid' -and $l.signer) { 'Medium' } else { 'High' }
+                        Add-Finding -Type 'persistence_registry_hijack' -Object "LSA $kind package: $($l.name)" -Severity $sev -Detail "Loaded into LSASS at boot ($(Get-SignerText $l)): it sees the passwords typed at logon."
+                    }
+                }
+            }
+            foreach ($m in @($pe.printMonitors | Where-Object { $_ -and "$($_.driver)".Trim() })) {
+                $leaf = ("$($m.driver)".Trim().Trim('"') -split '[\\/]')[-1].ToLower()
+                if ($script:StockPrintMonitorDlls -contains $leaf -or (Test-StockSigner $m)) { continue }
+                $sev = if ($m.exists -eq $true -and "$($m.status)" -ne 'Valid') { 'Medium' } else { 'Low' }
+                Add-Finding -Type 'persistence_registry_hijack' -Object "print monitor: $($m.name)" -Severity $sev -Detail "The print spooler loads $($m.driver) as SYSTEM ($(Get-SignerText $m))."
+            }
+            foreach ($h in @($pe.netshHelpers | Where-Object { $_ -and "$($_.dll)".Trim() })) {
+                if ($script:StockNetshHelpers -contains "$($h.name)".ToLower() -or (Test-StockSigner $h)) { continue }
+                $sev = if ($h.exists -eq $true -and "$($h.status)" -ne 'Valid') { 'Medium' } else { 'Low' }
+                Add-Finding -Type 'persistence_registry_hijack' -Object "netsh helper: $($h.name)" -Severity $sev -Detail "netsh.exe loads $($h.dll) every time it runs ($(Get-SignerText $h))."
+            }
+        }
+    }
+
+    if ((& $can 'root_ca_added') -and $S.certificates) {
+        $listed = $S.certificates.microsoftListAvailable -eq $true
+        foreach ($c in @($S.certificates.roots | Where-Object { $_ -and "$($_.store)" -eq 'machine' })) {
+            $tp = "$($c.thumbprint)".ToUpper()
+            if ($c.inMicrosoftProgram -eq $true -or $script:DefaultRootThumbprints -contains $tp) { continue }
+            $sev = if ($c.hasPrivateKey -eq $true) { 'High' } elseif (-not $listed) { 'Low' } else { 'Medium' }
+            $exp = if ($c.notAfterUtc) { $d = ConvertTo-UtcDate $c.notAfterUtc; if ($d) { "$(if ($d -lt $script:RefDate) { 'expired' } else { 'valid until' }) $($d.ToString('yyyy-MM-dd'))" } }
+            $notes = @($(if ($c.subject) { Get-CertSubjectShort "$($c.subject)" } else { 'subject not readable' }))
+            if ($exp) { $notes += $exp }
+            if ($c.hasPrivateKey -eq $true) { $notes += 'its private key is on this host' }
+            if (-not $listed) { $notes += 'Microsoft''s trusted root list is not on the host' }
+            Add-Finding -Type 'root_ca_added' -Object "root CA: $tp" -Severity $sev -Detail "$($notes -join '; ')."
+        }
+    }
+
+    if ((& $can 'remote_access_tool') -and (@($S.services | Where-Object { $_ }).Count -gt 0 -or @($S.software | Where-Object { $_ }).Count -gt 0)) {
+        $allowed = @($Config.AllowedRemoteTools | Where-Object { $_ })
+        foreach ($t in $script:RemoteAccessTools) {
+            $hits = @()
+            foreach ($sv in @($S.services | Where-Object { $_ -and ("$($_.name)" -match $t.Service -or "$($_.displayName)" -match $t.Service) })) { $hits += "service $($sv.name) ($($sv.state), start mode $($sv.startMode))" }
+            foreach ($sw in @($S.software | Where-Object { $_ -and "$($_.name)" -match $t.Software })) { $hits += "installed $($sw.name)$(if ($sw.version) { " $($sw.version)" })" }
+            if ($hits.Count -eq 0) { continue }
+            $ok = @($allowed | Where-Object { $t.Key -ieq "$_" -or $t.Name -like "*$_*" }).Count -gt 0
+            if ($ok) { continue }
+            $sev = if ($allowed.Count -gt 0) { 'Medium' } else { 'Low' }
+            Add-Finding -Type 'remote_access_tool' -Object "tool: $($t.Name)" -Severity $sev -Detail "$(@($hits | Select-Object -Unique) -join '; ')$(if ($allowed.Count -gt 0) { " (not in -AllowedRemoteTools: $($allowed -join ', '))" } else { ' (no -AllowedRemoteTools list: verify that it is approved)' })."
+        }
+    }
+
+    if ((& $can 'wifi_profile_insecure') -and $S.wifi) {
+        $worst = [ordered]@{}
+        $rank = @{ Low = 1; Medium = 2 }
+        foreach ($w in @($S.wifi | Where-Object { $_ -and $_.name })) {
+            $auth = "$($w.authentication)".ToLower(); $enc = "$($w.encryption)".ToLower()
+            $auto = "$($w.connectionMode)" -ieq 'auto'
+            $sev = ''; $why = ''
+            if ($auth -eq 'owe') { continue }
+            if ($enc -eq 'wep' -or $auth -eq 'shared') { $sev = 'Medium'; $why = 'WEP encryption (broken: the key is recovered in minutes)' }
+            elseif ($auth -eq 'open' -and $enc -eq 'none') { $sev = $(if ($auto) { 'Medium' } else { 'Low' }); $why = 'open network, no encryption' }
+            elseif ($enc -eq 'tkip') { $sev = 'Low'; $why = "$($w.authentication) with TKIP (deprecated)" }
+            if (-not $sev) { continue }
+            $k = "$($w.name)"
+            if ($worst.Contains($k) -and $rank[$worst[$k].Sev] -ge $rank[$sev]) { continue }
+            $worst[$k] = @{ Sev = $sev; Text = "$why; connects $(if ($auto) { 'automatically' } else { 'manually' })$(if ($w.nonBroadcast -eq $true) { '; hidden network (the host calls its name everywhere)' })." }
+        }
+        foreach ($k in $worst.Keys) { Add-Finding -Type 'wifi_profile_insecure' -Object "Wi-Fi: $k" -Severity $worst[$k].Sev -Detail $worst[$k].Text }
+    }
+
+    $svcs = @($S.services | Where-Object { $_ })
+    if ($svcs.Count -gt 0) {
+        $edr = @(Get-EdrInventory -Snapshot $S -ExtraServices @($Config.ExtraEdrServices) | Where-Object { $_.State -eq 'running' })
+        if ((& $can 'log_forwarding_missing') -and $edr.Count -eq 0 -and $S.hardening.wefSubscriptionManager -ne $true) {
+            $agents = @($svcs | Where-Object { ("$($_.name)" -match $script:LogAgentServices -or "$($_.displayName)" -match $script:LogAgentServices) -and ("$($_.state)" -eq 'Running' -or "$($_.startMode)" -eq 'Auto') })
+            if ($agents.Count -eq 0) {
+                Add-Finding -Type 'log_forwarding_missing' -Object 'event logs' -Severity $(if ($role -eq 'workstation') { 'Low' } else { 'Medium' }) -Detail "No Windows Event Forwarding subscription manager set by policy, no known log shipping agent and no running EDR agent among the $($svcs.Count) services."
+            }
+        }
+        if ((& $can 'sysmon_missing') -and $edr.Count -eq 0) {
+            $sysmon = @($svcs | Where-Object { "$($_.name)" -match '(?i)^Sysmon(64)?$' -or "$($_.displayName)" -match '(?i)^Sysmon' }).Count -gt 0
+            if (-not $sysmon -and $S.drivers) { $sysmon = @($S.drivers.list | Where-Object { $_ -and "$($_.name)" -ieq 'SysmonDrv' }).Count -gt 0 }
+            if (-not $sysmon) { Add-Finding -Type 'sysmon_missing' -Object 'Sysmon' -Detail "No Sysmon service or driver and no running EDR agent among the $($svcs.Count) services." }
+        }
+    }
+}
+
+# --------------------------------------------------------------------------
+# Fleet: what only a view of several hosts shows
+# --------------------------------------------------------------------------
+# The sections compared by config_drift: settings, not inventory. Values that are per host by nature
+# (dates, counts, names, versions) are left out.
+$script:DriftSections = @('credentialProtection', 'uac', 'powershell', 'hardening')
+$script:DriftSkip = '(?i)(Utc|Date|Count|Name|Version|Path|Installed|Running|Status|Sid)$|^hardening\.(officeInstalled|is64BitOs)$'
+
+function Get-DriftValues {
+    # Flattens the scalar settings of a snapshot to path -> text; lists are skipped.
+    param($Snapshot)
+    $out = @{}
+    $walk = {
+        param($obj, $prefix, $depth)
+        if ($null -eq $obj -or $depth -gt 3) { return }
+        foreach ($p in $obj.PSObject.Properties) {
+            $path = "$prefix.$($p.Name)"
+            $v = $p.Value
+            if ($v -is [System.Array] -or $v -is [System.Collections.IList]) { continue }
+            if ($v -is [System.Management.Automation.PSCustomObject]) { & $walk $v $path ($depth + 1); continue }
+            if ($path -match $script:DriftSkip -or $p.Name -match $script:DriftSkip) { continue }
+            $out[$path] = $(if ($null -eq $v) { 'not set' } else { "$v" })
+        }
+    }
+    foreach ($sec in $script:DriftSections) { if ($Snapshot.$sec) { & $walk $Snapshot.$sec $sec 0 } }
+    return $out
+}
+
+function Invoke-FleetChecks {
+    # Snapshots: one per host. NotEvaluated: host name -> list of check types not evaluated there.
+    # Returns the findings; each carries its own host.
+    param([object[]]$Snapshots, [hashtable]$NotEvaluated = @{}, $Config)
+    $script:Findings = New-Object System.Collections.Generic.List[object]
+    $snaps = @($Snapshots | Where-Object { $_ })
+    if ($snaps.Count -lt 2) { return }
+    $can = {
+        param($s, $t)
+        $r = Get-SnapshotRole $s
+        $ne = $NotEvaluated[(Get-SnapshotHostName $s)]
+        (-not ($ne -and @($ne) -contains $t)) -and ($r -eq 'unknown' -or $script:CheckCatalog[$t].Roles -contains $r)
+    }
+    $enter = {
+        param($s)
+        $script:CurrentHost = Get-SnapshotHostName $s
+        $script:RefDate = ConvertTo-UtcDate $s.meta.collectedAtUtc
+        $script:CurrentRole = Get-SnapshotRole $s
+        $script:CisBench = Get-CisBenchmark $s
+    }
+    $others = {
+        param($names)
+        $l = @($names | Sort-Object)
+        "$($l.Count) other host(s): $(@($l | Select-Object -First 10) -join ', ')$(if ($l.Count -gt 10) { ', ...' })"
+    }
+
+    # Same local account, password set at the same second on several hosts: one image or one script set it.
+    $groups = @{}
+    foreach ($s in @($snaps | Where-Object { & $can $_ 'local_admin_password_shared' })) {
+        foreach ($u in @($s.localAccounts.users | Where-Object { $_ -and $_.enabled -eq $true -and $_.passwordLastSetUtc })) {
+            $d = ConvertTo-UtcDate $u.passwordLastSetUtc
+            if (-not $d) { continue }
+            $who = if ("$($u.sid)" -match '-500$') { 'rid500' } else { "$($u.name)".ToLower() }
+            $k = "$who|$($d.ToString('yyyyMMddHHmmss'))"
+            if (-not $groups.ContainsKey($k)) { $groups[$k] = New-Object System.Collections.Generic.List[object] }
+            $groups[$k].Add(@{ Snap = $s; User = $u; When = $d })
+        }
+    }
+    foreach ($k in $groups.Keys) {
+        $g = $groups[$k].ToArray()
+        $names = @($g | ForEach-Object { Get-SnapshotHostName $_.Snap } | Select-Object -Unique)
+        if ($names.Count -lt 2) { continue }
+        foreach ($e in $g) {
+            & $enter $e.Snap
+            $me = $script:CurrentHost
+            Add-Finding -Type 'local_admin_password_shared' -Object "account: $($e.User.name)" -Detail "$(if ("$($e.User.sid)" -match '-500$') { 'Built-in Administrator (RID 500)' } else { "Local account $($e.User.name)" }), password set $($e.When.ToString('yyyy-MM-dd HH:mm:ss')) UTC here and on $(& $others @($names | Where-Object { $_ -ne $me }))."
+        }
+    }
+
+    # Cloned without Sysprep: the same machine SID.
+    $bySid = @{}
+    foreach ($s in @($snaps | Where-Object { $_.host.machineSid -and (& $can $_ 'machine_sid_duplicate') })) {
+        $k = "$($s.host.machineSid)"
+        if (-not $bySid.ContainsKey($k)) { $bySid[$k] = New-Object System.Collections.Generic.List[object] }
+        $bySid[$k].Add($s)
+    }
+    foreach ($k in $bySid.Keys) {
+        $g = $bySid[$k].ToArray()
+        if ($g.Count -lt 2) { continue }
+        foreach ($s in $g) {
+            & $enter $s
+            $me = $script:CurrentHost
+            Add-Finding -Type 'machine_sid_duplicate' -Object 'machine SID' -Detail "Same machine SID as $(& $others @($g | ForEach-Object { Get-SnapshotHostName $_ } | Where-Object { $_ -ne $me }))."
+        }
+    }
+
+    # Drift from the majority of the hosts with the same role (at least five of them).
+    foreach ($rg in @($snaps | Where-Object { & $can $_ 'config_drift' } | Group-Object { Get-SnapshotRole $_ })) {
+        $members = @($rg.Group)
+        if ($members.Count -lt 5) { continue }
+        $vals = @{}
+        foreach ($s in $members) { $vals[(Get-SnapshotHostName $s)] = Get-DriftValues $s }
+        $paths = @{}
+        foreach ($v in $vals.Values) { foreach ($p in $v.Keys) { $paths[$p] = $true } }
+        $diffs = @{}
+        foreach ($p in ($paths.Keys | Sort-Object)) {
+            $have = @($vals.Keys | Where-Object { $vals[$_].ContainsKey($p) })
+            if ($have.Count -lt 5) { continue }
+            $top = @($have | Group-Object { $vals[$_][$p] } | Sort-Object Count -Descending)[0]
+            if ($top.Count / $have.Count -lt 0.8 -or $top.Count -eq $have.Count) { continue }
+            foreach ($n in $have) {
+                if ($vals[$n][$p] -ne $top.Name) {
+                    if (-not $diffs.ContainsKey($n)) { $diffs[$n] = @() }
+                    $diffs[$n] += "$p = $($vals[$n][$p]) (fleet: $($top.Name))"
+                }
+            }
+        }
+        foreach ($s in $members) {
+            $n = Get-SnapshotHostName $s
+            if (-not $diffs.ContainsKey($n)) { continue }
+            & $enter $s
+            $l = @($diffs[$n])
+            Add-Finding -Type 'config_drift' -Object 'fleet baseline' -NoScore -Detail "$($l.Count) setting(s) differ from at least 80% of the $($members.Count) $($rg.Name) hosts: $(@($l | Select-Object -First 15) -join '; ')$(if ($l.Count -gt 15) { "; and $($l.Count - 15) more" })."
+        }
+    }
+    return $script:Findings.ToArray()
 }
 
 # --------------------------------------------------------------------------

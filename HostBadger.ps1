@@ -133,6 +133,10 @@
 .PARAMETER ExtraEdrServices
     Names of services that belong to an EDR that HostBadger does not know, so that they are
     counted as an agent (and flagged if they are stopped).
+.PARAMETER AllowedRemoteTools
+    The remote access tools the organization approves (AnyDesk, TeamViewer, ScreenConnect, VNC,
+    NinjaOne...: the tool's key or part of its name). Others found are Medium; without the list,
+    every remote access tool found is Low, to be verified.
 .PARAMETER MaxPatchAgeDays
     Days without an installed update before updates_stale (default 45).
 .PARAMETER MaxSignatureAgeDays
@@ -189,6 +193,7 @@ param(
     [int]$MinSecurityLogKB = 196608,
     [string[]]$ExpectedEdr = @(),
     [string[]]$ExtraEdrServices = @(),
+    [string[]]$AllowedRemoteTools = @(),
     [string]$OutRemediation = '',
     [switch]$PerHost,
     [switch]$SkipStig,
@@ -250,6 +255,7 @@ $config = @{
     SupportWarningDays = $SupportWarningDays; MaxCachedLogonsWorkstation = $MaxCachedLogonsWorkstation
     MaxCachedLogonsServer = $MaxCachedLogonsServer; MinSecurityLogKB = $MinSecurityLogKB
     ExpectedEdr = @($ExpectedEdr); ExtraEdrServices = @($ExtraEdrServices); SoftwareGraceDays = $SoftwareGraceDays
+    AllowedRemoteTools = @($AllowedRemoteTools)
 }
 
 $stamp = (Get-Date).ToString('yyyyMMdd_HHmmss')
@@ -516,6 +522,14 @@ try {
             Write-Host "  $($hosts[$hosts.Count - 1].Name): collected as a standard user; $(@($r.NotEvaluated).Count) check(s) not evaluated. Collect as SYSTEM or administrator for full coverage." -ForegroundColor Yellow
         }
     }
+    # Fleet checks: findings that need several hosts (shared local passwords, cloned machine SIDs, drift).
+    Step-Spinner 'Analyzing the fleet'
+    $neByHost = @{}
+    foreach ($h in $hosts) { $neByHost[$h.Name] = @($h.NotEvaluated | ForEach-Object { $_.Type }) }
+    foreach ($f in @(Invoke-FleetChecks -Snapshots @($latest.Values) -NotEvaluated $neByHost -Config $config)) {
+        $allFindings.Add($f)
+        foreach ($h in $hosts) { if ($h.Name -eq $f.Host) { $h.Findings = @($h.Findings) + @($f) } }
+    }
     Stop-Spinner
     $script:RunHosts = @($hosts | ForEach-Object { $_.Name })
 
@@ -546,8 +560,8 @@ try {
     Step-Spinner 'Writing the findings CSV'
     Export-FindingsCsv -Findings $split.Active -Path $OutCsv
     if ($OutJsonl) { Export-FindingsJsonl -Findings $split.Active -Hosts $hosts -Path $OutJsonl -ToolVersion $script:HostBadgerVersion -Comparison $comparison }
-    $elapsed = (Get-Date) - $started
-    $elapsedText = if ($elapsed.TotalMinutes -ge 1) { '{0}m {1}s' -f [int][Math]::Floor($elapsed.TotalMinutes), $elapsed.Seconds } else { '{0:N1}s' -f $elapsed.TotalSeconds }
+    $fmtElapsed = { param($span) if ($span.TotalMinutes -ge 1) { '{0}m {1}s' -f [int][Math]::Floor($span.TotalMinutes), $span.Seconds } else { '{0:N1}s' -f $span.TotalSeconds } }
+    $elapsedText = & $fmtElapsed ((Get-Date) - $started)
     Step-Spinner 'Building the HTML report'
     $html = ConvertTo-ReportHtml -Hosts $hosts.ToArray() -Split $split -Comparison $comparison -Config $config -ToolVersion $script:HostBadgerVersion -ElapsedText $elapsedText -Remediation $remInfo -HideCis:$HideCis -HideStig:$HideStig -KevLoaded:([bool]$config.Kev)
     $htmlFull = [System.IO.Path]::GetFullPath($OutHtml)
@@ -651,12 +665,15 @@ try {
     else { Write-Host "AI prompt kept at $promptFile ($maskedCount identifiers pseudonymized)" }
     if (-not $ApiKey) { Write-Host 'ERROR: no API key (-ApiKey or GEMINI_API_KEY). Deterministic report kept as is.' -ForegroundColor Red; return }
 
+    $aiStarted = Get-Date
     $raw = Invoke-GeminiAnalysis -UserPrompt $userPrompt -ApiKey $ApiKey -Model $Model -MaxAttempts $AiMaxAttempts
     if (-not $raw) { Write-Host "AI step failed; deterministic report kept at $OutHtml." -ForegroundColor Yellow; return }
     $responseFile = Get-AiSidecarPath $htmlFull '_ai_response.json'
     Write-AiResponseFile -Path $responseFile -Raw $raw
     Write-Host "Gemini reply (still pseudonymized) kept at $responseFile"
     $aiResult = ConvertFrom-AiResponse -Raw $raw -Pz $pz -Findings $aiFindings -Model $Model
+    # Time spent waiting for Gemini (retries included), shown next to the analysis time.
+    $aiResult | Add-Member -NotePropertyName ElapsedText -NotePropertyValue (& $fmtElapsed ((Get-Date) - $aiStarted)) -Force
 
     $html = ConvertTo-ReportHtml -Hosts $hosts.ToArray() -Split $split -Comparison $comparison -Config $config -ToolVersion $script:HostBadgerVersion -ElapsedText $elapsedText -AiResult $aiResult -Remediation $remInfo -HideCis:$HideCis -HideStig:$HideStig -KevLoaded:([bool]$config.Kev)
     [System.IO.File]::WriteAllText($htmlFull, $html, (New-Object System.Text.UTF8Encoding($false)))

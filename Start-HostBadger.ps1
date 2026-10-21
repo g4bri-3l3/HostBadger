@@ -325,7 +325,7 @@ function New-GlobalSettings {
         SnapshotDir = ''; SkipAcl = $false; CheckUpdates = $false; Encrypt = 'ask'; Certificate = ''
         ReportDir = 'output'; PerHost = $true; SkipStig = $false; HideCis = $false; HideStig = $false
         Kev = 'kept'; KevFile = ''; Drivers = 'kept'; Eol = 'kept'; Choco = 'kept'; Cve = 'kept'
-        Jsonl = $false; Remediation = $false; ExceptionsFile = ''; AllowedAdmins = ''; ExpectedEdr = ''
+        Jsonl = $false; Remediation = $false; ExceptionsFile = ''; AllowedAdmins = ''; ExpectedEdr = ''; AllowedRemoteTools = ''
         Ai = 'A'; AiIncludeStig = $false; Model = ''; AiMaxAttempts = ''
     }
 }
@@ -402,6 +402,8 @@ function Set-GlobalAnalysisParams {
     if ($adm.Count) { $Ap['AllowedAdmins'] = $adm }
     $edr = @("$($S.ExpectedEdr)" -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     if ($edr.Count) { $Ap['ExpectedEdr'] = $edr }
+    $rat = @("$($S.AllowedRemoteTools)" -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    if ($rat.Count) { $Ap['AllowedRemoteTools'] = $rat }
 }
 
 # Menu 8: the saved answers, numbered, as on the review screen of an analysis. Enter saves, a number
@@ -432,6 +434,7 @@ function Edit-GlobalSettings {
         $items.Add(@('ExceptionsFile', 'Exceptions file', (& $orElse $s.ExceptionsFile 'no'), ''))
         $items.Add(@('AllowedAdmins', 'Allowed administrators', (& $orElse $s.AllowedAdmins 'none'), ''))
         $items.Add(@('ExpectedEdr', 'Expected EDR', (& $orElse $s.ExpectedEdr 'none'), ''))
+        $items.Add(@('AllowedRemoteTools', 'Approved remote tools', (& $orElse $s.AllowedRemoteTools 'none'), ''))
         $items.Add(@('Ai', 'AI summary (Gemini)', $script:AiModes["$($s.Ai)"], 'AI summary'))
         $items.Add(@('AiIncludeStig', 'Send STIG findings', (& $yn $s.AiIncludeStig), ''))
         $items.Add(@('Model', 'Gemini model', (& $orElse $s.Model 'the default'), ''))
@@ -481,6 +484,7 @@ function Edit-GlobalSettings {
             }
             'AllowedAdmins' { $v = "$(Read-Host 'Allowed local administrators, comma separated ("-" for none)')".Trim(); if ($v -eq '-') { $s[$k] = '' } elseif ($v) { $s[$k] = $v } }
             'ExpectedEdr' { $v = "$(Read-Host 'EDR every host should run, comma separated ("-" for none)')".Trim(); if ($v -eq '-') { $s[$k] = '' } elseif ($v) { $s[$k] = $v } }
+            'AllowedRemoteTools' { $v = "$(Read-Host 'Approved remote access tools, comma separated ("-" for none)')".Trim(); if ($v -eq '-') { $s[$k] = '' } elseif ($v) { $s[$k] = $v } }
             'Ai' {
                 $v = "$(Read-Host $script:AiModePrompt)".Trim().ToUpper()
                 if (-not $v) { $v = 'A' }
@@ -701,6 +705,9 @@ function Get-AnalysisParams {
         Write-Host "`nEDR: HostBadger shows which known EDR agent each host runs (CrowdStrike, SentinelOne, Defender for Endpoint, Carbon Black, Cortex XDR, Sophos, Trend Micro and others) and flags one that is stopped. Name the one every host should have and a host without it is flagged too." -ForegroundColor DarkGray
         $edr = Read-Line "EDR every host should run, e.g. CrowdStrike or SentinelOne, comma separated (Enter = none)"
         if ($edr.Trim()) { $ap['ExpectedEdr'] = @($edr -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+        Write-Host "`nRemote access tools: HostBadger reports AnyDesk, TeamViewer, ScreenConnect, VNC, RustDesk and other remote access tools it finds. Name the ones the organization approves and only the others are reported (as Medium); without a list every one found is Low, to be verified." -ForegroundColor DarkGray
+        $rat = Read-Line "Approved remote access tools, e.g. TeamViewer, ScreenConnect, comma separated (Enter = none)"
+        if ($rat.Trim()) { $ap['AllowedRemoteTools'] = @($rat -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
     }
     # Everything asked: show it, and let any answer be changed before the run.
     $ap = Edit-AnalysisParams $ap
@@ -726,6 +733,7 @@ function Edit-AnalysisParams {
         Compare = 'Findings CSV of an earlier run, to show new and resolved (optional, Enter to skip)'; Exceptions = 'Exceptions file (accepted risks, optional, Enter to skip)'
         Admins = 'Allowed local administrators, e.g. CORP/Workstation Admins, CORP/helpdesk (Enter = none)'
         Edr = 'EDR every host should run, e.g. CrowdStrike or SentinelOne, comma separated (Enter = none)'
+        Rat = 'Approved remote access tools, e.g. TeamViewer, ScreenConnect, comma separated (Enter = none)'
     }
     $flag = { param($k, $on, [string]$Key, [string]$OnText, [string]$OffText) if ($on) { $Ap[$k] = $true } else { $Ap.Remove($k) }; Set-WizardValue $Key $(if ($on) { $OnText } else { $OffText }) }
     $yn = { param($b) if ($b) { 'yes' } else { 'no' } }
@@ -745,6 +753,7 @@ function Edit-AnalysisParams {
         $items.Add(@('Exceptions', 'Exceptions file', $(if ($Ap['ExceptionsFile']) { $Ap['ExceptionsFile'] } else { 'no' })))
         $items.Add(@('Admins', 'Allowed administrators', $(if ($Ap['AllowedAdmins']) { @($Ap['AllowedAdmins']) -join ', ' } else { 'none' })))
         $items.Add(@('Edr', 'Expected EDR', $(if ($Ap['ExpectedEdr']) { @($Ap['ExpectedEdr']) -join ', ' } else { 'none' })))
+        $items.Add(@('Rat', 'Approved remote tools', $(if ($Ap['AllowedRemoteTools']) { @($Ap['AllowedRemoteTools']) -join ', ' } else { 'none' })))
         # The AI step is listed only with the global settings, which hold a mode for it.
         if ($script:RunAi) { $items.Add(@('Ai', 'AI summary (Gemini)', $script:AiModes[$script:RunAi])) }
         Write-Host "`nSettings for this run$(if ($script:UseGlobal) { ' (from the global settings)' }):" -ForegroundColor Cyan
@@ -795,6 +804,10 @@ function Edit-AnalysisParams {
             'Edr' {
                 $v = "$(Read-Host 'EDR every host should run, comma separated ("-" for none)')".Trim()
                 if ($v -eq '-') { $Ap.Remove('ExpectedEdr'); Set-WizardValue $q.Edr '' } elseif ($v) { $Ap['ExpectedEdr'] = @($v -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }); Set-WizardValue $q.Edr $v }
+            }
+            'Rat' {
+                $v = "$(Read-Host 'Approved remote access tools, comma separated ("-" for none)')".Trim()
+                if ($v -eq '-') { $Ap.Remove('AllowedRemoteTools'); Set-WizardValue $q.Rat '' } elseif ($v) { $Ap['AllowedRemoteTools'] = @($v -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }); Set-WizardValue $q.Rat $v }
             }
             'Ai' { $v = "$(Read-Host $script:AiModePrompt)".Trim().ToUpper(); if (-not $v) { $v = 'A' }; if ($script:AiModes.Contains($v)) { $script:RunAi = $v } }
         }
@@ -919,18 +932,59 @@ function Invoke-BloatwareStep {
     if ($removed.Count) { [System.IO.File]::WriteAllText((Join-Path $Run 'removed_apps.json'), (ConvertTo-Json -InputObject @($removed)), (New-Object System.Text.UTF8Encoding($false))) }
 }
 
+# Snapshots of this machine already taken (by menu 1, an earlier remediation, the global snapshot folder):
+# one can be used instead of collecting again. Asked only when there is one, so the answer lists of the
+# tests do not shift. Returns Path '' to collect again.
+function Select-OwnSnapshot {
+    $me = $env:COMPUTERNAME -replace '[^\w\-]', '_'
+    $g = Read-GlobalSettings
+    $dirs = @((Join-Path $PWD.Path 'snapshots'), (Join-Path $root 'snapshots'), $script:RemediationRoot)
+    if ($g -and "$($g.SnapshotDir)".Trim()) { $dirs += "$($g.SnapshotDir)".Trim() }
+    $seen = @{}
+    $found = @(foreach ($d in $dirs) {
+        if ($seen.ContainsKey("$d".ToLower()) -or -not (Test-Path -LiteralPath $d)) { continue }
+        $seen["$d".ToLower()] = $true
+        Get-SnapshotList -Dir $d -Recurse | Where-Object { $_.Host -ieq $me }
+    })
+    $found = @($found | Sort-Object Path -Unique | Sort-Object When -Descending | Select-Object -First 5)
+    if ($found.Count -eq 0) { return [PSCustomObject]@{ Path = ''; Kind = '' } }
+    Write-Host "`nSnapshots of this machine already taken: start from one to skip the collection (the analysis runs again, a few seconds, to write the fix script). The fix script reads the current values before changing anything, so an older snapshot is safe; it only misses what changed since." -ForegroundColor DarkGray
+    for ($i = 0; $i -lt $found.Count; $i++) {
+        $f = $found[$i]
+        $age = [Math]::Floor(((Get-Date).ToUniversalTime() - $f.When).TotalHours)
+        $ageText = if ($age -lt 1) { 'less than an hour ago' } elseif ($age -lt 48) { "$age hour(s) ago" } else { "$([Math]::Floor($age / 24)) day(s) ago" }
+        Write-Host ("  [{0}] {1:yyyy-MM-dd HH:mm} UTC  ({2})  {3}" -f ($i + 1), $f.When, $ageText, $f.Path)
+    }
+    $pick = "$(Read-Line 'Pick a number to start from that snapshot, or Enter to collect this machine again')".Trim()
+    if ($pick -match '^\d+$' -and [int]$pick -ge 1 -and [int]$pick -le $found.Count) { return $found[[int]$pick - 1] }
+    if ($pick) { Write-Host "There is no snapshot number ${pick}: collecting this machine again." -ForegroundColor Yellow }
+    return [PSCustomObject]@{ Path = ''; Kind = '' }
+}
+
 function Invoke-RemediateStep {
     if (-not (Test-IsAdmin)) { Write-Host 'Remediation changes system settings: start an elevated PowerShell (Run as administrator), or restart the menu as administrator, and choose it again.' -ForegroundColor Yellow; return }
-    Write-Host "`nRemediate this machine: HostBadger collects and analyzes this machine, then shows what its fix script would change. Only settings with a safe, reversible fix are in it (one value, the one the baseline expects, no organizational choice). Nothing changes until you type YES; a System Restore point comes first where Windows has one, and the script writes every previous value to a rollback file (menu 7 puts them back). Group Policy or Intune may set a value back on managed machines." -ForegroundColor DarkGray
+    Write-Host "`nRemediate this machine: HostBadger collects and analyzes this machine (or starts from a snapshot of it already taken), then shows what its fix script would change. Only settings with a safe, reversible fix are in it (one value, the one the baseline expects, no organizational choice). Nothing changes until you type YES; a System Restore point comes first where Windows has one, and the script writes every previous value to a rollback file (menu 7 puts them back). Group Policy or Intune may set a value back on managed machines." -ForegroundColor DarkGray
     if (-not (Test-Yes 'Continue? (y/N)')) { return }
+    $from = Select-OwnSnapshot
     $run = Join-Path $script:RemediationRoot (Ts)
     New-Item -ItemType Directory -Path $run -Force | Out-Null
     # Never resumed: an interrupted run is only explained at the next start (and option 7 offered).
     Start-WizardState 'remediate'; Set-WizardValue 'run' $run
-    Invoke-Sub 'Collect-HostSnapshot.ps1' @{ OutDir = $run }
-    $snap = @(Get-ChildItem -LiteralPath $run -Filter 'hostsnapshot_*.zip' -ErrorAction SilentlyContinue | Select-Object -First 1)
-    if ($snap.Count -eq 0) { Write-Host 'No snapshot produced; nothing changed.' -ForegroundColor Red; return }
-    Invoke-Sub 'HostBadger.ps1' @{ Snapshot = $snap[0].FullName; OutHtml = (Join-Path $run 'report.html'); OutRemediation = $run }
+    $hp = @{ OutHtml = (Join-Path $run 'report.html'); OutRemediation = $run }
+    if ($from.Path) {
+        $hp['Snapshot'] = $from.Path
+        if ($from.Kind -eq 'hbx') {
+            $pw = Read-Host 'Password of the encrypted snapshot (Enter if it is encrypted to a certificate)' -AsSecureString
+            if ($pw.Length -gt 0) { $hp['SnapshotPassword'] = $pw }
+        }
+    }
+    else {
+        Invoke-Sub 'Collect-HostSnapshot.ps1' @{ OutDir = $run }
+        $snap = @(Get-ChildItem -LiteralPath $run -Filter 'hostsnapshot_*.zip' -ErrorAction SilentlyContinue | Select-Object -First 1)
+        if ($snap.Count -eq 0) { Write-Host 'No snapshot produced; nothing changed.' -ForegroundColor Red; return }
+        $hp['Snapshot'] = $snap[0].FullName
+    }
+    Invoke-Sub 'HostBadger.ps1' $hp
     $fix = @(Get-ChildItem -LiteralPath $run -Filter 'remediate_*.ps1' -ErrorAction SilentlyContinue | Select-Object -First 1)
     if ($fix.Count -eq 0) { Write-Host 'No setting on this machine has a safe fix script.' -ForegroundColor Green }
     else {

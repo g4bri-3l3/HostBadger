@@ -162,7 +162,7 @@ $s = [ordered]@{
         tool = 'HostBadger'; kind = 'host'; computerName = $name; schemaVersion = 1; collectorVersion = '1.0'; synthetic = $true
         collectedAtUtc = $CollectedAtUtc; collectedBy = 'NT AUTHORITY\SYSTEM'; runningAsSystem = $true; runningAsAdmin = $true; psVersion = '5.1.20348.2849'
         options = [ordered]@{ skipAcl = $false; checkUpdates = $false }
-        sectionsCollected = @('host', 'patches', 'defender', 'bitlocker', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'audit', 'securityPolicy', 'hardening', 'stig', 'software', 'appx', 'services', 'drivers', 'scheduledTasks', 'autoruns')
+        sectionsCollected = @('host', 'patches', 'defender', 'bitlocker', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'audit', 'securityPolicy', 'hardening', 'stig', 'software', 'appx', 'services', 'drivers', 'scheduledTasks', 'autoruns', 'credentialExposure', 'persistence', 'certificates', 'wifi')
         collectionErrors = @()
     }
     host                 = [ordered]@{
@@ -170,7 +170,7 @@ $s = [ordered]@{
         manufacturer = 'Contoso'; model = 'Virtual'; hypervisor = $true
         os = [ordered]@{ caption = 'Microsoft Windows Server 2022 Standard'; version = '10.0.20348'; build = 20348; ubr = 4171; displayVersion = '21H2'; editionId = 'ServerStandard'; productType = 3; architecture = '64-bit'; installDateUtc = '2024-02-01T10:00:00Z'; lastBootUtc = '2026-09-20T03:00:00Z' }
     }
-    patches              = [ordered]@{ hotfixes = @([ordered]@{ id = 'KB5065306'; description = 'Security Update'; installedOnUtc = '2026-09-10T00:00:00Z' }); lastUpdateInstalledUtc = '2026-09-10T03:12:00Z' }
+    patches              = [ordered]@{ hotfixes = @([ordered]@{ id = 'KB5065306'; description = 'Security Update'; installedOnUtc = '2026-09-10T00:00:00Z' }); lastUpdateInstalledUtc = '2026-09-10T03:12:00Z'; rebootPending = [ordered]@{ cbs = $false; windowsUpdate = $false } }
     defender             = [ordered]@{ present = $true; amRunningMode = 'Normal'; amServiceEnabled = $true; antivirusEnabled = $true; realTimeProtectionEnabled = $true; behaviorMonitorEnabled = $true; ioavProtectionEnabled = $true; isTamperProtected = $true; signatureUpdatedUtc = '2026-09-30T22:00:00Z'; exclusionsReadable = $true; exclusionPaths = @(); exclusionExtensions = @(); exclusionProcesses = @(); asrRules = $allAsr; puaProtection = 1; networkProtection = 1; mapsReporting = 2; disableBlockAtFirstSeen = $false; disableScriptScanning = $false }
     bitlocker            = [ordered]@{ featureInstalled = $true; volumes = @([ordered]@{ mountPoint = 'C:'; volumeType = 'OperatingSystem'; protectionStatus = 'On'; volumeStatus = 'FullyEncrypted'; encryptionMethod = 'XtsAes256'; keyProtectors = @('Tpm', 'RecoveryPassword') }) }
     boot                 = [ordered]@{ secureBootEnabled = $true; firmware = 'UEFI' }
@@ -236,6 +236,7 @@ $s = [ordered]@{
         credentialsDelegation = [ordered]@{ allowProtectedCreds = 1; restrictedRemoteAdministration = 1; restrictedRemoteAdministrationType = 2 }
         officeInstalled = $true
         officeUserPolicy = @((OfficeProfile 1 3 2 2))
+        kerberosEncryptionTypes = 2147483640; wefSubscriptionManager = $true
     }
     # The baseline is a Windows Server 2022 member server; the scenarios set their own product.
     stig                 = Get-StigSection $stigMachine $stigUser ([ordered]@{ edge = $true; chrome = $true; firefox = $true; office = $true }) 'srv2022ms'
@@ -248,9 +249,24 @@ $s = [ordered]@{
     updatesPending       = $null
     services             = $baseServices
     drivers              = [ordered]@{ list = $baseDrivers; blocklistEnable = 1 }
-    scheduledTasks       = @([ordered]@{ path = '\'; name = 'Backup'; state = 'Ready'; userId = 'SYSTEM'; groupId = ''; runLevel = 'Highest'; author = 'CORP\backupadm'
+    scheduledTasks       = @([ordered]@{ path = '\'; name = 'Backup'; state = 'Ready'; userId = 'SYSTEM'; groupId = ''; logonType = 'ServiceAccount'; runLevel = 'Highest'; author = 'CORP\backupadm'
             actions = @([ordered]@{ execute = 'C:\Program Files\Backup\agent.exe'; arguments = '-p ***'; executable = 'C:\Program Files\Backup\agent.exe'; writableBy = @() }) })
     autoruns             = @([ordered]@{ location = 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'; name = 'SecurityHealth'; command = '%windir%\system32\SecurityHealthSystray.exe'; executable = 'C:\Windows\system32\SecurityHealthSystray.exe'; writableBy = @() })
+    # Nothing left on disk; Windows' own persistence entries, signed by Microsoft; no root added; one WPA2 network.
+    credentialExposure   = [ordered]@{ unattendFiles = @([ordered]@{ path = 'C:\Windows\Panther\unattend.xml'; passwords = 0; domainJoin = $false }); gppFiles = @(); psHistory = @() }
+    persistence          = [ordered]@{
+        wmiConsumers = @(); ifeoDebuggers = @(); silentProcessExit = @()
+        appInit = @([ordered]@{ wow64 = $false; dlls = ''; load = 0 }, [ordered]@{ wow64 = $true; dlls = ''; load = 0 })
+        winlogon = [ordered]@{ shell = 'explorer.exe'; userinit = 'C:\Windows\system32\userinit.exe,' }
+        lsa = [ordered]@{
+            security = @(foreach ($p in 'kerberos', 'msv1_0', 'schannel', 'wdigest', 'tspkg', 'pku2u', 'cloudAP') { [ordered]@{ name = $p; exists = $true; signer = 'Microsoft Windows'; status = 'Valid' } })
+            authentication = @([ordered]@{ name = 'msv1_0'; exists = $true; signer = 'Microsoft Windows'; status = 'Valid' })
+            notification = @([ordered]@{ name = 'scecli'; exists = $true; signer = 'Microsoft Windows'; status = 'Valid' }) }
+        printMonitors = @([ordered]@{ name = 'Local Port'; driver = 'localspl.dll'; exists = $true; signer = 'Microsoft Windows'; status = 'Valid' }, [ordered]@{ name = 'Standard TCP/IP Port'; driver = 'tcpmon.dll'; exists = $true; signer = 'Microsoft Windows'; status = 'Valid' })
+        netshHelpers = @([ordered]@{ name = 'ifmon'; dll = 'ifmon.dll'; exists = $true; signer = 'Microsoft Windows'; status = 'Valid' }, [ordered]@{ name = 'nshhttp'; dll = 'nshhttp.dll'; exists = $true; signer = 'Microsoft Windows'; status = 'Valid' })
+    }
+    certificates         = [ordered]@{ microsoftListAvailable = $true; roots = @([ordered]@{ thumbprint = '245C97DF7514E7CF2DF8BE72AE957B9E04741E85'; store = 'machine'; subject = 'OU=Copyright (c) 1997 Microsoft Corp., OU=Microsoft Time Stamping Service Root, OU=Microsoft Corporation, O=Microsoft Trust Network'; notAfterUtc = '1999-12-30T23:00:00Z'; selfSigned = $true; hasPrivateKey = $false; inMicrosoftProgram = $false }) }
+    wifi                 = @([ordered]@{ name = 'CORP-WLAN'; authentication = 'WPA2'; encryption = 'AES'; connectionMode = 'auto'; nonBroadcast = $false })
 }
 
 # ------------------------------------------------------------------ scenarios
@@ -285,6 +301,8 @@ switch ($Scenario) {
         $s.localAccounts.administrators = @([ordered]@{ path = "$name/LocalAdm"; sid = "$machineSid-500"; class = 'User' }, [ordered]@{ path = 'CORP/Domain Admins'; sid = "$domainSid-512"; class = 'Group' }, [ordered]@{ path = 'AzureAD/Global Administrator'; sid = 'S-1-12-1-1111111111-2222222222-3333333333-4444444444'; class = 'Group' })
         $s.network.listening = @([ordered]@{ protocol = 'tcp'; address = '0.0.0.0'; port = 445; process = 'System' })
         $s.services = @($baseServices)
+        $s.wifi = @($s.wifi) + @([ordered]@{ name = 'Hotel Lobby'; authentication = 'open'; encryption = 'none'; connectionMode = 'manual'; nonBroadcast = $false })
+        $s.software = @($s.software) + @([ordered]@{ name = 'TeamViewer'; version = '15.58.5'; publisher = 'TeamViewer' })
     }
     'weak' {
         $s.host.os = [ordered]@{ caption = 'Microsoft Windows 10 Pro'; version = '10.0.19045'; build = 19045; ubr = 6093; displayVersion = '22H2'; editionId = 'Professional'; productType = 1; architecture = '64-bit'; installDateUtc = '2020-03-02T09:00:00Z'; lastBootUtc = '2026-06-01T07:00:00Z' }
@@ -430,6 +448,24 @@ switch ($Scenario) {
             actions = @([ordered]@{ execute = 'C:\Windows\system32\UsoClient.exe'; arguments = 'StartScan'; executable = 'C:\Windows\system32\UsoClient.exe'; writableBy = @() }) }
         $s.autoruns = @(
             [ordered]@{ location = 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'; name = 'TrayHelper'; command = 'C:\ProgramData\TrayHelper\tray.exe'; executable = 'C:\ProgramData\TrayHelper\tray.exe'; writableBy = @((W 'file' 'S-1-5-32-545')) })
+        # A domain account behind a service and a task (password in the LSA secrets), a gMSA (fine), a VNC server.
+        $s.services += @((Svc 'BackupExecAgent' '"C:\Program Files\Backup\beremote.exe"' 'C:\Program Files\Backup\beremote.exe' 'CORP\svc_backup'), (Svc 'ReportSvc' '"C:\Program Files\Reports\rs.exe"' 'C:\Program Files\Reports\rs.exe' 'CORP\gmsa_reports$'),
+            (Svc 'tvnserver' '"C:\Program Files\TightVNC\tvnserver.exe" -service' 'C:\Program Files\TightVNC\tvnserver.exe'))
+        $s.scheduledTasks += [ordered]@{ path = '\Contoso\'; name = 'NightlySync'; state = 'Ready'; userId = 'CORP\svc_sync'; groupId = ''; logonType = 'Password'; runLevel = 'Limited'; author = 'CORP\it'
+            actions = @([ordered]@{ execute = 'C:\Program Files\Sync\sync.exe'; arguments = ''; executable = 'C:\Program Files\Sync\sync.exe'; writableBy = @() }) }
+        $s.software = @($s.software) + @([ordered]@{ name = 'TightVNC'; version = '2.8.81'; publisher = 'GlavSoft LLC.' })
+        $s.hardening.kerberosEncryptionTypes = $null; $s.hardening.wefSubscriptionManager = $false
+        $s.patches.rebootPending = [ordered]@{ cbs = $true; windowsUpdate = $false }
+        $s.credentialExposure = [ordered]@{
+            unattendFiles = @([ordered]@{ path = 'C:\Windows\Panther\Unattend.xml'; passwords = 2; domainJoin = $true })
+            gppFiles = @([ordered]@{ path = 'C:\ProgramData\Microsoft\Group Policy\History\{31B2F340-016D-11D2-945F-00C04FB984F9}\Machine\Preferences\Groups\Groups.xml'; kind = 'Groups'; cpasswords = 1 })
+            psHistory = @([ordered]@{ profile = 'jsmith'; lines = 3; kinds = @('plain-text SecureString (2)', 'net use with a password (1)') }) }
+        $s.persistence.wmiConsumers = @([ordered]@{ name = 'UpdaterCheck'; type = 'CommandLineEventConsumer'; command = 'C:\Users\Public\upd.exe -q'; engine = ''; scriptLength = 0; bound = $true; filter = "SELECT * FROM __InstanceModificationEvent WITHIN 60 WHERE TargetInstance ISA 'Win32_PerfFormattedData_PerfOS_System'" })
+        $s.persistence.ifeoDebuggers = @([ordered]@{ image = 'sethc.exe'; debugger = 'C:\Windows\System32\cmd.exe'; wow64 = $false })
+        $s.persistence.lsa.security = @($s.persistence.lsa.security) + @([ordered]@{ name = 'mspwfilt'; exists = $true; signer = $null; status = 'NotSigned' })
+        $s.persistence.printMonitors = @($s.persistence.printMonitors) + @([ordered]@{ name = 'Contoso Print Monitor'; driver = 'ctxpmon.dll'; exists = $true; signer = 'Contoso Ltd.'; status = 'Valid' })
+        $s.certificates.roots = @($s.certificates.roots) + @([ordered]@{ thumbprint = '0F1E2D3C4B5A69788796A5B4C3D2E1F00F1E2D3C'; store = 'machine'; subject = 'CN=Fabrikam Inspection CA, O=Fabrikam Web Filter'; notAfterUtc = '2035-01-01T00:00:00Z'; selfSigned = $true; hasPrivateKey = $true; inMicrosoftProgram = $false })
+        $s.wifi = @($s.wifi) + @([ordered]@{ name = 'CafeGuest-5G'; authentication = 'open'; encryption = 'none'; connectionMode = 'auto'; nonBroadcast = $false })
     }
     'dc' {
         $s.host.os.caption = 'Microsoft Windows Server 2019 Standard'
@@ -482,7 +518,7 @@ switch ($Scenario) {
     'partial' {
         $s.meta.collectedBy = 'CORP\jdoe'; $s.meta.runningAsSystem = $false; $s.meta.runningAsAdmin = $false
         $s.meta.options.skipAcl = $true
-        $s.meta.sectionsCollected = @('host', 'patches', 'defender', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'hardening', 'stig', 'software', 'appx', 'services', 'scheduledTasks', 'autoruns')
+        $s.meta.sectionsCollected = @('host', 'patches', 'defender', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'hardening', 'stig', 'software', 'appx', 'services', 'scheduledTasks', 'autoruns', 'credentialExposure', 'persistence', 'certificates', 'wifi')
         $s.meta.collectionErrors = @(
             [ordered]@{ section = 'defender.exclusions'; message = 'exclusions not readable (administrator or SYSTEM needed)' },
             [ordered]@{ section = 'bitlocker'; message = 'BitLocker status not readable: Access is denied' },

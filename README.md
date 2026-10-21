@@ -22,7 +22,7 @@ is weak. It works in two steps. A single PowerShell script takes a
 Lines for a SIEM. Hand it one snapshot or a folder with hundreds and you get
 the whole fleet in one report, or one report per host.
 
-- **145 checks** and about 1,600 settings: 132 hand-written checks plus 1475 DISA
+- **161 checks** and about 1,600 settings: 148 hand-written checks plus 1475 DISA
   STIG registry rules, with the CIS Windows 11 benchmark as the baseline, and
   the drivers matched against 2,198 known vulnerable or malicious driver files
   (LOLDrivers).
@@ -472,6 +472,26 @@ having none, compare its service name with the list in `lib\Checks.ps1`
 check that an agent is healthy, up to date or talking to its console. It only
 knows that a service is there and running.
 
+### Remote access tools
+
+AnyDesk, TeamViewer, RustDesk, ScreenConnect, Splashtop, LogMeIn, GoTo, Atera,
+NinjaOne, Chrome Remote Desktop, VNC servers, Radmin, DameWare, NetSupport,
+MeshCentral and the other tools in `$script:RemoteAccessTools` are found by
+service and by installed program. Name the ones the organization approves with
+`-AllowedRemoteTools TeamViewer,ScreenConnect` and only the others are
+reported, as Medium. Without the list every tool found is Low, to be verified.
+
+### Fleet checks
+
+Some problems show only across hosts, so they are judged once every host is
+analyzed (a run with a single host has none):
+
+- the same local account with its password set at the same second on several
+  hosts (one image or one script set it, so it is the same password: High);
+- the same machine SID on several hosts (cloned without Sysprep: Medium);
+- the settings where a host differs from at least 80% of the hosts with its
+  role, in a fleet of five or more (Low, left out of the score).
+
 ### The CIS baseline
 
 34 of the checks follow a rule from the *CIS Microsoft Windows 11 Enterprise
@@ -546,7 +566,11 @@ or, without one, when they have the same title.
 - **Read only.** The collector reads the registry, CIM classes, the Defender,
   SMB, firewall, BitLocker, local account and scheduled task cmdlets, and file
   ACLs (`Get-Acl`), and it reads each driver file to compute its SHA-256
-  (`Get-FileHash`). It reads the audit policy with `auditpol /backup` and the
+  (`Get-FileHash`), and the Authenticode signer of the DLLs loaded by LSASS,
+  the print spooler and netsh (`Get-AuthenticodeSignature`). Setup answer
+  files, Group Policy Preferences files and PowerShell histories are read to
+  count the passwords they hold: no password and no history line is kept.
+  It reads the audit policy with `auditpol /backup` and the
   local security policy with `secedit /export`, each into a temporary file
   that is deleted right away. It never uses `/configure` or `/import`. When
   the registry does not let it read a service's permissions (a run without
@@ -633,6 +657,7 @@ standard user with Defender in passive mode.
     [-MaxPatchAgeDays 45] [-MaxSignatureAgeDays 7] [-SupportWarningDays 90]
     [-MaxCachedLogonsWorkstation 4] [-MaxCachedLogonsServer 1] [-MinSecurityLogKB 196608]
     [-ExpectedEdr CrowdStrike] [-ExtraEdrServices MyAgentService]   # the EDR every host should run; services to count as an agent
+    [-AllowedRemoteTools TeamViewer,ScreenConnect]   # approved remote access tools: the others are Medium
     [-OutRemediation .\fixes]                    # one remediate_<host>.ps1 per host, with a rollback file
     [-PerHost]                                   # also one HTML report per host: <report>_<HOST>.html
     [-SkipStig]                                  # leave out the DISA STIG checks (about 1,400 registry rules)
@@ -723,7 +748,8 @@ The collector and the analyzer never run these scripts: they only write text
 and stay read-only. The one exception is the guided menu's "Remediate this
 machine" (`Start-HostBadger.ps1`, option 6, as administrator): it runs this
 machine's own script, after showing what it would change and asking you to type
-YES, with a System Restore point first where Windows has one; option 7 puts the
+YES, with a System Restore point first where Windows has one (a snapshot of this
+machine already taken can be used instead of collecting again); option 7 puts the
 values back from the rollback file. `Test-HostBadgerSafety.ps1` allows the
 commands it needs (restore point, removing preinstalled Store apps) in that file
 only, and lists them. The same file may also restart itself as administrator

@@ -27,7 +27,7 @@ $script:AiKeepProcesses = @('svchost', 'system', 'lsass', 'services', 'wininit',
 $script:AiKeepPathPattern = '(?i)^[a-z]:\\windows\\(?:system32|syswow64)\\(?:windowspowershell\\v1\.0\\)?(?:powershell|powershell_ise|cmd|wscript|cscript|mshta|rundll32|regsvr32|svchost|msiexec|certutil|bitsadmin|wmic|schtasks|net|reg|sc)\.exe$'
 # Account prefixes that are not a domain.
 $script:AiKeepAccountPrefixes = @('NT AUTHORITY', 'NT SERVICE', 'BUILTIN', 'Window Manager', 'Font Driver Host', 'NT VIRTUAL MACHINE')
-$script:AiTokenPattern = '\b(?:HOSTFQDN|HOST|DOMAIN|NETBIOS|USER|GROUP|SID|PATH|UNC|SERVICE|TASK|AUTORUN|ADAPTER|PROC|SOFTWARE|IP)-\d+\b'
+$script:AiTokenPattern = '\b(?:HOSTFQDN|HOST|DOMAIN|NETBIOS|USER|GROUP|SID|PATH|UNC|SERVICE|TASK|AUTORUN|ADAPTER|PROC|SOFTWARE|IP|WMI|SSID|CERT|PLUGIN)-\d+\b'
 $script:AiSidPattern = 'S-1-(?:5-21|12-1|5-80|5-82|5-83)(?:-\d+)+'
 # Not inside a longer dotted number, and not a CIS rule number ("CIS 18.10.7.3"), because those are
 # not addresses.
@@ -110,6 +110,35 @@ function New-HostPseudonymizer {
         if ($s.drivers) { foreach ($dv in @($s.drivers.list | Where-Object { $_ })) { & $add $dv.path 'PATH' } }
         foreach ($p in @($s.defender.exclusionPaths | Where-Object { $_ })) { & $add $p 'PATH' }
         foreach ($p in @($s.defender.exclusionProcesses | Where-Object { $_ })) { & $add $p $(if ("$p" -match '[\\/]') { 'PATH' } else { 'PROC' }) }
+        # Credentials left on disk: the files, and the profile folders (named after their users).
+        if ($s.credentialExposure) {
+            foreach ($u in @($s.credentialExposure.unattendFiles | Where-Object { $_ })) { & $add $u.path 'PATH' }
+            foreach ($g in @($s.credentialExposure.gppFiles | Where-Object { $_ })) { & $add $g.path 'PATH' }
+            foreach ($ph in @($s.credentialExposure.psHistory | Where-Object { $_ })) { & $add $ph.profile 'USER' }
+        }
+        # Persistence points: what they start, and the names someone gave to a WMI consumer.
+        if ($s.persistence) {
+            foreach ($w in @($s.persistence.wmiConsumers | Where-Object { $_ })) { & $add $w.name 'WMI'; & $add $w.command 'PATH' }
+            foreach ($i in @($s.persistence.ifeoDebuggers | Where-Object { $_ })) { & $add $i.debugger 'PATH' }
+            foreach ($i in @($s.persistence.silentProcessExit | Where-Object { $_ })) { & $add $i.monitor 'PATH' }
+            foreach ($a in @($s.persistence.appInit | Where-Object { $_ })) { & $add $a.dlls 'PATH' }
+            if ($s.persistence.winlogon) { & $add $s.persistence.winlogon.shell 'PATH'; & $add $s.persistence.winlogon.userinit 'PATH' }
+            # DLLs that are not Windows' own: an in-house component names its company.
+            $plugins = @(@($s.persistence.printMonitors) + @($s.persistence.netshHelpers) + @(foreach ($k in 'security', 'authentication', 'notification') { @($s.persistence.lsa.$k) }) | Where-Object { $_ -and -not (Test-StockSigner $_) })
+            foreach ($pl in $plugins) {
+                & $add $pl.name 'PLUGIN'; & $add $pl.driver 'PATH'; & $add $pl.dll 'PATH'
+                if ("$($pl.signer)" -and "$($pl.signer)" -notmatch '^Microsoft ') { & $add $pl.signer 'CERT' }
+            }
+        }
+        # Root certificates someone added: a private CA names its organization.
+        if ($s.certificates) {
+            foreach ($c in @($s.certificates.roots | Where-Object { $_ -and $_.subject -and $_.inMicrosoftProgram -ne $true })) {
+                $parts = Get-CertSubjectParts "$($c.subject)"
+                & $add (Get-CertSubjectShort "$($c.subject)") 'CERT'
+                foreach ($v in @($parts.CN, $parts.O, $parts.OU)) { & $add $v 'CERT' }
+            }
+        }
+        foreach ($w in @($s.wifi | Where-Object { $_ })) { & $add $w.name 'SSID' }
     }
 
     # Names that only a finding mentions (the Objects of the findings follow a fixed pattern).
@@ -120,7 +149,16 @@ function New-HostPseudonymizer {
         elseif ($o -match '^task: (.+?) -> ') { & $add $Matches[1] 'TASK' }
         elseif ($o -match '^autorun: \S+ (.+)$') { & $add $Matches[1] 'AUTORUN' }
         elseif ($o -match '^adapter: (.+)$') { & $add $Matches[1] 'ADAPTER' }
-        elseif ($o -match '^account: (.+)$') { & $add $Matches[1] 'USER' }
+        elseif ($o -match '^account: (.+)$') { & $addAccount $Matches[1] }
+        elseif ($o -match '^wmi consumer: (.+)$') { & $add $Matches[1] 'WMI' }
+        elseif ($o -match '^Wi-Fi: (.+)$') { & $add $Matches[1] 'SSID' }
+        elseif ($o -match '^profile: (.+)$') { & $add $Matches[1] 'USER' }
+        elseif ($o -match '^file: (.+)$') { & $add $Matches[1] 'PATH' }
+        # A domain account lists the services and tasks that use it: "service X (state)", "task \path\name".
+        if ("$($f.Type)" -eq 'service_domain_account') {
+            foreach ($m in [regex]::Matches("$($f.Detail)", '(?:: |; )service (\S+) \(')) { & $add $m.Groups[1].Value 'SERVICE' }
+            foreach ($m in [regex]::Matches("$($f.Detail)", '(?:: |; )task (.+?)(?=; |\.$)')) { & $add $m.Groups[1].Value 'TASK' }
+        }
         elseif ($o -match '^member: (.+)$') { & $addAccount $Matches[1] }
         elseif (("$($f.Type)" -in 'kev_software_match', 'software_eol', 'software_outdated', 'software_cve') -and "$($f.Detail)" -match '^Installed as (.+) \((?:version [^)]*|no version recorded)\)\.') { & $add $Matches[1] 'SOFTWARE' }
         if ("$($f.Type)" -eq 'risky_listener' -and "$($f.Detail)" -match '^Listening on (\S+?)(?: by (.+?))?\.$') {

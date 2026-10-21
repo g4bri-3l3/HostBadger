@@ -38,6 +38,10 @@
       "drivers",
       "scheduledTasks",
       "autoruns",
+      "credentialExposure",
+      "persistence",
+      "certificates",
+      "wifi",
       "updatesPending"
     ],
     "collectionErrors": []
@@ -73,7 +77,11 @@
         "installedOnUtc": "2026-05-14T00:00:00Z"
       }
     ],
-    "lastUpdateInstalledUtc": "2026-05-14T10:00:00Z"
+    "lastUpdateInstalledUtc": "2026-05-14T10:00:00Z",
+    "rebootPending": {
+      "cbs": true,
+      "windowsUpdate": false
+    }
   },
   "defender": {
     "present": true,
@@ -917,7 +925,9 @@
         "packagerPromptPowerPoint": 2,
         "macroRuntimeScanScope": 2
       }
-    ]
+    ],
+    "kerberosEncryptionTypes": null,
+    "wefSubscriptionManager": false
   },
   "stig": {
     "products": {
@@ -3616,6 +3626,11 @@
       "name": "7-Zip 23.01 (x64)",
       "version": "23.01",
       "publisher": "Igor Pavlov"
+    },
+    {
+      "name": "TightVNC",
+      "version": "2.8.81",
+      "publisher": "GlavSoft LLC."
     }
   ],
   "sqlServer": [],
@@ -3898,6 +3913,48 @@
           "rights": "Start"
         }
       ]
+    },
+    {
+      "name": "BackupExecAgent",
+      "displayName": "BackupExecAgent",
+      "startMode": "Auto",
+      "state": "Running",
+      "account": "CORP\\svc_backup",
+      "pathName": "\"C:\\Program Files\\Backup\\beremote.exe\"",
+      "executable": "C:\\Program Files\\Backup\\beremote.exe",
+      "writableBy": [],
+      "ancestorControl": [],
+      "startableBy": [],
+      "permissionsRead": true,
+      "permissions": []
+    },
+    {
+      "name": "ReportSvc",
+      "displayName": "ReportSvc",
+      "startMode": "Auto",
+      "state": "Running",
+      "account": "CORP\\gmsa_reports$",
+      "pathName": "\"C:\\Program Files\\Reports\\rs.exe\"",
+      "executable": "C:\\Program Files\\Reports\\rs.exe",
+      "writableBy": [],
+      "ancestorControl": [],
+      "startableBy": [],
+      "permissionsRead": true,
+      "permissions": []
+    },
+    {
+      "name": "tvnserver",
+      "displayName": "tvnserver",
+      "startMode": "Auto",
+      "state": "Running",
+      "account": "LocalSystem",
+      "pathName": "\"C:\\Program Files\\TightVNC\\tvnserver.exe\" -service",
+      "executable": "C:\\Program Files\\TightVNC\\tvnserver.exe",
+      "writableBy": [],
+      "ancestorControl": [],
+      "startableBy": [],
+      "permissionsRead": true,
+      "permissions": []
     }
   ],
   "drivers": {
@@ -4003,6 +4060,24 @@
           "writableBy": []
         }
       ]
+    },
+    {
+      "path": "\\Contoso\\",
+      "name": "NightlySync",
+      "state": "Ready",
+      "userId": "CORP\\svc_sync",
+      "groupId": "",
+      "logonType": "Password",
+      "runLevel": "Limited",
+      "author": "CORP\\it",
+      "actions": [
+        {
+          "execute": "C:\\Program Files\\Sync\\sync.exe",
+          "arguments": "",
+          "executable": "C:\\Program Files\\Sync\\sync.exe",
+          "writableBy": []
+        }
+      ]
     }
   ],
   "autoruns": [
@@ -4018,6 +4093,215 @@
           "rights": "Modify, Synchronize"
         }
       ]
+    }
+  ],
+  "credentialExposure": {
+    "unattendFiles": [
+      {
+        "path": "C:\\Windows\\Panther\\Unattend.xml",
+        "passwords": 2,
+        "domainJoin": true
+      }
+    ],
+    "gppFiles": [
+      {
+        "path": "C:\\ProgramData\\Microsoft\\Group Policy\\History\\{31B2F340-016D-11D2-945F-00C04FB984F9}\\Machine\\Preferences\\Groups\\Groups.xml",
+        "kind": "Groups",
+        "cpasswords": 1
+      }
+    ],
+    "psHistory": [
+      {
+        "profile": "jsmith",
+        "lines": 3,
+        "kinds": [
+          "plain-text SecureString (2)",
+          "net use with a password (1)"
+        ]
+      }
+    ]
+  },
+  "persistence": {
+    "wmiConsumers": [
+      {
+        "name": "UpdaterCheck",
+        "type": "CommandLineEventConsumer",
+        "command": "C:\\Users\\Public\\upd.exe -q",
+        "engine": "",
+        "scriptLength": 0,
+        "bound": true,
+        "filter": "SELECT * FROM __InstanceModificationEvent WITHIN 60 WHERE TargetInstance ISA 'Win32_PerfFormattedData_PerfOS_System'"
+      }
+    ],
+    "ifeoDebuggers": [
+      {
+        "image": "sethc.exe",
+        "debugger": "C:\\Windows\\System32\\cmd.exe",
+        "wow64": false
+      }
+    ],
+    "silentProcessExit": [],
+    "appInit": [
+      {
+        "wow64": false,
+        "dlls": "",
+        "load": 0
+      },
+      {
+        "wow64": true,
+        "dlls": "",
+        "load": 0
+      }
+    ],
+    "winlogon": {
+      "shell": "explorer.exe",
+      "userinit": "C:\\Windows\\system32\\userinit.exe,"
+    },
+    "lsa": {
+      "security": [
+        {
+          "name": "kerberos",
+          "exists": true,
+          "signer": "Microsoft Windows",
+          "status": "Valid"
+        },
+        {
+          "name": "msv1_0",
+          "exists": true,
+          "signer": "Microsoft Windows",
+          "status": "Valid"
+        },
+        {
+          "name": "schannel",
+          "exists": true,
+          "signer": "Microsoft Windows",
+          "status": "Valid"
+        },
+        {
+          "name": "wdigest",
+          "exists": true,
+          "signer": "Microsoft Windows",
+          "status": "Valid"
+        },
+        {
+          "name": "tspkg",
+          "exists": true,
+          "signer": "Microsoft Windows",
+          "status": "Valid"
+        },
+        {
+          "name": "pku2u",
+          "exists": true,
+          "signer": "Microsoft Windows",
+          "status": "Valid"
+        },
+        {
+          "name": "cloudAP",
+          "exists": true,
+          "signer": "Microsoft Windows",
+          "status": "Valid"
+        },
+        {
+          "name": "mspwfilt",
+          "exists": true,
+          "signer": null,
+          "status": "NotSigned"
+        }
+      ],
+      "authentication": [
+        {
+          "name": "msv1_0",
+          "exists": true,
+          "signer": "Microsoft Windows",
+          "status": "Valid"
+        }
+      ],
+      "notification": [
+        {
+          "name": "scecli",
+          "exists": true,
+          "signer": "Microsoft Windows",
+          "status": "Valid"
+        }
+      ]
+    },
+    "printMonitors": [
+      {
+        "name": "Local Port",
+        "driver": "localspl.dll",
+        "exists": true,
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "Standard TCP/IP Port",
+        "driver": "tcpmon.dll",
+        "exists": true,
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "Contoso Print Monitor",
+        "driver": "ctxpmon.dll",
+        "exists": true,
+        "signer": "Contoso Ltd.",
+        "status": "Valid"
+      }
+    ],
+    "netshHelpers": [
+      {
+        "name": "ifmon",
+        "dll": "ifmon.dll",
+        "exists": true,
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "nshhttp",
+        "dll": "nshhttp.dll",
+        "exists": true,
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      }
+    ]
+  },
+  "certificates": {
+    "microsoftListAvailable": true,
+    "roots": [
+      {
+        "thumbprint": "245C97DF7514E7CF2DF8BE72AE957B9E04741E85",
+        "store": "machine",
+        "subject": "OU=Copyright (c) 1997 Microsoft Corp., OU=Microsoft Time Stamping Service Root, OU=Microsoft Corporation, O=Microsoft Trust Network",
+        "notAfterUtc": "1999-12-30T23:00:00Z",
+        "selfSigned": true,
+        "hasPrivateKey": false,
+        "inMicrosoftProgram": false
+      },
+      {
+        "thumbprint": "0F1E2D3C4B5A69788796A5B4C3D2E1F00F1E2D3C",
+        "store": "machine",
+        "subject": "CN=Fabrikam Inspection CA, O=Fabrikam Web Filter",
+        "notAfterUtc": "2035-01-01T00:00:00Z",
+        "selfSigned": true,
+        "hasPrivateKey": true,
+        "inMicrosoftProgram": false
+      }
+    ]
+  },
+  "wifi": [
+    {
+      "name": "CORP-WLAN",
+      "authentication": "WPA2",
+      "encryption": "AES",
+      "connectionMode": "auto",
+      "nonBroadcast": false
+    },
+    {
+      "name": "CafeGuest-5G",
+      "authentication": "open",
+      "encryption": "none",
+      "connectionMode": "auto",
+      "nonBroadcast": false
     }
   ]
 }

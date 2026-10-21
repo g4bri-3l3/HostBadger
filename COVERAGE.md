@@ -1,6 +1,6 @@
 # HostBadger coverage
 
-Every check in `lib\Checks.ps1`, generated from the catalog (145 checks, of which 13 cover the 1475 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
+Every check in `lib\Checks.ps1`, generated from the catalog (161 checks, of which 13 cover the 1475 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
 
 The CIS column gives the rule number in the *CIS Microsoft Windows 11 Enterprise Benchmark v3.0.0* and its profile level (L1 corporate, L2 high security); the descriptions are HostBadger's own. A check is a read-only comparison of the host's setting with the rule; it is not a certification of conformity, and the benchmark covers many more settings (most of the administrative templates, for instance) than HostBadger reads. On Windows 10 and on Windows Server 2022, 2019 and 2016 the findings quote the same setting in that version's CIS benchmark instead (Windows 10 Enterprise v3.0.0, Server 2022 and 2019 v4.0.0, Server 2016 v3.0.0). Checks marked *Server* follow a rule that only the server benchmarks have.
 
@@ -25,6 +25,12 @@ The last column says whether HostBadger can write a remediation script for the c
 | `hvci_off` | Low | T1068 |  | W, S | no | Memory integrity (HVCI) not running |
 | `dc_security_policy_gaps` | Medium | T1556 | Server 18.9.39.1, 2.3.11.13 (L1) | DC | no | Domain controller is missing a CIS Windows Server security setting |
 | `remote_credential_guard_off` | Low | T1550.002 |  | W, S, DC | no | Remote Credential Guard is not in use |
+| `unattend_credentials` | High | T1552.001 |  | W, S, DC | no | Password left in a Windows setup answer file |
+| `gpp_cpassword_cached` | High | T1552.006 |  | W, S, DC | no | Group Policy Preferences password (cpassword) on the host |
+| `powershell_history_secrets` | Medium | T1552.001 |  | W, S, DC | no | PowerShell history holds what looks like a password |
+| `service_domain_account` | Medium | T1003.004 |  | W, S, DC | no | Service or task runs as a domain account with a stored password |
+| `kerberos_rc4_allowed` | Medium | T1558.003 | 2.3.11.4 (L1) | W, S, DC | no | Kerberos allows RC4 or DES |
+| `local_admin_password_shared` | High | T1550.002 |  | W, S | no | Local account password probably shared with other hosts |
 
 ## Antivirus
 
@@ -89,6 +95,8 @@ The last column says whether HostBadger can write a remediation script for the c
 | `webclient_webdav_enabled` | Low | T1187 |  | W, S, DC | no | WebClient (WebDAV) service is enabled |
 | `wpad_not_disabled` | Low | T1557.001 |  | W, S, DC | no | WPAD auto-discovery is not disabled |
 | `lolbin_outbound_not_blocked` | Low | T1105 |  | W, S, DC | no | System tools used to download payloads can reach the network |
+| `root_ca_added` | Medium | T1553.004 |  | W, S, DC | no | Root certificate added outside the Microsoft trusted root program |
+| `wifi_profile_insecure` | Medium | T1557 |  | W, S, DC | no | Saved Wi-Fi network without encryption or with WEP |
 
 ## Remote Access
 
@@ -97,6 +105,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `rdp_nla_disabled` | High | T1021.001 | 18.10.56.3.9.4 (L1) | W, S, DC | yes | RDP without Network Level Authentication |
 | `rdp_enabled_workstation` | Low | T1021.001 | 18.10.56.3.2.1 (L2) | W | no | RDP enabled on a workstation |
 | `rdp_policy_gaps` | Low | T1021.001 | 18.10.56.3.9.1 - 18.10.56.3.9.5, 18.10.56.3.3.3 (L1) | W, S, DC | yes | Remote Desktop policy weaker than the baseline |
+| `remote_access_tool` | Medium | T1219 |  | W, S, DC | no | Remote access tool installed |
 
 ## Local Accounts
 
@@ -135,6 +144,13 @@ The last column says whether HostBadger can write a remediation script for the c
 | `service_permissions_weak` | High | T1543.003 |  | W, S, DC | no | Service permissions let non-administrators change or delete it |
 | `print_point_and_print_weak` | Medium | T1068 | 18.7.8, 18.7.10, 18.7.11 (L1) | W, S, DC | no | Point and Print allows driver installation without elevation |
 
+## Persistence
+
+| ID | Severity | MITRE | CIS | Roles | Fix script | Title |
+|---|---|---|---|---|---|---|
+| `persistence_wmi_subscription` | High | T1546.003 |  | W, S, DC | no | WMI event subscription runs a command or a script |
+| `persistence_registry_hijack` | High | T1546.012 |  | W, S, DC | no | Code planted in a Windows load point |
+
 ## Logging
 
 | ID | Severity | MITRE | CIS | Roles | Fix script | Title |
@@ -147,6 +163,8 @@ The last column says whether HostBadger can write a remediation script for the c
 | `event_logs_small` | Low | T1070.001 | 18.10.25.1.2, 18.10.25.4.2 (L1) | W, S, DC | yes | Application or System event log too small |
 | `powershell_transcription_off` | Low | T1562.002 | 18.10.86.2 (L2) | W, S, DC | yes | PowerShell transcription off |
 | `powershell_module_logging_off` | Low | T1059.001 |  | W, S, DC | no | PowerShell module logging off |
+| `log_forwarding_missing` | Low | T1070.001 |  | W, S, DC | no | Event logs are not sent anywhere |
+| `sysmon_missing` | Low | T1562.002 |  | W, S, DC | no | No process telemetry: neither Sysmon nor an EDR |
 
 ## Patching
 
@@ -157,6 +175,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `updates_stale` | High | T1190 |  | W, S, DC | no | No update installed recently |
 | `wu_auto_updates_disabled` | Medium | T1190 | 18.10.92.2.1 (L1) | W, S, DC | yes | Automatic Windows Update turned off by policy |
 | `updates_pending` | Medium | T1190 |  | W, S, DC | no | Windows update available but not installed |
+| `reboot_overdue` | Low | T1068 |  | W, S, DC | no | Restart overdue: installed updates are not active |
 
 ## System Hardening
 
@@ -182,6 +201,8 @@ The last column says whether HostBadger can write a remediation script for the c
 | `netfx3_enabled` | Low | T1562.010 |  | W, S, DC | no | .NET Framework 3.5 (2.0 and 3.0) is enabled |
 | `ie11_enabled` | Medium | T1189 |  | W, S, DC | no | Internet Explorer 11 is enabled |
 | `office_macro_settings_weak` | Medium | T1566.001 |  | W, S, DC | no | Office macro settings not enforced by policy |
+| `machine_sid_duplicate` | Medium | T1078.003 |  | W, S | no | Machine SID shared with other hosts |
+| `config_drift` | Low | T1112 |  | W, S, DC | no | Settings differ from the rest of the fleet |
 
 ## Software
 

@@ -25,13 +25,60 @@ new major if the snapshot or the JSON Lines format ever breaks.
   changeable for that run. A catalog can also be set to "auto": the kept copy
   if it is under a week old, else a download. Passwords and the Gemini key
   are never saved.
+- 16 checks (161 in all), with four new collector sections, all read-only:
+  - Credentials left on the host: passwords in Windows setup answer files
+    (`unattend_credentials`, Critical when it is the domain join account),
+    Group Policy Preferences cpasswords in the local copies or in SYSVOL
+    (`gpp_cpassword_cached`), PowerShell history lines that look like a
+    secret (`powershell_history_secrets`; only the number of lines and their
+    kind are collected, never the line), services and "run whether logged on
+    or not" tasks that run as a domain account, whose password sits in the
+    LSA secrets (`service_domain_account`; gMSAs are not reported).
+  - Kerberos RC4 or DES allowed (`kerberos_rc4_allowed`, CIS 2.3.11.4).
+  - A new Persistence category: WMI event subscriptions that run a command
+    or a script (`persistence_wmi_subscription`), and code planted in
+    Windows load points (`persistence_registry_hijack`: IFEO debuggers,
+    SilentProcessExit, AppInit_DLLs, Winlogon Shell/Userinit, LSA packages,
+    print monitors, netsh helpers). Windows' own entries are known by name
+    and by their Microsoft signature (the collector reads the Authenticode
+    signer of those DLLs, `Get-AuthenticodeSignature`).
+  - Root certificates added outside Microsoft's trusted root program
+    (`root_ca_added`, checked offline against the list Windows keeps; High
+    when the private key is on the host; roots pushed by Group Policy are not
+    reported).
+  - Remote access tools (`remote_access_tool`: AnyDesk, TeamViewer,
+    ScreenConnect, VNC, RustDesk and 20 others, by service and by installed
+    program). New `-AllowedRemoteTools` (question, review screen and global
+    setting in the guided menu): the approved tools are not reported, the
+    others are Medium; without the list each one found is Low.
+  - Saved Wi-Fi networks that are open, WEP or TKIP
+    (`wifi_profile_insecure`, the key is never read).
+  - Event logs not forwarded (`log_forwarding_missing`: no WEF subscription
+    manager, no known log agent, no EDR) and no process telemetry
+    (`sysmon_missing`: no Sysmon, no EDR).
+  - Restart overdue (`reboot_overdue`: up more than 30 days, or a restart
+    pending to finish updates).
+- Fleet checks, run once all hosts are analyzed: the same local account
+  password set at the same second on several hosts
+  (`local_admin_password_shared`), the same machine SID on several hosts
+  (`machine_sid_duplicate`, cloned without Sysprep), and the settings where a
+  host differs from at least 80% of five or more hosts with its role
+  (`config_drift`, Low and out of the score).
+- The AI pseudonymizer tokenizes the new names: answer file and GPP paths,
+  history profiles, WMI consumers and their commands, Wi-Fi names (SSID-n)
+  and the subjects of added root CAs (CERT-n).
 
 ### Changed
+- Snapshots from earlier collectors list the new checks as not evaluated.
 - The Gemini key pasted in the guided menu is typed hidden, so it is neither
   shown nor logged; passwords already were.
 - Progress cursors (analysis, collection, downloads, the Gemini call) are
   drawn straight on the console, so the logs keep one line per step instead
   of every frame; `HOSTBADGER_NO_SPINNER` turns them off.
+- With an AI summary, the line under the report title also names the Gemini
+  model and how long the Gemini call took.
+- "Remediate this machine" (menu 6) offers the snapshots of this machine
+  already taken, so it can skip the collection.
 
 ## [1.6] - 2026-10-19
 ### Added

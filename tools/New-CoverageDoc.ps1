@@ -13,7 +13,7 @@ $root = Split-Path $PSScriptRoot -Parent
 . (Join-Path $root 'lib\AI.ps1')
 . (Join-Path $root 'lib\Remediation.ps1')
 
-$order = @('Credential Protection', 'Antivirus', 'Disk and Boot', 'Network Exposure', 'Remote Access', 'Local Accounts', 'Privilege Escalation', 'Logging', 'Patching', 'System Hardening', 'Software', 'DISA STIG')
+$order = @('Credential Protection', 'Antivirus', 'Disk and Boot', 'Network Exposure', 'Remote Access', 'Local Accounts', 'Privilege Escalation', 'Persistence', 'Logging', 'Patching', 'System Hardening', 'Software', 'DISA STIG')
 $roleShort = @{ workstation = 'W'; server = 'S'; dc = 'DC' }
 $stig = @(Get-StigCatalog)
 $sb = New-Object System.Text.StringBuilder

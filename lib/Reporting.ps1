@@ -152,7 +152,7 @@ $script:BadgerAscii = @'
 
 # Keycap palette: an ink ramp for categories (three warm/cool accents at the end for 12-way
 # spread), and the keycap red / coral / amber / tint for severity.
-$script:BadgerCategoryRamp = @('#161513', '#2B2925', '#45413A', '#5F5A51', '#78726A', '#8F887C', '#ABA497', '#C6BFB0', '#DDD6C8', '#8A6E4B', '#5E7384', '#9AA39C')
+$script:BadgerCategoryRamp = @('#161513', '#2B2925', '#45413A', '#5F5A51', '#78726A', '#8F887C', '#ABA497', '#C6BFB0', '#DDD6C8', '#8A6E4B', '#5E7384', '#9AA39C', '#6B4E71')
 $script:BadgerSeverityColors = @('#E2372A', '#EF8A6F', '#F2B632', '#B9B1A1')
 
 function Get-SvgPieChart {
@@ -617,7 +617,12 @@ function filterBadgerTable(input) {
     $newest = ($Hosts | Sort-Object CollectedUtc -Descending | Select-Object -First 1).CollectedUtc
     $oldest = ($Hosts | Sort-Object CollectedUtc | Select-Object -First 1).CollectedUtc
     $when = if ($newest -eq $oldest) { "snapshot $($newest.ToString('yyyy-MM-dd HH:mm')) UTC" } else { "snapshots $($oldest.ToString('yyyy-MM-dd')) to $($newest.ToString('yyyy-MM-dd')) UTC" }
-    & $w "<div class=`"meta`">$(& $H $titleTarget) &middot; $when &middot; HostBadger v$ToolVersion &middot; analysis $ElapsedText</div>"
+    $aiMeta = ''
+    if ($AiResult) {
+        $aiMeta = " &middot; AI $(& $H $AiResult.Model)"
+        if ($AiResult.ElapsedText) { $aiMeta += " $(& $H $AiResult.ElapsedText)" }
+    }
+    & $w "<div class=`"meta`">$(& $H $titleTarget) &middot; $when &middot; HostBadger v$ToolVersion &middot; analysis $ElapsedText$aiMeta</div>"
     if (@($Hosts | Where-Object { $_.Synthetic }).Count -gt 0) { & $w '<blockquote>Synthetic snapshots generated for testing and demonstration. No real host data.</blockquote>' }
 
     if ($hiddenCis -gt 0 -or $hiddenStig -gt 0 -or $HideCis -or $HideStig) {
