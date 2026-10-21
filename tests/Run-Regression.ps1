@@ -1124,6 +1124,28 @@ try { $keptOut = (@('2', $fleet, (Join-Path $keptDir 'k.html'), 'n', '', '','', 
 finally { Pop-Location }
 $keptRows = @(Import-Csv (Join-Path $keptDir 'k.csv') -ErrorAction SilentlyContinue | Where-Object { $_.Type -eq 'vulnerable_driver_present' })
 Assert-True ($keptOut -match 'Kept from an earlier run: .*old_drivers\.json' -and $keptOut -match 'LOLDrivers catalog\s+file .*old_drivers\.json' -and $keptOut -match 'driver files from .*old_drivers\.json' -and $keptRows.Count -eq 1 -and $keptRows[0].Severity -eq 'Critical') 'launcher: a catalog kept by an earlier run is offered, Enter uses it (no download)'
+# Global settings (menu 8): saved through the menu, then an analysis uses them without asking its questions.
+# The review screen lists the saved answers, "auto" takes a kept catalog under a week old, JSON Lines and the
+# AI dry run (next to the report) follow them. "n" at the question asks everything as before. Only a folder
+# with the file gets the question, so the other launcher tests are not shifted.
+$gsDir = Join-Path $work 'global'; New-Item -ItemType Directory -Path (Join-Path $gsDir 'output') -Force | Out-Null
+Copy-Item (Join-Path $lolDl 'r_drivers.json') (Join-Path $gsDir 'output\old_drivers.json')
+Push-Location $gsDir
+try {
+    # 7 = DISA STIG rules off, 11 = LOLDrivers auto, 15 = JSON Lines on, 20 = AI dry run, Enter saves.
+    $gsMenu = (@('8', '7', '11', 'a', '15', '20', 'd', '', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    $gsSaved = $null; try { $gsSaved = [System.IO.File]::ReadAllText((Join-Path $gsDir 'output\hostbadger-settings.json')) | ConvertFrom-Json } catch { }
+    # Snapshot, Enter = use the global settings, Enter = no comparison, Enter = run.
+    $gsRun = (@('2', $fleet, '', '', '', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+    $gsAsk = (@('2', $fleet, 'n', (Join-Path $gsDir 'n.html'), 'n', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'n', 'q') -join "`n") | & $psExe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 | Out-String
+}
+finally { Pop-Location }
+$gsHtml = @(Get-ChildItem (Join-Path $gsDir 'output') -Filter 'hostbadger_*.html' -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^hostbadger_\d{8}_\d{6}\.html$' })
+$gsStem = if ($gsHtml.Count -eq 1) { $gsHtml[0].FullName -replace '\.html$', '' } else { Join-Path $gsDir 'missing' }
+Assert-True ($gsMenu -match 'Saved: .*hostbadger-settings\.json' -and $gsSaved -and $gsSaved.SkipStig -eq $true -and $gsSaved.Drivers -eq 'auto' -and $gsSaved.Jsonl -eq $true -and $gsSaved.Ai -eq 'D' -and $gsSaved.PerHost -eq $true) 'global settings: menu 8 lists the answers, changes them and saves them in .\output'
+Assert-True ($gsRun -match 'Settings for this run \(from the global settings\)' -and $gsRun -match 'DISA STIG rules\s+no' -and $gsRun -match 'LOLDrivers catalog\s+file .*old_drivers\.json' -and $gsRun -match 'AI summary \(Gemini\)\s+dry run' -and $gsRun -match 'Nothing sent') 'global settings: an analysis that uses them skips the questions and lists the saved answers before it runs'
+Assert-True ($gsHtml.Count -eq 1 -and (Test-Path "$gsStem.jsonl") -and (Test-Path "${gsStem}_ai_prompt.txt") -and @(Import-Csv "$gsStem.csv" | Where-Object { $_.Type -like 'stig_*' }).Count -eq 0 -and @(Import-Csv "$gsStem.csv" | Where-Object { $_.Type -eq 'vulnerable_driver_present' }).Count -eq 1) 'global settings: the run follows them (report folder, no STIG, kept catalog, JSON Lines, AI prompt next to the report)'
+Assert-True ($gsAsk -match 'Settings for this run:' -and $gsAsk -notmatch 'from the global settings' -and (Test-Path (Join-Path $gsDir 'n.csv')) -and @(Import-Csv (Join-Path $gsDir 'n.csv') | Where-Object { $_.Type -like 'stig_*' }).Count -gt 0) 'global settings: "n" asks every question as before'
 
 # The lib files are dot-sourced into HostBadger.ps1's own scope: a variable they set at the top level
 # with the name of a parameter silently replaces what the user passed (it once wiped -SnapshotPassword).

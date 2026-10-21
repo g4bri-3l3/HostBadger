@@ -194,7 +194,8 @@ should.
   one survives. You choose whether the STIG findings go too (there can be
   hundreds per host, and a prompt that large may time out).
 - **Guided menu** (`Start-HostBadger.ps1`) for collecting, analyzing, the AI
-  step and the safety review.
+  step and the safety review, with **global settings** (menu 8) that save the
+  answers a run would ask every time.
 - **Logs**: every analysis writes `<report>.log` next to the report (the
   settings of the run, then everything it printed), and every menu session
   `output\hostbadger-menu_<time>.log` (the questions, the answers typed and
@@ -257,6 +258,19 @@ stop it halfway (Ctrl+C, a closed window), the next start offers to resume
 with the answers already given; passwords and keys are asked again, and a
 remediation is never resumed (it says whether anything changed and offers the
 restore).
+
+The answers that are the same at every run can be saved once with **Global
+settings** (menu 8, in `output\hostbadger-settings.json`): report folder, DISA
+STIG and CIS, each catalog (the kept copy, the kept copy if under a week old
+else a download, a download every run, or none), JSON Lines, remediation
+scripts, exceptions file, allowed administrators, expected EDR, the AI step
+(ask, no, dry run, send, confirm first) and, for a collection, snapshot folder,
+file ACLs, missing updates (the Windows Update service contacts the WSUS
+server or Microsoft Update) and encryption. When the file exists, each run asks
+once whether to use them; with yes those questions are skipped, and the
+analysis still lists every answer before it runs, so one can be changed for
+that run. Passwords and the Gemini key are never saved; the CSV to compare
+with is asked every time.
 
 ## Quick start
 

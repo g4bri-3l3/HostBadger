@@ -15,6 +15,16 @@ new major if the snapshot or the JSON Lines format ever breaks.
   what the collection and the analysis printed. Both are PowerShell
   transcripts; the safety review allows `Start-Transcript`/`Stop-Transcript`
   in the two entry points only.
+- Global settings in the guided menu (menu 8, saved in
+  `output\hostbadger-settings.json`): the answers a collection or an analysis
+  asks every time (report folder, STIG and CIS, catalogs, JSON Lines,
+  remediation scripts, exceptions, allowed administrators, EDR, the AI step;
+  snapshot folder, ACLs, missing updates and encryption for a collection).
+  When they are saved, each run asks once whether to use them; with yes the
+  questions are skipped and the review screen lists the saved answers, still
+  changeable for that run. A catalog can also be set to "auto": the kept copy
+  if it is under a week old, else a download. Passwords and the Gemini key
+  are never saved.
 
 ### Changed
 - The Gemini key pasted in the guided menu is typed hidden, so it is neither
