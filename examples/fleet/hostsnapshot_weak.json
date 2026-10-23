@@ -43,6 +43,7 @@
       "persistence",
       "certificates",
       "wifi",
+      "browserExtensions",
       "updatesPending"
     ],
     "collectionErrors": []
@@ -4389,5 +4390,99 @@
       "connectionMode": "auto",
       "nonBroadcast": false
     }
-  ]
+  ],
+  "browserExtensions": {
+    "profiles": [
+      {
+        "user": "jsmith",
+        "browser": "Edge",
+        "profile": "Default",
+        "extensions": [
+          {
+            "id": "bbbbccccddddeeeeffffgggghhhhiiii",
+            "name": "Docs Viewer",
+            "version": "2.1.0",
+            "enabled": true,
+            "source": "store",
+            "permissions": [
+              "storage",
+              "https://docs.example.com/*"
+            ],
+            "contentScripts": []
+          },
+          {
+            "id": "ccccddddeeeeffffgggghhhhiiiijjjj",
+            "name": "Corp SSO",
+            "version": "5.0.1",
+            "enabled": true,
+            "source": "policy",
+            "permissions": [
+              "<all_urls>",
+              "cookies",
+              "webRequest"
+            ],
+            "contentScripts": []
+          }
+        ]
+      },
+      {
+        "user": "mbianchi",
+        "browser": "Brave",
+        "profile": "Profile 1",
+        "extensions": [
+          {
+            "id": "nhjjepfbhpdhehdeiolbnjembodcgaee",
+            "name": "Token.im - Browser Extension",
+            "version": "1.0.4",
+            "enabled": true,
+            "source": "store",
+            "permissions": [
+              "storage",
+              "tabs"
+            ],
+            "contentScripts": [
+              "<all_urls>"
+            ]
+          },
+          {
+            "id": "manfnidnmcdlomkeabeoimjiikhbdloe",
+            "name": "Jinx Arcane Lol Live Wallpaper",
+            "version": "1.2",
+            "enabled": false,
+            "source": "store",
+            "permissions": [
+              "storage"
+            ],
+            "contentScripts": []
+          },
+          {
+            "id": "ddddeeeeffffgggghhhhiiiijjjjkkkk",
+            "name": "Acme Ledger Bridge",
+            "version": "0.3.0",
+            "enabled": true,
+            "source": "unpacked",
+            "permissions": [
+              "nativeMessaging",
+              "https://ledger.acme.example/*"
+            ],
+            "contentScripts": []
+          },
+          {
+            "id": "eeeeffffgggghhhhiiiijjjjkkkkllll",
+            "name": "Page Translator Plus",
+            "version": "4.4.2",
+            "enabled": true,
+            "source": "store",
+            "permissions": [
+              "<all_urls>",
+              "cookies",
+              "scripting",
+              "storage"
+            ],
+            "contentScripts": []
+          }
+        ]
+      }
+    ]
+  }
 }

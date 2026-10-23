@@ -126,6 +126,14 @@ function New-HostPseudonymizer {
             foreach ($g in @($s.credentialExposure.gppFiles | Where-Object { $_ })) { & $add $g.path 'PATH' }
             foreach ($ph in @($s.credentialExposure.psHistory | Where-Object { $_ })) { & $add $ph.profile 'USER' }
         }
+        # Browser extensions: the users their profiles belong to, and the names of extensions that did not
+        # come from a public store (an in-house extension names its company).
+        if ($s.browserExtensions) {
+            foreach ($bp in @($s.browserExtensions.profiles | Where-Object { $_ })) {
+                & $add $bp.user 'USER'
+                foreach ($be in @($bp.extensions | Where-Object { $_ -and "$($_.source)" -notin 'store', 'external-store' })) { & $add $be.name 'SOFTWARE' }
+            }
+        }
         # Persistence points: what they start, and the names someone gave to a WMI consumer.
         if ($s.persistence) {
             foreach ($w in @($s.persistence.wmiConsumers | Where-Object { $_ })) { & $add $w.name 'WMI'; & $add $w.command 'PATH' }
@@ -467,9 +475,10 @@ function Invoke-HttpPostWithSpinner {
 # Catalog downloads: one HTTPS GET each, nothing is sent, these addresses and no other.
 # CISA Known Exploited Vulnerabilities (-KevOnline), LOLDrivers (-DriversOnline, about 30 MB) and the
 # endoflife.date software lifecycle data (-EolOnline, about 3 MB), the Chocolatey community package
-# versions (-ChocoOnline), and the NVD CVEs and FIRST EPSS scores (-CveOnline). HOSTBADGER_KEV_URL,
-# HOSTBADGER_DRIVERS_URL, HOSTBADGER_EOL_URL, HOSTBADGER_CHOCO_URL, HOSTBADGER_NVD_URL and
-# HOSTBADGER_EPSS_URL are the test hooks (the regression runs a local listener).
+# versions (-ChocoOnline), the NVD CVEs and FIRST EPSS scores (-CveOnline), and the browser extensions
+# removed from the stores (-ExtensionsOnline, about 2 MB). HOSTBADGER_KEV_URL, HOSTBADGER_DRIVERS_URL,
+# HOSTBADGER_EOL_URL, HOSTBADGER_CHOCO_URL, HOSTBADGER_NVD_URL, HOSTBADGER_EPSS_URL and
+# HOSTBADGER_EXTENSIONS_URL are the test hooks (the regression runs a local listener).
 # --------------------------------------------------------------------------
 $script:KevFeedUrl = 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json'
 $script:LolDriversUrl = 'https://www.loldrivers.io/api/drivers.json'
@@ -477,6 +486,7 @@ $script:EolApiUrl = 'https://endoflife.date/api/v1/products/full'
 $script:ChocoApiUrl = 'https://community.chocolatey.org/api/v2/'
 $script:NvdApiUrl = 'https://services.nvd.nist.gov/rest/json/cves/2.0'
 $script:EpssUrl = 'https://epss.empiricalsecurity.com/epss_scores-current.csv.gz'
+$script:ExtensionSentryUrl = 'https://raw.githubusercontent.com/toborrm9/malicious_extension_sentry/main/malicious_extensions_detailed.csv'
 
 # -Headers: request headers (the NVD API key). -Binary: the body as bytes (the EPSS file is gzip).
 function Get-CatalogText {
@@ -512,6 +522,14 @@ function Get-LolDriversOnline {
     param([int]$TimeoutSeconds = 180)
     $uri = if ($env:HOSTBADGER_DRIVERS_URL) { $env:HOSTBADGER_DRIVERS_URL } else { $script:LolDriversUrl }
     return Get-CatalogText -Uri $uri -Label 'LOLDrivers' -TimeoutSeconds $TimeoutSeconds
+}
+
+# malicious_extension_sentry (malext.io, CC BY 4.0): the CSV of extensions removed from the stores. The
+# caller converts it (ConvertFrom-ExtensionSentryCsv in lib\Checks.ps1).
+function Get-ExtensionCatalogOnline {
+    param([int]$TimeoutSeconds = 120)
+    $uri = if ($env:HOSTBADGER_EXTENSIONS_URL) { $env:HOSTBADGER_EXTENSIONS_URL } else { $script:ExtensionSentryUrl }
+    return Get-CatalogText -Uri $uri -Label 'browser extensions' -TimeoutSeconds $TimeoutSeconds
 }
 
 # Chocolatey community package versions (-ChocoOnline): for each package of $script:ChocoProductMap

@@ -617,6 +617,24 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Remote access tool installed'
         Description = 'A remote access or remote management tool is installed (AnyDesk, TeamViewer, RustDesk, ScreenConnect, Splashtop, VNC, Radmin, NetSupport, Atera, MeshCentral and others). Each is a way into the host from the internet that bypasses the VPN and often the firewall, and attackers install the same tools after they get in, because they look legitimate. Name the ones the organization approves with -AllowedRemoteTools: the others are Medium. Without that list every tool found is Low, to be verified.'
         Remediation = 'Remove the tools the organization did not approve, block their installers (application control) and their cloud relays (web proxy), and keep the approved one behind multifactor authentication with access logs.' }
+
+    # ---------------- Browser extensions ----------------
+    browser_extension_malicious = @{ Category = 'Software'; Severity = 'High'; Mitre = 'T1176'; Needs = @('browserExtensions'); Roles = $script:AllRoles
+        Title = 'Browser extension removed from the store or known to be malicious'
+        Description = 'A browser extension in a user profile (Chrome, Edge, Brave, Vivaldi, Chromium) has the id of an extension that the Chrome Web Store or Edge Add-ons removed, or that Wladimir Palant documented as potentially malicious. The ids come from malicious_extension_sentry (malext.io by toborrm9, CC BY 4.0, updated daily; -ExtensionsOnline downloads the current list) and Palant''s list (palant.info, CC0), joined in data\malicious-extensions.json. The store removes an extension, but the copy already installed stays in the profile and keeps running. Severity follows the reason: malware, spyware or Palant''s list High; adware, search hijacking or unwanted software Medium; a policy violation or an unknown reason Low. Installed but disabled in every profile is Low.'
+        Remediation = 'Remove the extension from that browser profile (and from every host where it is), block its id with the ExtensionInstallBlocklist policy of Chrome and Edge, change the passwords used in that browser and look at what the profile synced.' }
+    browser_extension_sideloaded = @{ Category = 'Software'; Severity = 'Medium'; Mitre = 'T1176'; Needs = @('browserExtensions'); Roles = $script:AllRoles
+        Title = 'Browser extension installed outside the store'
+        Description = 'An enabled browser extension did not come from the Chrome Web Store, the Edge Add-ons store or addons.mozilla.org, and was not pushed by the organization''s policy: it is loaded from a folder in developer mode, installed from a .crx file, installed by another program, or (Firefox) not signed by Mozilla. Nobody reviewed it, it does not update from the store, and this is how adware and info-stealers add their extension. One finding per extension, with the browsers and profiles that have it.'
+        Remediation = 'Find out who installed it and why; remove it if nobody needs it. Turn developer mode off by policy (DeveloperToolsAvailability / ExtensionDeveloperModeSettings), allow only store or policy installs (ExtensionInstallSources, ExtensionAllowedTypes) and push the extensions the organization needs with ExtensionInstallForcelist.' }
+    browser_extension_not_allowed = @{ Category = 'Software'; Severity = 'Medium'; Mitre = 'T1176'; Needs = @('browserExtensions'); Roles = $script:AllRoles
+        Title = 'Browser extension not on the approved list'
+        Description = 'An enabled browser extension is not on the list given with -AllowedExtensions (ids or names, wildcards allowed). Extensions pushed by the organization''s browser policy count as approved. Checked only when the list is given: without it, extensions with access to every website are reported as Low instead.'
+        Remediation = 'Remove the extension, or add it to -AllowedExtensions if the organization approves it. Enforce the same list in the browser: ExtensionInstallBlocklist "*" with ExtensionInstallAllowlist (Chrome and Edge), or the ExtensionSettings policy (Firefox).' }
+    browser_extension_broad_access = @{ Category = 'Software'; Severity = 'Low'; Mitre = 'T1176'; Needs = @('browserExtensions'); Roles = $script:AllRoles
+        Title = 'Browser extension can read and change every website'
+        Description = 'An enabled browser extension has access to every website (<all_urls>, *://*/* or a content script on every page): it can read what the user types and sees on any site, mail and banking included, and change it. Many useful extensions need it (ad blockers, password managers), which is why this is Low, to be verified: the risk is the publisher, or a buyer of the extension who pushes a malicious update. The detail names the sensitive APIs it also uses (cookies, webRequest, debugger, proxy, nativeMessaging, scripting...). Reported only without -AllowedExtensions; extensions pushed by policy are not reported.'
+        Remediation = 'Keep only the extensions people need, from publishers the organization trusts, and name them with -AllowedExtensions. Enforce the list in the browser (ExtensionInstallAllowlist / ExtensionSettings) and, where possible, restrict the sites extensions can touch (runtime_blocked_hosts in ExtensionSettings).' }
     wifi_profile_insecure = @{ Category = 'Network Exposure'; Severity = 'Medium'; Mitre = 'T1557'; Needs = @('wifi'); Roles = $script:AllRoles
         Title = 'Saved Wi-Fi network without encryption or with WEP'
         Description = 'The host keeps a Wi-Fi profile for an open network (no encryption), a WEP network or a WPA network with TKIP. If it joins on its own (connection mode auto), anyone can set up an access point with the same name nearby and the host connects to it (evil twin): its traffic and its NTLM authentication go through the attacker. Open networks joined manually and WPA with TKIP are Low. Enhanced Open (OWE) is encrypted and is not reported.'
@@ -862,6 +880,10 @@ $script:CheckAttacks = [ordered]@{
     persistence_registry_hijack = 'Persistence and credential capture: a debugger on the logon screen tools, a DLL loaded by every program, or an LSA package that sees every password typed at logon.'
     root_ca_added = 'TLS interception and trusted malware: whoever holds the root''s private key issues certificates the host trusts for any site or code.'
     remote_access_tool = 'Persistent remote control: an attacker uses (or installs) a legitimate remote access tool to come back from the internet, past the VPN and the firewall.'
+    browser_extension_malicious = 'Data theft in the browser: the extension reads the pages, cookies and form fields of every site the user opens and sends them to its server, or injects ads and scripts.'
+    browser_extension_sideloaded = 'Browser persistence: malware or adware adds its own extension (developer mode, a .crx file or an external install) to spy on browsing and steal session cookies, past the store review.'
+    browser_extension_not_allowed = 'Unvetted code in the browser: an extension nobody approved sees every page it has access to; a malicious update or a new owner turns it into a stealer.'
+    browser_extension_broad_access = 'Session theft through a trusted extension: an update (or a new owner) of an extension that already reads every site steals cookies and passwords, mail and banking included.'
     wifi_profile_insecure = 'Evil twin access point: the host joins an attacker''s network with the same name, which then intercepts its traffic and relays its NTLM authentication.'
     log_forwarding_missing = 'Covering tracks: an attacker with administrator rights clears the local logs and nothing of the intrusion remains elsewhere.'
     sysmon_missing = 'Undetected intrusion: without process and network telemetry, the attacker''s tools and movements leave no usable trace.'
@@ -2286,6 +2308,7 @@ function Invoke-HostChecks {
         'edr'        = { Invoke-EdrChecks $Snapshot $Config $can $role }
         'patching'   = { Invoke-PatchChecks $Snapshot $Config $can }
         'exposure'   = { Invoke-ExposureChecks $Snapshot $Config $can $role }
+        'browser'    = { Invoke-BrowserExtensionChecks $Snapshot $Config $can }
     }
     foreach ($g in $groups.Keys) {
         # One broken group becomes a warning, not a lost report.
@@ -3374,6 +3397,27 @@ $script:E8Requirements = @(
 # The checks tied to each strategy, for the framework summary and the per-check line.
 foreach ($k in $script:E8Strategies.Keys) { $script:E8Strategies[$k].Checks = @($script:E8Requirements | Where-Object { $_.S -eq $k } | ForEach-Object { $_.Checks } | Select-Object -Unique) }
 
+function Get-RequirementState {
+    # One framework requirement on one host (Essential Eight, ACN): 'unmet' when one of its checks has a
+    # finding (matching Match), 'unknown' when none of them was judged (not evaluated, not run, turned
+    # off by policy: keys of NotJudged), 'na' for another role, without the product or with no check
+    # for the role, else 'met'.
+    param($Requirement, [string]$Role, $Findings, [hashtable]$NotJudged, [hashtable]$StigByType, [bool]$Office, [bool]$SkipStig)
+    $r = $Requirement
+    if ($r.Roles -and $Role -ne 'unknown' -and @($r.Roles) -notcontains $Role) { return 'na' }
+    if ($r.Product -eq 'office' -and -not $Office) { return 'na' }
+    $checks = @($r.Checks | Where-Object { $script:CheckCatalog.Contains($_) -and ($Role -eq 'unknown' -or $script:CheckCatalog[$_].Roles -contains $Role) })
+    # A STIG product that is not installed has no rule to judge: it does not count.
+    $checks = @($checks | Where-Object { $_ -notlike 'stig_*' -or ($StigByType -and [int]$StigByType[$_] -gt 0) -or $SkipStig })
+    if ($checks.Count -eq 0) { return 'na' }
+    $hit = @($Findings | Where-Object { $checks -contains "$($_.Type)" -and (-not $r.Match -or "$($_.Object) $($_.Detail)" -match $r.Match) })
+    # Met when at least one of its checks was judged clean (pending updates are only searched on
+    # request; the date of the last update still says something).
+    if ($hit.Count -gt 0) { return 'unmet' }
+    if (@($checks | Where-Object { -not $NotJudged.ContainsKey($_) -and -not ($SkipStig -and $_ -like 'stig_*') }).Count -eq 0) { return 'unknown' }
+    return 'met'
+}
+
 function Get-E8Maturity {
     # The Essential Eight maturity level each strategy reaches on one host, from the requirements a
     # host shows ($script:E8Requirements). A requirement is unmet when one of its checks has a finding
@@ -3389,22 +3433,7 @@ function Get-E8Maturity {
         $reqs = @($script:E8Requirements | Where-Object { $_.S -eq $k })
         $rows = @()
         foreach ($r in $reqs) {
-            $state = 'met'
-            if ($r.Roles -and $Role -ne 'unknown' -and @($r.Roles) -notcontains $Role) { $state = 'na' }
-            elseif ($r.Product -eq 'office' -and -not $Office) { $state = 'na' }
-            else {
-                $checks = @($r.Checks | Where-Object { $script:CheckCatalog.Contains($_) -and ($Role -eq 'unknown' -or $script:CheckCatalog[$_].Roles -contains $Role) })
-                # A STIG product that is not installed has no rule to judge: it does not count.
-                $checks = @($checks | Where-Object { $_ -notlike 'stig_*' -or ($StigByType -and [int]$StigByType[$_] -gt 0) -or $SkipStig })
-                if ($checks.Count -eq 0) { $state = 'na' }
-                else {
-                    $hit = @($Findings | Where-Object { $checks -contains "$($_.Type)" -and (-not $r.Match -or "$($_.Object) $($_.Detail)" -match $r.Match) })
-                    # Met when at least one of its checks was judged clean (pending updates are only
-                    # searched on request; the date of the last update still says something).
-                    if ($hit.Count -gt 0) { $state = 'unmet' }
-                    elseif (@($checks | Where-Object { -not $ne.ContainsKey($_) -and -not ($SkipStig -and $_ -like 'stig_*') }).Count -eq 0) { $state = 'unknown' }
-                }
-            }
+            $state = Get-RequirementState -Requirement $r -Role $Role -Findings $Findings -NotJudged $ne -StigByType $StigByType -Office $Office -SkipStig $SkipStig
             $rows += [PSCustomObject]@{ Level = [int]$r.L; Req = $r.Req; Checks = @($r.Checks); State = $state; Note = "$($r.Note)" }
         }
         $judged = @($rows | Where-Object { $_.State -ne 'na' })
@@ -3422,6 +3451,66 @@ function Get-E8Maturity {
     }
     return $out
 }
+# NIS2 in Italy: the basic security measures of ACN Determinazione 379907/2025 (D.Lgs. 138/2024),
+# Allegato 1 for soggetti importanti and Allegato 2 for soggetti essenziali, on the Framework
+# Nazionale per la Cybersecurity e la Data Protection. Only the requirements a host shows, each tied to
+# the HostBadger checks that judge it (Match as for the Essential Eight); the text is ACN's, from
+# data\acn-nis2-measures.json (tools\Convert-AcnMeasures.ps1). Note: how far the checks go. The other
+# requirements (governance, risk and vulnerability plans, inventories, backups, multi-factor
+# authentication, training, incident handling, documented procedures) need evidence a host does not
+# hold: no contrary evidence on a host is not compliance. List: the configuration list (an approved
+# list) without which the row cannot be judged.
+$script:AcnRequirements = @(
+    @{ Code = 'ID.AM-02'; P = 1; List = 'AllowedRemoteTools'; Checks = @('remote_access_tool'); Match = 'not in -AllowedRemoteTools'; Note = 'remote access tools outside -AllowedRemoteTools' }
+    @{ Code = 'ID.AM-02'; P = 1; List = 'AllowedExtensions'; Checks = @('browser_extension_not_allowed'); Note = 'browser extensions outside -AllowedExtensions' }
+    @{ Code = 'ID.RA-08'; P = 2; Checks = @('kev_software_match', 'software_cve', 'vulnerable_driver_present'); Note = 'installed software with known exploited or published vulnerabilities, vulnerable drivers (needs the KEV or CVE data)' }
+    @{ Code = 'PR.AA-01'; P = 1; Checks = @('guest_enabled', 'builtin_admin_enabled'); Note = 'shared built-in accounts enabled' }
+    @{ Code = 'PR.AA-01'; P = 2; Checks = @('password_policy_weak', 'account_lockout_weak', 'local_account_password_never_expires', 'local_account_password_not_required', 'blank_password_network_logon', 'laps_not_configured', 'local_admin_password_shared', 'lm_hash_stored', 'autologon_enabled', 'unattend_credentials', 'gpp_cpassword_cached'); Note = 'the local password policy and local accounts, passwords left on disk' }
+    @{ Code = 'PR.AA-03'; P = 1; Checks = @('rdp_nla_disabled', 'winrm_insecure_auth', 'ntlm_weak_lmcompat', 'kerberos_rc4_allowed', 'smb_insecure_guest_auth'); Note = 'the authentication methods the host accepts' }
+    @{ Code = 'PR.AA-05'; P = 1; Checks = @('user_rights_excessive', 'uac_disabled', 'uac_admin_no_prompt', 'remote_uac_token_filter_off', 'always_install_elevated', 'service_binary_writable', 'task_binary_writable', 'autorun_writable', 'system_path_writable', 'program_dir_writable', 'service_permissions_weak', 'service_unquoted_path', 'service_path_ancestor_control'); Note = 'user rights, UAC, and the ways a standard user gains administrator rights on the host' }
+    @{ Code = 'PR.AA-05'; P = 2; Checks = @('local_admin_member'); Note = 'an account other than the built-in Administrator in the local Administrators group is usually an everyday account with admin rights' }
+    @{ Code = 'PR.DS-01'; P = 1; Roles = @('workstation'); Checks = @('bitlocker_os_volume_off', 'bitlocker_data_volume_off', 'bitlocker_tpm_only', 'bitlocker_weak_encryption'); Note = 'BitLocker on every workstation (HostBadger does not tell a laptop from a desktop); removable media are not seen' }
+    @{ Code = 'PR.DS-01'; P = 2; Checks = @('autoplay_enabled', 'removable_media_execute_allowed'); Note = 'autorun and execution from removable media; the scan is part of DE.CM-09' }
+    @{ Code = 'PR.DS-02'; P = 1; Checks = @('schannel_legacy_crypto_enabled', 'smb_plaintext_password', 'ldap_client_encryption_weak', 'wifi_profile_insecure'); Note = 'the protocols and ciphers the host offers; the traffic itself is not seen' }
+    @{ Code = 'PR.PS-01'; P = 1; E = $true; Checks = @('config_drift'); Note = 'hosts of the same role that differ in their settings (needs several hosts); a documented reference configuration is not seen' }
+    @{ Code = 'PR.PS-02'; P = 1; Checks = @('os_unsupported', 'software_eol'); Note = 'Windows and the software HostBadger can place on a support calendar' }
+    @{ Code = 'PR.PS-02'; P = 2; Checks = @('updates_stale', 'updates_pending', 'wu_auto_updates_disabled', 'reboot_overdue', 'software_outdated'); Note = 'Windows updates, and the applications HostBadger can place on a release line (needs the release data)' }
+    @{ Code = 'PR.PS-04'; P = 1; Checks = @('audit_policy_gaps'); Note = 'the local audit policy: logon, privilege use and account management events' }
+    @{ Code = 'PR.PS-04'; P = 2; Checks = @('log_forwarding_missing', 'security_log_small', 'event_logs_small', 'cmdline_audit_off', 'powershell_scriptblock_logging_off', 'powershell_module_logging_off'); Note = 'only the local side: what the host records, how much it keeps, whether it forwards' }
+    @{ Code = 'PR.IR-01'; P = 1; Checks = @('rdp_nla_disabled', 'rdp_policy_gaps', 'rdp_enabled_workstation', 'winrm_insecure_auth', 'remote_access_tool'); Note = 'Remote Desktop, WinRM and remote access tools on the host' }
+    @{ Code = 'PR.IR-01'; P = 3; Checks = @('firewall_profile_disabled', 'firewall_default_inbound_allow'); Note = 'the Windows firewall of the host; perimeter firewalls are not seen' }
+    @{ Code = 'DE.CM-01'; P = 1; Checks = @('edr_not_found', 'edr_agent_stopped', 'edr_expected_missing'); Note = 'an EDR agent on the host, running' }
+    @{ Code = 'DE.CM-01'; P = 5; E = $true; Checks = @('audit_policy_gaps', 'log_forwarding_missing'); Note = 'only the local side: the events the host records and forwards' }
+    @{ Code = 'DE.CM-09'; P = 1; Checks = @('defender_realtime_off', 'defender_signatures_stale', 'defender_tamper_off', 'defender_protection_features_off', 'defender_exclusion', 'edr_not_found', 'edr_agent_stopped'); Note = 'Microsoft Defender (or the EDR that replaces it): on, up to date, without broad exclusions' }
+)
+
+function Get-AcnMeasureText {
+    # ACN's text of one requirement (data\acn-nis2-measures.json), loaded once; '' when the file is missing.
+    param([string]$Code, [int]$Point)
+    if ($null -eq $script:AcnMeasures) {
+        $script:AcnMeasures = @{}
+        $path = Join-Path $PSScriptRoot '..\data\acn-nis2-measures.json'
+        if (Test-Path -LiteralPath $path) { foreach ($m in @((ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText($path))).measures)) { foreach ($x in $m) { $script:AcnMeasures["$($x.code) $($x.point)"] = $x } } }
+    }
+    $m = $script:AcnMeasures["$Code $Point"]
+    if ($m) { return "$($m.essential)" }
+    return ''
+}
+
+function Get-AcnStatus {
+    # The ACN basic measures ($script:AcnRequirements) on one host: one row per requirement with its
+    # state (Get-RequirementState: met, unmet, unknown, na). Essential: only in Allegato 2. A row whose
+    # approved list ($Config[List]) is empty is unknown.
+    param([string]$Role, $Findings, $NotEvaluated, $Off, $Config)
+    $ne = @{}; foreach ($x in @($NotEvaluated | Where-Object { $_ })) { $ne["$($x.Type)"] = $true }
+    foreach ($t in @($Off | Where-Object { $_ })) { $ne["$t"] = $true }
+    foreach ($r in $script:AcnRequirements) {
+        $state = Get-RequirementState -Requirement $r -Role $Role -Findings $Findings -NotJudged $ne -StigByType @{} -Office $false -SkipStig $false
+        if ($r.List -and $state -ne 'na' -and -not ($Config -and @($Config[$r.List] | Where-Object { $_ }).Count)) { $state = 'unknown' }
+        [PSCustomObject]@{ Code = $r.Code; Point = [int]$r.P; Essential = [bool]$r.E; Checks = @($r.Checks); Note = "$($r.Note)"; Req = Get-AcnMeasureText $r.Code $r.P; State = $state }
+    }
+}
+
 # Script extensions and the ProgId Windows gives them when they run on a double click.
 $script:ScriptRunProgIds = [ordered]@{ '.js' = 'JSFile'; '.jse' = 'JSEFile'; '.vbs' = 'VBSFile'; '.vbe' = 'VBEFile'; '.wsf' = 'WSFFile'; '.wsh' = 'WSHFile'; '.hta' = 'htafile' }
 # Tools the collector looks for in outbound block rules (keep in step with $lolbins in the collector).
@@ -3969,6 +4058,115 @@ function Get-DriftValues {
     }
     foreach ($sec in $script:DriftSections) { if ($Snapshot.$sec) { & $walk $Snapshot.$sec $sec 0 } }
     return $out
+}
+
+# ---------------------------------------------------------------- browser extensions
+# The extensions the collector read from each user profile, judged once per extension id on the host:
+# known malicious (data\malicious-extensions.json, or a fresh copy with -ExtensionsOnline), installed
+# outside the store, not on -AllowedExtensions, or (without that list) able to read every website.
+#
+# The catalog joins two lists of extension ids. malicious_extension_sentry (malext.io, by toborrm9,
+# CC BY 4.0, updated daily): extensions removed from the Chrome Web Store and Edge Add-ons, with the
+# reason. Wladimir Palant's list (palant.info, CC0, archived 2026): potentially malicious extensions
+# he documented. Entry fields: i id, n name, r reason, s source (an address, or ''), d date listed,
+# f feed (sentry or palant).
+# Used by tools\Convert-MaliciousExtensions.ps1 and by -ExtensionsOnline / -ExtensionsFile.
+function ConvertFrom-ExtensionSentryCsv {
+    param([string]$Csv)
+    $out = New-Object System.Collections.Generic.List[object]
+    $seen = @{}
+    foreach ($row in @(ConvertFrom-Csv -InputObject $Csv.TrimStart([char]0xFEFF))) {
+        $id = "$($row.extension_id)".Trim().ToLower()
+        if ($id -notmatch '^[a-p]{32}$' -or $seen.ContainsKey($id)) { continue }
+        $seen[$id] = $true
+        $src = "$($row.source)".Trim()
+        $out.Add([ordered]@{ i = $id; n = "$($row.name)".Trim(); r = "$($row.reason)".Trim(); s = $(if ($src -match '^https?://') { $src } else { '' }); d = "$($row.insert_date_fmt)".Trim(); f = 'sentry' })
+    }
+    return $out.ToArray()
+}
+$script:ShippedExtensionCatalog = $null
+function Get-ExtensionCatalog {
+    # Extension id -> entry. The shipped copy (data\malicious-extensions.json), or a downloaded / given
+    # sentry list (-ExtensionsOnline, -ExtensionsFile) with the shipped Palant entries kept.
+    param($Config)
+    if ($null -eq $script:ShippedExtensionCatalog) {
+        $script:ShippedExtensionCatalog = @()
+        $path = Join-Path $PSScriptRoot '..\data\malicious-extensions.json'
+        if (Test-Path -LiteralPath $path) { $script:ShippedExtensionCatalog = @(foreach ($e in @((ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText($path))).entries)) { foreach ($x in $e) { $x } }) }
+    }
+    $entries = if ($Config -and $Config.Extensions) { @(@($script:ShippedExtensionCatalog | Where-Object { $_.f -eq 'palant' }) + @($Config.Extensions)) } else { $script:ShippedExtensionCatalog }
+    $map = @{}
+    # The sentry entry wins over Palant's for the same id: it carries the reason.
+    foreach ($e in @($entries | Where-Object { $_ })) { if (-not $map.ContainsKey("$($e.i)") -or $e.f -eq 'sentry') { $map["$($e.i)"] = $e } }
+    return $map
+}
+# Severity by the reason the store gave (or Palant's documentation): malware and spyware High,
+# adware and unwanted software Medium, a policy violation or an unknown reason Low.
+function Get-ExtensionCatalogSeverity {
+    param($Entry)
+    if ($Entry.f -eq 'palant' -or "$($Entry.r)" -match '(?i)^(malware|spyware|critical vulnerability)$') { return 'High' }
+    if ("$($Entry.r)" -match '(?i)adware|unwanted|hijack') { return 'Medium' }
+    return 'Low'
+}
+$script:ExtensionAllSites = '^(<all_urls>|\*://\*/\*?|https?://\*/\*?|file:///\*)$'
+$script:ExtensionSensitiveApis = @('cookies', 'webRequest', 'webRequestBlocking', 'debugger', 'proxy', 'nativeMessaging', 'scripting', 'clipboardRead', 'management', 'history', 'downloads', 'privacy', 'declarativeNetRequestWithHostAccess', 'tabCapture', 'desktopCapture')
+$script:ExtensionSourceText = [ordered]@{
+    unpacked = 'loaded from a folder in developer mode'
+    file     = 'installed from a .crx file, not from the store'
+    external = 'installed by another program, not from the store'
+    unsigned = 'not signed by Mozilla'
+}
+function Invoke-BrowserExtensionChecks {
+    param($S, $Config, $can)
+    $be = $S.browserExtensions
+    if (-not $be) { return }
+    $byId = [ordered]@{}
+    foreach ($p in @($be.profiles | Where-Object { $_ })) {
+        foreach ($e in @($p.extensions | Where-Object { $_ -and "$($_.id)" })) {
+            $id = "$($e.id)"
+            if (-not $byId.Contains($id)) { $byId[$id] = [PSCustomObject]@{ Id = $id; Name = ''; Ext = @(); Where = @() } }
+            $g = $byId[$id]
+            if (-not $g.Name -and "$($e.name)".Trim()) { $g.Name = "$($e.name)".Trim() }
+            $g.Ext += $e
+            $g.Where += "$($p.browser) $($p.user)/$($p.profile)$(if ($e.enabled -ne $true) { ' (disabled)' })"
+        }
+    }
+    $mal = Get-ExtensionCatalog $Config
+    $allowed = @($Config.AllowedExtensions | Where-Object { $_ })
+    foreach ($g in $byId.Values) {
+        $obj = "extension: $(if ($g.Name) { "$($g.Name) ($($g.Id))" } else { $g.Id })"
+        $where = "Installed in: $(@($g.Where | Select-Object -Unique) -join ', ')."
+        $on = @($g.Ext | Where-Object { $_.enabled -eq $true })
+        if ($mal.ContainsKey($g.Id)) {
+            if (& $can 'browser_extension_malicious') {
+                $m = $mal[$g.Id]
+                # The source addresses stay in the catalog: the report links to nothing but MITRE.
+                $why = if ($m.f -eq 'palant') { 'Documented as potentially malicious by Wladimir Palant (palant.info)' }
+                    else { "Removed from the store: $(if ("$($m.r)") { $m.r } else { 'reason not given' }) (listed $($m.d) by malext.io, CC BY 4.0)" }
+                Add-Finding -Type 'browser_extension_malicious' -Object $obj -Severity $(if ($on.Count) { Get-ExtensionCatalogSeverity $m } else { 'Low' }) -Detail "$why$(if (-not $on.Count) { '; disabled in every profile' }). $where"
+            }
+            continue
+        }
+        if ($on.Count -eq 0) { continue }
+        $isAllowed = @($allowed | Where-Object { $g.Id -ieq $_ -or ($g.Name -and $g.Name -like $_) }).Count -gt 0
+        # Pushed by the organization's browser policy in every profile: its own choice.
+        $byPolicy = @($on | Where-Object { "$($_.source)" -ne 'policy' }).Count -eq 0
+        $side = @($on | ForEach-Object { "$($_.source)" } | Where-Object { $script:ExtensionSourceText.Contains($_) } | Select-Object -Unique)
+        if ($side.Count -and -not $isAllowed -and (& $can 'browser_extension_sideloaded')) {
+            Add-Finding -Type 'browser_extension_sideloaded' -Object $obj -Detail "$((@($side | ForEach-Object { $script:ExtensionSourceText[$_] }) -join '; ').Substring(0, 1).ToUpper())$((@($side | ForEach-Object { $script:ExtensionSourceText[$_] }) -join '; ').Substring(1)). $where"
+        }
+        if ($byPolicy -or $isAllowed) { continue }
+        if ($allowed.Count) {
+            if (& $can 'browser_extension_not_allowed') { Add-Finding -Type 'browser_extension_not_allowed' -Object $obj -Detail "Not in -AllowedExtensions ($($allowed -join ', ')). $where" }
+            continue
+        }
+        $perms = @($on | ForEach-Object { @($_.permissions) + @($_.contentScripts) } | Where-Object { $_ } | ForEach-Object { "$_" } | Select-Object -Unique)
+        if (-not @($perms | Where-Object { $_ -match $script:ExtensionAllSites }).Count) { continue }
+        if (& $can 'browser_extension_broad_access') {
+            $apis = @($script:ExtensionSensitiveApis | Where-Object { $perms -contains $_ })
+            Add-Finding -Type 'browser_extension_broad_access' -Object $obj -Detail "Can read and change every website$(if ($apis.Count) { "; also uses $($apis -join ', ')" }) (no -AllowedExtensions list: verify that it is approved). $where"
+        }
+    }
 }
 
 function Invoke-FleetChecks {

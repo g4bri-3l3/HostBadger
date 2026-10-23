@@ -223,9 +223,30 @@ function Request-Elevation {
     # A folder ending in "\" would escape the closing quote ("C:\"): "C:\." is the same folder.
     $here = $PWD.ProviderPath; if ($here.EndsWith('\')) { $here += '.' }
     $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $PSCommandPath), '-StartIn', ('"{0}"' -f $here))
+    # Windows cannot elevate a window that is already open. Best first: Windows 11 sudo in inline mode
+    # (Settings > System > For developers > Enable sudo, "Inline") runs the menu in this same window and
+    # comes back here; from Windows Terminal, an elevated Terminal window with the same shell; otherwise a
+    # new console. -NoExit keeps the new window at a prompt in this folder when the menu ends.
+    $sudo = Join-Path $env:SystemRoot 'System32\sudo.exe'
+    $sudoMode = (Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Sudo' -Name 'Enabled' -ErrorAction SilentlyContinue).Enabled
+    $wt = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\wt.exe'
+    if (-not $env:WT_SESSION -or -not (Test-Path -LiteralPath $wt)) { $wt = '' }
     try {
-        Start-Process -FilePath $exe -ArgumentList $argList -Verb RunAs -ErrorAction Stop
-        Write-Host 'The menu goes on in the new administrator window.' -ForegroundColor Green
+        if ("$sudoMode" -eq '3' -and (Test-Path -LiteralPath $sudo)) {
+            Write-Host 'The menu goes on in this window as administrator (Windows sudo, inline).' -ForegroundColor Green
+            Stop-SessionLog
+            Start-Process -FilePath $sudo -ArgumentList (@(('"{0}"' -f $exe)) + $argList) -NoNewWindow -Wait -ErrorAction Stop
+            exit 0
+        }
+        elseif ($wt) {
+            Start-Process -FilePath $wt -ArgumentList (@('-d', ('"{0}"' -f $here), ('"{0}"' -f $exe), '-NoExit') + $argList) -Verb RunAs -ErrorAction Stop
+            Write-Host 'The menu goes on in a new administrator Windows Terminal window (it stays open at a prompt when the menu ends).' -ForegroundColor Green
+        }
+        else {
+            Start-Process -FilePath $exe -ArgumentList (@('-NoExit') + $argList) -Verb RunAs -ErrorAction Stop
+            Write-Host 'The menu goes on in the new administrator window (it stays open at a prompt when the menu ends).' -ForegroundColor Green
+        }
+        Write-Host 'Tip: with Windows 11 sudo in inline mode (Settings > System > For developers) the menu stays in this window.' -ForegroundColor DarkGray
         Stop-SessionLog
         exit 0
     }
@@ -246,6 +267,8 @@ $script:CatalogDefs = [ordered]@{
         Prompt = 'Download program versions from community.chocolatey.org? (y/N)' }
     Cve     = @{ Label = 'CVEs and EPSS'; Suffix = 'cve'; Online = 'CveOnline'; File = 'CveFile'; Site = 'services.nvd.nist.gov, epss.empiricalsecurity.com'; Off = 'no'; OffPrompt = 'skip it'
         Prompt = 'Download CVEs from NVD and EPSS scores from FIRST? (y/N)' }
+    Ext     = @{ Label = 'Removed browser extensions'; Suffix = 'extensions'; Online = 'ExtensionsOnline'; File = 'ExtensionsFile'; Site = 'raw.githubusercontent.com'; Off = 'the copy HostBadger ships'; OffPrompt = 'the copy HostBadger ships'
+        Prompt = 'Download the current list of browser extensions removed from the stores (malext.io)? (y/N)' }
 }
 
 # The newest kept copy of a catalog (<anything>_<suffix>.json), or nothing.
@@ -323,10 +346,10 @@ function New-GlobalSettings {
     return [ordered]@{
         version = 1; savedUtc = ''
         SnapshotDir = ''; SkipAcl = $false; CheckUpdates = $false; Encrypt = 'ask'; Certificate = ''
-        ReportDir = 'output'; PerHost = $true; SkipStig = $false; HideCis = $false; HideStig = $false
+        ReportDir = 'output'; PerHost = $true; SkipStig = $false; HideCis = $false; HideStig = $false; Nis2Acn = $false
         Kev = 'kept'; KevFile = ''; Drivers = 'kept'; Eol = 'kept'; Choco = 'kept'; Cve = 'kept'
         Jsonl = $false; Remediation = $false; RemediationProfile = ''; RemediationDebloat = $false
-        ExceptionsFile = ''; PolicyFile = ''; AllowedAdmins = ''; ExpectedEdr = ''; AllowedRemoteTools = ''
+        ExceptionsFile = ''; PolicyFile = ''; AllowedAdmins = ''; ExpectedEdr = ''; AllowedRemoteTools = ''; AllowedExtensions = ''
         Ai = 'A'; AiIncludeStig = $false; Model = ''; AiMaxAttempts = ''
     }
 }
@@ -382,6 +405,7 @@ function Set-GlobalAnalysisParams {
     if ($Multi -and $S.PerHost) { $Ap['PerHost'] = $true }
     if ($S.SkipStig) { $Ap['SkipStig'] = $true } elseif ($S.HideStig) { $Ap['HideStig'] = $true }
     if ($S.HideCis) { $Ap['HideCis'] = $true }
+    if ($S.Nis2Acn) { $Ap['Nis2Acn'] = $true }
     foreach ($cn in $script:CatalogDefs.Keys) {
         $c = $script:CatalogDefs[$cn]; $mode = "$($S[$cn])"
         if ($mode -eq 'online') { $Ap[$c.Online] = $true }
@@ -412,6 +436,8 @@ function Set-GlobalAnalysisParams {
     if ($edr.Count) { $Ap['ExpectedEdr'] = $edr }
     $rat = @("$($S.AllowedRemoteTools)" -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     if ($rat.Count) { $Ap['AllowedRemoteTools'] = $rat }
+    $ext = @("$($S.AllowedExtensions)" -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    if ($ext.Count) { $Ap['AllowedExtensions'] = $ext }
 }
 
 # Menu 8: the saved answers, numbered, as on the review screen of an analysis. Enter saves, a number
@@ -436,6 +462,7 @@ function Edit-GlobalSettings {
         $items.Add(@('SkipStig', 'DISA STIG rules', (& $yn (-not $s.SkipStig)), ''))
         $items.Add(@('HideCis', 'Show CIS-based findings', (& $yn (-not $s.HideCis)), ''))
         $items.Add(@('HideStig', 'Show DISA STIG findings', (& $yn (-not $s.HideStig)), ''))
+        $items.Add(@('Nis2Acn', 'NIS2 ACN measures (Italy)', (& $yn $s.Nis2Acn), ''))
         foreach ($cn in $script:CatalogDefs.Keys) { $items.Add(@($cn, $script:CatalogDefs[$cn].Label, (Get-CatalogModeText -Name $cn -S $s), '')) }
         $items.Add(@('Jsonl', 'JSON Lines', "$(& $yn $s.Jsonl)$(if ($s.Jsonl) { ', next to the report' })", ''))
         $items.Add(@('Remediation', 'Remediation scripts', "$(& $yn $s.Remediation)$(if ($s.Remediation) { ', next to the report' })", ''))
@@ -446,6 +473,7 @@ function Edit-GlobalSettings {
         $items.Add(@('AllowedAdmins', 'Allowed administrators', (& $orElse $s.AllowedAdmins 'none'), ''))
         $items.Add(@('ExpectedEdr', 'Expected EDR', (& $orElse $s.ExpectedEdr 'none'), ''))
         $items.Add(@('AllowedRemoteTools', 'Approved remote tools', (& $orElse $s.AllowedRemoteTools 'none'), ''))
+        $items.Add(@('AllowedExtensions', 'Approved browser extensions', (& $orElse $s.AllowedExtensions 'none'), ''))
         $items.Add(@('Ai', 'AI summary (Gemini)', $script:AiModes["$($s.Ai)"], 'AI summary'))
         $items.Add(@('AiIncludeStig', 'Send STIG findings', (& $yn $s.AiIncludeStig), ''))
         $items.Add(@('Model', 'Gemini model', (& $orElse $s.Model 'the default'), ''))
@@ -465,7 +493,7 @@ function Edit-GlobalSettings {
         if ($pick -notmatch '^\d+$' -or [int]$pick -lt 1 -or [int]$pick -gt $items.Count) { Write-Host "Pick 1-$($items.Count), Enter, D or Q." -ForegroundColor Yellow; continue }
         $k = $items[[int]$pick - 1][0]
         switch ($k) {
-            { $_ -in 'SkipAcl', 'PerHost', 'SkipStig', 'HideCis', 'HideStig', 'Jsonl', 'Remediation', 'RemediationDebloat', 'AiIncludeStig' } { $s[$k] = -not $s[$k] }
+            { $_ -in 'SkipAcl', 'PerHost', 'SkipStig', 'HideCis', 'HideStig', 'Nis2Acn', 'Jsonl', 'Remediation', 'RemediationDebloat', 'AiIncludeStig' } { $s[$k] = -not $s[$k] }
             'RemediationProfile' { $s[$k] = Read-RemediationProfile "$($s.RemediationProfile)" }
             'CheckUpdates' {
                 $s[$k] = -not $s[$k]
@@ -501,6 +529,7 @@ function Edit-GlobalSettings {
             'AllowedAdmins' { $v = "$(Read-Host 'Allowed local administrators, comma separated ("-" for none)')".Trim(); if ($v -eq '-') { $s[$k] = '' } elseif ($v) { $s[$k] = $v } }
             'ExpectedEdr' { $v = "$(Read-Host 'EDR every host should run, comma separated ("-" for none)')".Trim(); if ($v -eq '-') { $s[$k] = '' } elseif ($v) { $s[$k] = $v } }
             'AllowedRemoteTools' { $v = "$(Read-Host 'Approved remote access tools, comma separated ("-" for none)')".Trim(); if ($v -eq '-') { $s[$k] = '' } elseif ($v) { $s[$k] = $v } }
+            'AllowedExtensions' { $v = "$(Read-Host 'Approved browser extensions, ids or names, comma separated ("-" for none)')".Trim(); if ($v -eq '-') { $s[$k] = '' } elseif ($v) { $s[$k] = $v } }
             'Ai' {
                 $v = "$(Read-Host $script:AiModePrompt)".Trim().ToUpper()
                 if (-not $v) { $v = 'A' }
@@ -693,6 +722,9 @@ function Get-AnalysisParams {
             $stigShow = "$(Read-Line 'Show the DISA STIG findings in the report? (Y/n)')".Trim()
             if ($stigShow -match '^[Nn]') { $ap['HideStig'] = $true }
         }
+        Write-Host "`nNIS2 in Italy: the report can also list the basic security measures of the Agenzia per la Cybersicurezza Nazionale (Determinazione 379907/2025, D.Lgs. 138/2024) that the hosts show evidence against. Useful only for organizations subject to the Italian NIS2 rules." -ForegroundColor DarkGray
+        $acnAns = "$(Read-Line 'Add the NIS2 ACN basic measures (Italy) to the report? (y/N)')".Trim()
+        if ($acnAns -match '^[YySs]') { $ap['Nis2Acn'] = $true }
         Write-Host "`nCatalogs: each download is kept next to its report, and the next analysis offers the newest kept copy (Enter) or a fresh download (O)." -ForegroundColor DarkGray
         Write-Host "`nCISA KEV: installed software can be compared with the catalog of vulnerabilities known to be exploited. The match is by vendor and product name only (the catalog has no version ranges), so it is a lead to verify. Downloading connects to www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json (one HTTPS GET, nothing is sent); a copy is kept next to the report." -ForegroundColor DarkGray
         Set-CatalogChoice -Ap $ap -Name 'Kev'
@@ -704,6 +736,8 @@ function Get-AnalysisParams {
         Set-CatalogChoice -Ap $ap -Name 'Choco'
         Write-Host "`nKnown vulnerabilities: the installed versions of Python, Node.js, .NET, Notepad++, PowerShell 7, VirtualBox, Wireshark, 7-Zip, VLC, Git, GIMP, WinSCP, PuTTY, FileZilla, KeePass, Audacity, Mullvad VPN and AnyDesk can be checked against their CVEs, with the EPSS probability of exploitation. Downloading connects to services.nvd.nist.gov (the CVEs of each product, never its version: the same list whatever the hosts have; about 2.5 minutes, faster with NVD_API_KEY) and epss.empiricalsecurity.com (one file of about 3 MB). Nothing is sent; a copy is kept next to the report." -ForegroundColor DarkGray
         Set-CatalogChoice -Ap $ap -Name 'Cve'
+        Write-Host "`nBrowser extensions: HostBadger ships a list of about 7,900 extensions removed from the Chrome Web Store and Edge Add-ons (malware, spyware, adware) or documented as malicious. A fresh copy of the store list comes from malicious_extension_sentry (malext.io, updated daily): one HTTPS GET of about 2 MB to raw.githubusercontent.com, nothing is sent; a copy is kept next to the report." -ForegroundColor DarkGray
+        Set-CatalogChoice -Ap $ap -Name 'Ext'
         if (Test-Yes "Also write JSON Lines for a SIEM? (y/N)") { $ap['OutJsonl'] = Read-Path "JSON Lines path" ($ap['OutHtml'] -replace '\.html?$', '.jsonl') }
         Write-Host "`nRemediation scripts: the report already shows a fix script under each check whose fix is one safe setting. HostBadger can also write one remediate_<host>.ps1 per host with all of that host's fixes in one file, for a scripted rollout. They are text files: HostBadger never runs them, they only preview until run with -Apply, and they write a rollback file. Read them and test on a pilot host first." -ForegroundColor DarkGray
         if (Test-Yes 'Write one remediation script per host? (y/N)') { $ap['OutRemediation'] = Read-Path "Folder for the remediation scripts" ($ap['OutHtml'] -replace '\.html?$', '_remediation') }
@@ -745,6 +779,7 @@ function Edit-AnalysisParams {
     $q = @{
         PerHost = 'One report per host? (Y/n)'; Stig = 'Include the DISA STIG rules? (Y/n)'; Cis = 'Show the CIS-based findings in the report? (Y/n)'
         StigShow = 'Show the DISA STIG findings in the report? (Y/n)'; Jsonl = 'Also write JSON Lines for a SIEM? (y/N)'; JsonlPath = 'JSON Lines path'
+        Acn = 'Add the NIS2 ACN basic measures (Italy) to the report? (y/N)'
         Rem = 'Write one remediation script per host? (y/N)'; RemPath = 'Folder for the remediation scripts'
         Compare = 'Findings CSV of an earlier run, to show new and resolved (optional, Enter to skip)'; Exceptions = 'Exceptions file (accepted risks, optional, Enter to skip)'
         Admins = 'Allowed local administrators, e.g. CORP/Workstation Admins, CORP/helpdesk (Enter = none)'
@@ -762,6 +797,7 @@ function Edit-AnalysisParams {
         $items.Add(@('Stig', 'DISA STIG rules', (& $yn (-not $Ap['SkipStig']))))
         $items.Add(@('Cis', 'Show CIS-based findings', (& $yn (-not $Ap['HideCis']))))
         if (-not $Ap['SkipStig']) { $items.Add(@('StigShow', 'Show DISA STIG findings', (& $yn (-not $Ap['HideStig'])))) }
+        $items.Add(@('Acn', 'NIS2 ACN measures (Italy)', (& $yn $Ap['Nis2Acn'])))
         foreach ($cn in $script:CatalogDefs.Keys) { $items.Add(@($cn, $script:CatalogDefs[$cn].Label, (Get-CatalogSummary -Ap $Ap -Name $cn))) }
         $items.Add(@('Jsonl', 'JSON Lines', $(if ($Ap['OutJsonl']) { $Ap['OutJsonl'] } else { 'no' })))
         $items.Add(@('Rem', 'Remediation scripts', $(if ($Ap['OutRemediation']) { $Ap['OutRemediation'] } else { 'no' })))
@@ -771,6 +807,7 @@ function Edit-AnalysisParams {
         $items.Add(@('Admins', 'Allowed administrators', $(if ($Ap['AllowedAdmins']) { @($Ap['AllowedAdmins']) -join ', ' } else { 'none' })))
         $items.Add(@('Edr', 'Expected EDR', $(if ($Ap['ExpectedEdr']) { @($Ap['ExpectedEdr']) -join ', ' } else { 'none' })))
         $items.Add(@('Rat', 'Approved remote tools', $(if ($Ap['AllowedRemoteTools']) { @($Ap['AllowedRemoteTools']) -join ', ' } else { 'none' })))
+        $items.Add(@('Ext', 'Approved extensions', $(if ($Ap['AllowedExtensions']) { @($Ap['AllowedExtensions']) -join ', ' } else { 'none: those that read every site are Low' })))
         # The AI step is listed only with the global settings, which hold a mode for it.
         if ($script:RunAi) { $items.Add(@('Ai', 'AI summary (Gemini)', $script:AiModes[$script:RunAi])) }
         Write-Host "`nSettings for this run$(if ($script:UseGlobal) { ' (from the global settings)' }):" -ForegroundColor Cyan
@@ -797,6 +834,7 @@ function Edit-AnalysisParams {
             'Stig' { $skip = -not $Ap['SkipStig']; & $flag 'SkipStig' $skip $q.Stig 'n' ''; if ($skip) { $Ap.Remove('HideStig') } }
             'Cis' { & $flag 'HideCis' (-not $Ap['HideCis']) $q.Cis 'n' '' }
             'StigShow' { & $flag 'HideStig' (-not $Ap['HideStig']) $q.StigShow 'n' '' }
+            'Acn' { & $flag 'Nis2Acn' (-not $Ap['Nis2Acn']) $q.Acn 'y' '' }
             { $script:CatalogDefs.Contains($_) } { Set-CatalogChoice -Ap $Ap -Name $_ -Edit }
             'Jsonl' {
                 $v = Read-PathRaw 'JSON Lines path ("-" for none)' $(if ($Ap['OutJsonl']) { $Ap['OutJsonl'] } else { $Ap['OutHtml'] -replace '\.html?$', '.jsonl' })
@@ -829,6 +867,10 @@ function Edit-AnalysisParams {
             'Rat' {
                 $v = "$(Read-Host 'Approved remote access tools, comma separated ("-" for none)')".Trim()
                 if ($v -eq '-') { $Ap.Remove('AllowedRemoteTools'); Set-WizardValue $q.Rat '' } elseif ($v) { $Ap['AllowedRemoteTools'] = @($v -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }); Set-WizardValue $q.Rat $v }
+            }
+            'Ext' {
+                $v = "$(Read-Host 'Approved browser extensions, ids or names, comma separated ("-" for none)')".Trim()
+                if ($v -eq '-') { $Ap.Remove('AllowedExtensions') } elseif ($v) { $Ap['AllowedExtensions'] = @($v -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
             }
             'Ai' { $v = "$(Read-Host $script:AiModePrompt)".Trim().ToUpper(); if (-not $v) { $v = 'A' }; if ($script:AiModes.Contains($v)) { $script:RunAi = $v } }
         }
@@ -882,30 +924,35 @@ function Add-AiParams {
     $Params['AiDryRun'] = if ($g -and $Params['OutHtml']) { $Params['OutHtml'] -replace '\.html?$', '_ai_prompt.txt' } else { Read-Path "Dry-run output file" ("hostbadger_ai_prompt_{0}.txt" -f (Ts)) }
 }
 
-# After the report, offer the AI summary. It runs the analysis again with the AI step on, so the
-# report on disk gets the AI section (or, in a dry run, the prompt file appears).
+# After the report, offer the AI summary. The analysis ran with -AiLater, so it is still in this
+# session's memory: -AiContinue runs only the AI step on it (nothing is analyzed or downloaded twice).
 function Invoke-AiOffer {
     param([hashtable]$Params)
-    if (-not (Test-Path -LiteralPath $Params['OutHtml'])) { return }
-    Write-Host "`n------------------------------------------------------------" -ForegroundColor Cyan
-    Write-Host "Report ready: $($Params['OutHtml'])" -ForegroundColor Green
-    # Already done in the run (a saved AI mode), or turned off in the global settings.
-    if ($Params['SendToAI'] -or $Params['AiDryRun'] -or $script:RunAi -eq 'N') { return }
-    $mode = Read-AiMode 'Add an AI summary with Gemini?  [N]o, [D]ry run (only write the prompt), [S]end, [C]onfirm after reading the prompt (N/d/s/c)' -Default 'N'
-    if ($mode -eq 'N') { return }
-    $again = @{}; foreach ($k in $Params.Keys) { $again[$k] = $Params[$k] }
-    # The catalogs downloaded for the report are kept next to it: the AI run reuses those copies, so it
-    # downloads nothing again and works on the same data as the report.
-    $stem = [System.IO.Path]::GetFullPath($Params['OutHtml']) -replace '\.html?$', ''
-    if ($again['KevOnline'] -and (Test-Path -LiteralPath "${stem}_kev.json")) { $again.Remove('KevOnline'); $again['KevFile'] = "${stem}_kev.json" }
-    if ($again['DriversOnline'] -and (Test-Path -LiteralPath "${stem}_drivers.json")) { $again.Remove('DriversOnline'); $again['DriversFile'] = "${stem}_drivers.json" }
-    if ($again['EolOnline'] -and (Test-Path -LiteralPath "${stem}_eol.json")) { $again.Remove('EolOnline'); $again['EolFile'] = "${stem}_eol.json" }
-    if ($again['ChocoOnline'] -and (Test-Path -LiteralPath "${stem}_choco.json")) { $again.Remove('ChocoOnline'); $again['ChocoFile'] = "${stem}_choco.json" }
-    if ($again['CveOnline'] -and (Test-Path -LiteralPath "${stem}_cve.json")) { $again.Remove('CveOnline'); $again['CveFile'] = "${stem}_cve.json" }
-    Add-AiParams -Params $again -Mode $mode
-    Invoke-Sub 'HostBadger.ps1' $again
+    try {
+        if (-not (Test-Path -LiteralPath $Params['OutHtml'])) { return }
+        Write-Host "`n------------------------------------------------------------" -ForegroundColor Cyan
+        Write-Host "Report ready: $($Params['OutHtml'])" -ForegroundColor Green
+        if (-not $Params['AiLater']) { return }
+        $mode = Read-AiMode 'Add an AI summary with Gemini?  [N]o, [D]ry run (only write the prompt), [S]end, [C]onfirm after reading the prompt (N/d/s/c)' -Default 'N'
+        if ($mode -eq 'N') { return }
+        $ai = @{ OutHtml = $Params['OutHtml'] }
+        if ($Params['SkipStig']) { $ai['SkipStig'] = $true }
+        Add-AiParams -Params $ai -Mode $mode
+        $ai.Remove('OutHtml'); $ai.Remove('SkipStig')
+        $ai['AiContinue'] = $true
+        Invoke-Sub 'HostBadger.ps1' $ai
+    }
+    # The kept analysis is not needed any more, whatever the answer.
+    finally { $global:HostBadgerAiPending = $null }
 }
 
+# The analysis keeps itself in memory for the AI offer, unless the run already has an AI mode (a saved
+# one) or the global settings turn the AI step off.
+function Add-AiOffer {
+    param([hashtable]$Params)
+    if ($Params['SendToAI'] -or $Params['AiDryRun'] -or $script:RunAi -eq 'N') { return }
+    $Params['AiLater'] = $true
+}
 # ---------------- Remediation of this machine: the only part of HostBadger that changes anything.
 # Each run gets a folder with its snapshot, report, fix script and rollback file.
 $script:RemediationRoot = Join-Path (Join-Path $PWD.Path 'output') 'remediation'
@@ -1216,7 +1263,7 @@ try {
                 $ap = Get-AnalysisParams
                 if ($ap) {
                     Set-WizardStage 'running'
-                    Invoke-Sub 'HostBadger.ps1' $ap
+                    Add-AiOffer $ap; Invoke-Sub 'HostBadger.ps1' $ap
                     # Kept when the report did not come out, so the same answers can be tried again.
                     if (Test-Path -LiteralPath $ap['OutHtml']) { Clear-WizardState }
                     Invoke-AiOffer $ap; Open-Report $ap['OutHtml']
@@ -1232,7 +1279,7 @@ try {
                 $ap = if ($dir) { Get-AnalysisParams -Snapshot $dir } else { $null }
                 if ($ap) {
                     Set-WizardStage 'running'
-                    Invoke-Sub 'HostBadger.ps1' $ap
+                    Add-AiOffer $ap; Invoke-Sub 'HostBadger.ps1' $ap
                     if (Test-Path -LiteralPath $ap['OutHtml']) { Clear-WizardState }
                     Invoke-AiOffer $ap; Open-Report $ap['OutHtml']
                 }

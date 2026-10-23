@@ -125,61 +125,16 @@ function Export-FindingsJsonl {
             $o['e8_levels'] = $lv
             $o['e8_capped'] = [string[]]@($h.E8.Keys | Where-Object { $h.E8[$_].Capped })
         }
+        # NIS2 / ACN basic measures (Determinazione 379907/2025) a host shows: the requirements with a
+        # finding against them, and those none of whose checks could be judged, as "<code>.<point>".
+        if ($h.Acn) {
+            $acnBy = @($h.Acn | Where-Object { $_.State -ne 'na' } | Group-Object { "$($_.Code).$($_.Point)" })
+            $o['acn_unmet'] = [string[]]@($acnBy | Where-Object { @($_.Group | Where-Object { $_.State -eq 'unmet' }).Count } | ForEach-Object { $_.Name })
+            $o['acn_not_judged'] = [string[]]@($acnBy | Where-Object { @($_.Group | Where-Object { $_.State -ne 'unknown' }).Count -eq 0 } | ForEach-Object { $_.Name })
+        }
         [void]$sb.AppendLine(($o | ConvertTo-Json -Compress -Depth 3))
     }
     [System.IO.File]::WriteAllText($Path, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
-}
-
-# ---------------------------------------------------------------- tickets
-# One ticket per check, not per finding: the check, the hosts it fired on and, per host, the first
-# objects. Jira: the columns its CSV importer maps by itself (Summary, Issue Type, Priority,
-# Description, and Labels twice: "hostbadger" and "hostbadger-<check>", which finds the ticket again on
-# the next run). ServiceNow: incident fields for an import set, with correlation_id
-# "hostbadger-<check>" so a transform map can update the open ticket instead of opening another. Only
-# the findings still open: accepted risks and checks the policy turned off are not here.
-function Export-FindingsTickets {
-    param($Findings, [string]$Path, [ValidateSet('Jira', 'ServiceNow')][string]$Format = 'Jira', [string]$ToolVersion)
-    $rank = @{ Critical = 4; High = 3; Medium = 2; Low = 1 }
-    $q = { param($v) '"' + ("$v" -replace '"', '""') + '"' }
-    $sb = New-Object System.Text.StringBuilder
-    if ($Format -eq 'Jira') { [void]$sb.AppendLine('Summary,Issue Type,Priority,Description,Labels,Labels') }
-    else { [void]$sb.AppendLine('short_description,description,impact,urgency,correlation_id,correlation_display') }
-    $groups = @(@($Findings | Where-Object { $_ }) | Group-Object Type | ForEach-Object {
-            $top = ($_.Group | ForEach-Object { $rank["$($_.Severity)"] } | Measure-Object -Maximum).Maximum
-            [PSCustomObject]@{ Type = $_.Name; Rank = [int]$top; Items = @($_.Group) }
-        })
-    foreach ($g in ($groups | Sort-Object @{ Expression = 'Rank'; Descending = $true }, Type)) {
-        $meta = $script:CheckCatalog[$g.Type]
-        $worst = @($rank.Keys | Where-Object { $rank[$_] -eq $g.Rank })[0]
-        $byHost = @($g.Items | Group-Object Host | Sort-Object Name)
-        $lines = New-Object System.Collections.Generic.List[string]
-        $lines.Add("$($meta.Description)")
-        $lines.Add('')
-        $lines.Add("Hosts ($($byHost.Count)), worst severity $($worst):")
-        foreach ($hg in @($byHost | Select-Object -First 100)) {
-            $objs = @($hg.Group | ForEach-Object { "$($_.Object)" })
-            $lines.Add("- $($hg.Name): $(@($objs | Select-Object -First 5) -join '; ')$(if ($objs.Count -gt 5) { " (and $($objs.Count - 5) more)" })")
-        }
-        if ($byHost.Count -gt 100) { $lines.Add("- and $($byHost.Count - 100) more host(s): see the HostBadger report") }
-        $lines.Add('')
-        $lines.Add("How to fix: $($meta.Remediation)")
-        if ($meta.Cis) { $lines.Add("CIS: $($meta.Cis)") }
-        if ($meta.Mitre) { $lines.Add("MITRE ATT&CK: $($meta.Mitre)") }
-        $lines.Add("HostBadger $ToolVersion check $($g.Type).")
-        $summary = "HostBadger: $($meta.Title) ($($byHost.Count) host(s))"
-        $desc = $lines -join "`n"
-        if ($Format -eq 'Jira') {
-            $prio = @{ Critical = 'Highest'; High = 'High'; Medium = 'Medium'; Low = 'Low' }[$worst]
-            $fields = @($summary, 'Task', $prio, $desc, 'hostbadger', "hostbadger-$($g.Type)")
-        }
-        else {
-            $iu = @{ Critical = @(1, 1); High = @(1, 2); Medium = @(2, 2); Low = @(3, 3) }[$worst]
-            $fields = @($summary, $desc, $iu[0], $iu[1], "hostbadger-$($g.Type)", 'HostBadger')
-        }
-        [void]$sb.AppendLine((@($fields | ForEach-Object { & $q $_ }) -join ','))
-    }
-    [System.IO.File]::WriteAllText($Path, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
-    return $groups.Count
 }
 
 function Get-SevPill {
@@ -390,6 +345,31 @@ function Get-DashboardHtml {
     if ($e8Judged -gt 0) {
         $pE = 100 * $e8Met / $e8Judged
         & $w "<div class='dash-panel'><div class='dash-panel-head'>$(Get-RingSvg -Percent $pE -Big "ML$overall" -Small 'from a host')<div><div class='dash-panel-title'>ACSC Essential Eight</div><div class='meta'>Maturity levels from the requirements a host shows (ASD model, November 2023): $e8Met of $e8Judged met$(if ($hostsArr.Count -gt 1) { ', lowest host per strategy' }). Multi-factor authentication, backups, central logging and scanning cadence need evidence a host does not hold, so this is an upper bound, not an assessment.$(if ($overallCapped) { ' ML<n>+? means a requirement of the next level could not be judged.' })</div></div></div><table class='dash-table'>$($e8Rows -join '')</table></div>"
+    }
+    # NIS2 in Italy: the ACN basic measures a host shows (Get-AcnStatus, per host). A requirement tied to
+    # several rows (one per group of checks) counts once: not met when one row is not met on a host.
+    $acnPer = @($hostsArr | Where-Object { $_.Acn } | ForEach-Object { $h0 = $_; @($_.Acn) | ForEach-Object { [PSCustomObject]@{ Host = $h0.Name; Row = $_ } } })
+    if ($acnPer.Count) {
+        $acnItems = @(); $acnMet = 0; $acnBad = 0; $acnUnknown = 0
+        foreach ($g in @($acnPer | Where-Object { $_.Row.State -ne 'na' } | Group-Object { "$($_.Row.Code).$($_.Row.Point)" })) {
+            $first = $g.Group[0].Row
+            $unmetHosts = @($g.Group | Where-Object { $_.Row.State -eq 'unmet' } | ForEach-Object { $_.Host } | Select-Object -Unique)
+            $judgedHosts = @($g.Group | Where-Object { $_.Row.State -ne 'unknown' } | ForEach-Object { $_.Host } | Select-Object -Unique)
+            $allHosts = @($g.Group | ForEach-Object { $_.Host } | Select-Object -Unique)
+            $unknownHosts = @($allHosts | Where-Object { $judgedHosts -notcontains $_ })
+            if ($unmetHosts.Count) { $acnBad++ } elseif ($unknownHosts.Count) { $acnUnknown++ } else { $acnMet++; continue }
+            $rows = @($g.Group | ForEach-Object { $_.Row } | Group-Object { $_.Note } | ForEach-Object { $_.Group[0] })
+            $titles = (@($rows | ForEach-Object { $_.Checks } | Select-Object -Unique | Where-Object { $script:CheckCatalog.Contains($_) } | ForEach-Object { $script:CheckCatalog[$_].Title }) -join '; ')
+            $state = if ($unmetHosts.Count) { "not met on $($unmetHosts.Count) host(s)" } else { "not judged on $($unknownHosts.Count) host(s)" }
+            $notes = (@($rows | ForEach-Object { $_.Note } | Where-Object { $_ }) -join '; ')
+            $acnItems += "<li><span class='e8-ml'>$(& $H $first.Code) p.$($first.Point)</span>$(if ($first.Essential) { " <span class='meta'>(Allegato 2 only)</span>" }) <span lang='it'>$(& $H $first.Req)</span> <span class='meta'>$state &middot; $(& $H $titles)$(if ($notes) { " &middot; $(& $H $notes)" })</span></li>"
+        }
+        $acnJudged = $acnMet + $acnBad + $acnUnknown
+        if ($acnJudged -gt 0) {
+            if ($acnMet) { $acnItems += "<li class='meta'>$acnMet requirement(s) with no contrary evidence on any host.</li>" }
+            $pA = 100 * $acnMet / $acnJudged
+            & $w "<div class='dash-panel'><div class='dash-panel-head'>$(Get-RingSvg -Percent $pA -Big "$acnMet/$acnJudged" -Small 'from a host')<div><div class='dash-panel-title'>NIS2: ACN basic measures</div><div class='meta'>The requirements of the ACN basic security measures (Determinazione 379907/2025, D.Lgs. 138/2024; Allegato 1 soggetti importanti, Allegato 2 soggetti essenziali) that a host shows, in ACN's wording: $acnMet of $acnJudged without contrary evidence$(if ($acnBad) { ", $acnBad not met" })$(if ($acnUnknown) { ", $acnUnknown not judged" }). Governance, plans, inventories, backups, multi-factor authentication, training and incident handling need evidence a host does not hold: this is evidence for an assessment, not a compliance verdict.</div></div></div><details class='dash-more'$(if ($acnBad) { ' open' })><summary>Requirements not met or not judged ($($acnBad + $acnUnknown))</summary><ul class='dash-list'>$($acnItems -join '')</ul></details></div>"
+        }
     }
     & $w '</div>'
 
@@ -859,11 +839,18 @@ function filterBadgerTable(input) {
     $fwRows.Add(@('CIS benchmarks', @($findings | Where-Object { $_.Cis }), $(if ($HideCis) { "$hiddenCis hidden (-HideCis)" } else { '' })))
     $fwRows.Add(@('DISA STIG', @($findings | Where-Object { $_.Category -eq 'DISA STIG' }), $(if ($HideStig) { "$hiddenStig hidden (-HideStig)" } else { '' })))
     $fwRows.Add(@('ACSC Essential Eight (checks tied to its requirements)', @($findings | Where-Object { $e8TypeSet.ContainsKey("$($_.Type)") }), ''))
+    # NIS2 / ACN only when asked for (-Nis2Acn: the hosts then carry their ACN status).
+    $acnOn = @($Hosts | Where-Object { $_.Acn }).Count -gt 0
+    if ($acnOn) {
+        $acnTypeSet = @{}; foreach ($r in $script:AcnRequirements) { foreach ($t in @($r.Checks)) { $acnTypeSet[$t] = $true } }
+        $fwRows.Add(@('NIS2: ACN basic measures (checks tied to its requirements)', @($findings | Where-Object { $acnTypeSet.ContainsKey("$($_.Type)") }), ''))
+    }
     foreach ($k in $script:E8Strategies.Keys) {
         $st = $script:E8Strategies[$k]; $set = @($st.Checks)
         $fwRows.Add(@("&nbsp;&nbsp;&nbsp;E8: $(& $H $st.Label)", @($findings | Where-Object { $set -contains "$($_.Type)" }), $(if ($st.Note) { $st.Note } else { '' })))
     }
-    & $w '<details open><summary><h2>Summary by framework</h2></summary><p class="meta">CIS, DISA STIG and the ACSC Essential Eight cut across the categories: a finding can count in more than one row. The Essential Eight rows are the HostBadger checks that judge a requirement of each strategy; the maturity levels are in the dashboard.</p><div class="table-wrap"><table><tr><th>Framework</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Checks triggered</th><th>Hosts affected</th></tr>'
+    $fwIntro = if ($acnOn) { 'CIS, DISA STIG, the ACSC Essential Eight and the NIS2 ACN basic measures cut across the categories: a finding can count in more than one row. The Essential Eight and ACN rows are the HostBadger checks that judge one of their requirements; the maturity levels and the requirements not met are in the dashboard.' } else { 'CIS, DISA STIG and the ACSC Essential Eight cut across the categories: a finding can count in more than one row. The Essential Eight rows are the HostBadger checks that judge a requirement of each strategy; the maturity levels are in the dashboard.' }
+    & $w ('<details open><summary><h2>Summary by framework</h2></summary><p class="meta">' + $fwIntro + '</p><div class="table-wrap"><table><tr><th>Framework</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Checks triggered</th><th>Hosts affected</th></tr>')
     foreach ($fr in $fwRows) {
         $ff = @($fr[1]); $name = if ($fr[0] -like '&nbsp;*') { $fr[0] } else { & $H $fr[0] }
         $row = "<tr class=`"data-row`"><td>$name$(if ($fr[2]) { " <span class='meta'>($(& $H $fr[2]))</span>" })</td>"
@@ -890,6 +877,8 @@ function filterBadgerTable(input) {
         if ($meta.Mitre) { & $w "<div class=`"kv`"><b>MITRE ATT&amp;CK.</b> $(Get-MitreLink $meta.Mitre)</div>" }
         $e8Of = @($script:E8Requirements | Where-Object { @($_.Checks) -contains $t.Type } | ForEach-Object { "$($script:E8Strategies[$_.S].Label), ML$($_.L): $($_.Req)" } | Select-Object -Unique)
         if ($e8Of.Count) { & $w "<div class=`"kv`"><b>ACSC Essential Eight.</b> $(& $H ($e8Of -join ' | '))</div>" }
+        $acnOf = @($script:AcnRequirements | Where-Object { $acnOn -and @($_.Checks) -contains $t.Type } | ForEach-Object { "$($_.Code) p.$($_.P)$(if ($_.E) { ' (Allegato 2 only)' })" } | Select-Object -Unique)
+        if ($acnOf.Count) { & $w "<div class=`"kv`"><b>NIS2, ACN basic measures.</b> $(& $H ($acnOf -join ', '))</div>" }
         if ($meta.Cis -or $meta.CisServer) {
             if ($meta.Cis) { & $w "<div class=`"kv`"><b>CIS Windows 11 Enterprise v3.0.0.</b> rule $(& $H $meta.Cis)</div>" }
             # Servers quote their own benchmark (data\cis-map.json): list the rules their findings name.

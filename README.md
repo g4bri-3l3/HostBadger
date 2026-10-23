@@ -22,7 +22,7 @@ is weak. It works in two steps. A single PowerShell script takes a
 Lines for a SIEM. Hand it one snapshot or a folder with hundreds and you get
 the whole fleet in one report, or one report per host.
 
-- **163 checks** and about 1,600 settings: 150 hand-written checks plus 1475 DISA
+- **167 checks** and about 1,600 settings: 154 hand-written checks plus 1475 DISA
   STIG registry rules, with the CIS Windows 11 benchmark as the baseline, and
   the drivers matched against 2,198 known vulnerable or malicious driver files
   (LOLDrivers).
@@ -39,7 +39,9 @@ the whole fleet in one report, or one report per host.
   www.loldrivers.io), `-EolOnline` (downloads software lifecycle data,
   endoflife.date), `-ChocoOnline` (downloads program versions,
   community.chocolatey.org), `-CveOnline` (downloads CVEs and EPSS scores,
-  services.nvd.nist.gov and epss.empiricalsecurity.com) and `-SendToAI` (Gemini). Each one is named where it is offered.
+  services.nvd.nist.gov and epss.empiricalsecurity.com), `-ExtensionsOnline`
+  (downloads the list of browser extensions removed from the stores,
+  raw.githubusercontent.com) and `-SendToAI` (Gemini). Each one is named where it is offered.
   `Test-HostBadgerSafety.ps1` proves the rest from the code.
 - **Honest about gaps**: what could not be read is listed as *not evaluated*,
   never as clean.
@@ -116,6 +118,12 @@ should.
   (rebuilt by `tools\Convert-LolDrivers.ps1`); `-DriversOnline` downloads a
   fresh one. The Microsoft vulnerable driver blocklist turned off is a finding
   too.
+- **Browser extensions**: the extensions of Chrome, Edge, Brave, Vivaldi,
+  Chromium and Firefox in every user profile, matched against the extensions
+  the stores removed as malware, spyware or adware and against the ones
+  documented as malicious; extensions loaded in developer mode or from a file,
+  extensions that can read every site, and, with `-AllowedExtensions`, the
+  ones the organization did not approve. See "Browser extensions" below.
 - **System hardening**: autoplay, automatic logon, screen lock, SmartScreen and
   the other CIS Windows 11 baseline settings.
 
@@ -157,6 +165,21 @@ should.
   findings quote the rule of that version's CIS benchmark (Windows 10
   Enterprise v3.0.0, Server 2022 and 2019 v4.0.0, Server 2016 v3.0.0; domain
   controller or member server variant), from `data\cis-map.json`.
+- **NIS2 in Italy (ACN basic measures)**, only when asked for (`-Nis2Acn`; the
+  guided menu asks, since it matters only to organizations in Italy): the requirements of the basic
+  security measures of the Agenzia per la Cybersicurezza Nazionale
+  (Determinazione 379907/2025, D.Lgs. 138/2024: Allegato 1 for soggetti
+  importanti, Allegato 2 for soggetti essenziali) that a host shows, such as
+  credentials (PR.AA-01), least privilege (PR.AA-05), encryption (PR.DS-01,
+  PR.DS-02), updates (PR.PS-02), logs (PR.PS-04), remote access and firewall
+  (PR.IR-01) and malware protection (DE.CM-09), each tied to the checks that
+  give evidence about it and quoted in ACN's wording
+  (`data\acn-nis2-measures.json`, rebuilt by `tools\Convert-AcnMeasures.ps1`
+  from the spreadsheets ACN publishes). The dashboard lists the requirements
+  with a finding against them and those that could not be judged. Governance,
+  plans, inventories, backups, MFA, training and incident handling are not
+  visible from a host: this is evidence for an assessment, not a compliance
+  verdict.
 - **Compliance charts** at the top of the report: how much of the STIG and of
   the CIS-based checks the hosts meet. `-HideCis` and `-HideStig` take those
   findings out of the report listing (the CSV and JSON Lines keep them) and
@@ -170,7 +193,8 @@ should.
   release, CIS-based compliance, the ACSC Essential Eight maturity level each
   strategy reaches from the requirements a host shows (ASD model, November
   2023, listed in `COVERAGE.md`; an upper bound, since MFA, backups, central
-  logging and scanning cadence are not visible from a host), categories and
+  logging and scanning cadence are not visible from a host), with `-Nis2Acn`
+  the NIS2 ACN basic measures with a finding against them, categories and
   top risks, for the fleet or one host picked in a selector.
 - **HTML report** with scores per host (A to F), pie charts (severity,
   category, grades, compliance, software, and local accounts: enabled
@@ -249,8 +273,12 @@ If you are not sure where to start, run `.\Start-HostBadger.ps1`. It is a
 small menu: collect this machine, analyze a file, a zip or a folder, analyze
 with an AI summary, run the safety review. At the start it says whether it runs
 as administrator; if not, it marks the options that need it and offers to
-restart itself elevated (Windows asks you to confirm). The catalogs an analysis
-downloads (CISA KEV, LOLDrivers, endoflife.date, Chocolatey, NVD/EPSS) are kept
+restart itself elevated (Windows asks you to confirm). It stays in the shell you
+started it from when it can: with Windows `sudo` set to inline it runs there;
+otherwise it opens a Windows Terminal tab if you are in Windows Terminal, else a
+PowerShell window that stays open at the end. The catalogs an analysis
+downloads (CISA KEV, LOLDrivers, endoflife.date, Chocolatey, NVD/EPSS, browser
+extensions) are kept
 next to the report, and the next analysis offers the newest kept copy as the
 default, with its date, or a fresh download. When you analyze, it looks for snapshots by
 itself (in a `snapshots` folder, then in the current folder) and lets you take
@@ -491,6 +519,39 @@ service and by installed program. Name the ones the organization approves with
 `-AllowedRemoteTools TeamViewer,ScreenConnect` and only the others are
 reported, as Medium. Without the list every tool found is Low, to be verified.
 
+### Browser extensions
+
+The collector reads the extension list of Chrome, Edge, Brave, Vivaldi and
+Chromium (`Secure Preferences` / `Preferences` of every profile) and of Firefox
+(`extensions.json`) for every user folder on the host: id, name, version, on or
+off, where it came from (store, file, unpacked in developer mode, pushed by
+policy, unsigned) and what it may read (permissions, host permissions, content
+scripts). Nothing is opened in the browser and no page is visited.
+
+- `browser_extension_malicious`: the id is on the list of extensions removed
+  from the Chrome Web Store, Edge Add-ons or Firefox Add-ons. High for malware,
+  spyware or a critical vulnerability, Medium for adware, hijacking or unwanted
+  software, Low for the other reasons and for an extension switched off in
+  every profile. The list ships in `data\malicious-extensions.json`: the
+  [malicious_extension_sentry](https://github.com/toborrm9/malicious_extension_sentry)
+  list (malext.io, updated daily) and Wladimir Palant's list of potentially
+  malicious extensions. `-ExtensionsOnline` downloads the current store list
+  (one GET from raw.githubusercontent.com) and keeps a copy next to the report;
+  `-ExtensionsFile` reuses that copy or a `malicious_extensions_detailed.csv`
+  you downloaded yourself. `tools\Convert-MaliciousExtensions.ps1` rebuilds the
+  shipped file.
+- `browser_extension_sideloaded`: loaded in developer mode, from a file outside
+  a store, or unsigned (Firefox). Medium.
+- `browser_extension_not_allowed`: with `-AllowedExtensions` (ids or names,
+  wildcards allowed), every extension not on the list and not pushed by
+  policy. Medium.
+- `browser_extension_broad_access`: without a list, an extension that can read
+  every site, with the sensitive APIs it also uses (cookies, scripting, web
+  requests, native messaging...). Low, to be verified.
+
+An extension found in several profiles is one finding that names each
+browser, user and profile.
+
 ### Fleet checks
 
 Some problems show only across hosts, so they are judged once every host is
@@ -597,7 +658,10 @@ or, without one, when they have the same title.
   (community.chocolatey.org/api/v2/, `-ChocoOnline`), GETs of the NVD CVE API
   (services.nvd.nist.gov, `-CveOnline`, by product, with `NVD_API_KEY` as a
   header when set) and one GET of the FIRST EPSS file
-  (epss.empiricalsecurity.com, `-CveOnline`) and the Gemini call
+  (epss.empiricalsecurity.com, `-CveOnline`), one GET of the list of browser
+  extensions removed from the stores
+  (raw.githubusercontent.com/toborrm9/malicious_extension_sentry/main/malicious_extensions_detailed.csv,
+  `-ExtensionsOnline`) and the Gemini call
   (`-SendToAI`). The code that sends or
   downloads lives in `lib\AI.ps1` only. `Test-HostBadgerSafety.ps1` checks all this from the code
   and fails on any command that is not on its reviewed list. The regression
@@ -669,6 +733,7 @@ standard user with Defender in passive mode.
     [-MaxCachedLogonsWorkstation 4] [-MaxCachedLogonsServer 1] [-MinSecurityLogKB 196608]
     [-ExpectedEdr CrowdStrike] [-ExtraEdrServices MyAgentService]   # the EDR every host should run; services to count as an agent
     [-AllowedRemoteTools TeamViewer,ScreenConnect]   # approved remote access tools: the others are Medium
+    [-AllowedExtensions 'cjpalhdlnbpafiamejdnhcphjbkeiagm','Bitwarden*']   # approved browser extensions (ids or names): the others are Medium
     [-OutRemediation .\fixes]                    # one remediate_<host>.ps1 per host, with a rollback file
     [-RemediationProfile Recommended] [-RemediationDebloat] [-RemediationPrivacy]   # add a hardening profile (Essential, Recommended, Strict), the removal of preinstalled apps and/or the privacy and telemetry settings to those scripts
     [-PerHost]                                   # also one HTML report per host: <report>_<HOST>.html
@@ -678,6 +743,8 @@ standard user with Defender in passive mode.
     [-EolFile r_eol.json] | [-EolOnline] [-SoftwareGraceDays 30]   # software lifecycle data (-EolOnline downloads it from endoflife.date): current end-of-support dates and software_outdated
     [-ChocoFile r_choco.json] | [-ChocoOnline]   # program versions from community.chocolatey.org (7-Zip, VLC, Git, GIMP, WinSCP, PuTTY...) for software_outdated
     [-CveFile r_cve.json] | [-CveOnline]         # CVEs from services.nvd.nist.gov and EPSS scores from epss.empiricalsecurity.com, for software_cve
+    [-ExtensionsFile r_extensions.json] | [-ExtensionsOnline]   # browser extensions removed from the stores (-ExtensionsOnline downloads them from raw.githubusercontent.com)
+    [-Nis2Acn]                                   # Italy: add the NIS2 basic security measures of ACN (Determinazione 379907/2025) to the report and JSON Lines
     [-SnapshotPassword <SecureString>] [-SnapshotPfx <file.pfx> [-SnapshotPfxPassword <SecureString>]]   # open encrypted .hbx snapshots (asked for when missing)
     [-HideCis] [-HideStig]                       # keep those findings out of the HTML listing (CSV and JSON Lines keep them)
     [-AiIncludeStig]                             # also send the STIG findings to Gemini (large prompt, may time out)
@@ -953,7 +1020,10 @@ gone. There is also one `host_summary` per host, with score, grade, counts,
 `not_evaluated_checks`, `policy_disabled_checks` (turned off by `-PolicyFile`), whether it was collected as SYSTEM, and `e8_levels`
 (the Essential Eight maturity level per strategy, null when a host cannot show
 it) with `e8_capped` (strategies where a requirement of the next level could
-not be judged). Fields are only ever added, never renamed.
+not be judged), and, with `-Nis2Acn`, `acn_unmet` / `acn_not_judged` (the ACN basic measures
+with a finding against them on that host, and those none of whose checks
+could be judged, as `PR.AA-01.2`: measure and point). Fields are only ever
+added, never renamed.
 
 ## Testing
 
@@ -1028,3 +1098,10 @@ the reply are kept, invented checks are dropped, and nothing is sent without
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+Data shipped in `data\`: the LOLDrivers catalog (Apache License 2.0);
+extension IOC data from malext.io
+([malicious_extension_sentry](https://github.com/toborrm9/malicious_extension_sentry)),
+licensed under CC BY 4.0; Wladimir Palant's list of potentially malicious
+extensions (CC0); CIS rule numbers and values from the MIT-licensed
+ansible-lockdown roles.

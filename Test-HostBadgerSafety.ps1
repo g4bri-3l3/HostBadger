@@ -79,7 +79,7 @@ $allowed = [ordered]@{
     'Guided menu only: open the finished report with the default program for .html, after asking' = @('Invoke-Item')
     'Guided menu only: restart itself as administrator after asking (Windows confirms with UAC), back in the same folder' = @('Start-Process', 'Set-Location')
     'Entry points only (HostBadger.ps1, Start-HostBadger.ps1): the run log, a transcript of what the run prints, in the output folder' = @('Start-Transcript', 'Stop-Transcript')
-    'Data handling' = @('ConvertTo-Json', 'ConvertFrom-Json', 'Select-Object', 'Where-Object', 'ForEach-Object', 'Sort-Object', 'Group-Object', 'Measure-Object', 'New-Object', 'Add-Member')
+    'Data handling' = @('ConvertTo-Json', 'ConvertFrom-Json', 'ConvertFrom-Csv', 'Select-Object', 'Where-Object', 'ForEach-Object', 'Sort-Object', 'Group-Object', 'Measure-Object', 'New-Object', 'Add-Member')
 }
 $allowedSet = @{}; foreach ($k in $allowed.Keys) { foreach ($c in $allowed[$k]) { $allowedSet[$c.ToLower()] = $k } }
 
@@ -105,9 +105,10 @@ $allowedHosts = @('attack.mitre.org')
 # lib\AI.ps1 is the only code that may reach the network, and only these addresses: Gemini (-SendToAI),
 # the CISA KEV catalog (-KevOnline), the LOLDrivers catalog (-DriversOnline) and the endoflife.date
 # software lifecycle data (-EolOnline), the Chocolatey package feed (-ChocoOnline) and the NVD CVE API and
-# FIRST EPSS file (-CveOnline).
+# FIRST EPSS file (-CveOnline), and the list of browser extensions removed from the stores
+# (-ExtensionsOnline, raw.githubusercontent.com).
 $aiFile = 'lib/AI.ps1'
-$aiHosts = @('generativelanguage.googleapis.com', 'www.cisa.gov', 'www.loldrivers.io', 'endoflife.date', 'community.chocolatey.org', 'services.nvd.nist.gov', 'epss.empiricalsecurity.com')
+$aiHosts = @('generativelanguage.googleapis.com', 'www.cisa.gov', 'www.loldrivers.io', 'endoflife.date', 'community.chocolatey.org', 'services.nvd.nist.gov', 'epss.empiricalsecurity.com', 'raw.githubusercontent.com')
 $networkText = '(?i)System\.Net\.Http|HttpClient|PostAsync|GetAsync|TcpClient|UdpClient|System\.Net\.Sockets|\[Net\.WebRequest\]|\[System\.Net\.WebRequest\]'
 
 $root = (Resolve-Path -LiteralPath $Path).Path
@@ -183,9 +184,11 @@ foreach ($f in $files) {
             if ($argText -notmatch '^sdshow\b') { $problems.Add("${rel}:${line}: sc.exe $argText (only sdshow reads a service's permissions)") }
         }
         if ($lc -eq 'start-process') {
-            # Only the launcher restarting itself elevated: its own script, -Verb RunAs (Windows asks for confirmation).
+            # Only the launcher restarting itself elevated: its own script, -Verb RunAs (Windows asks for
+            # confirmation), or Windows 11 sudo from System32 in this window (Windows asks the same way).
             $argText = ($c.CommandElements | Select-Object -Skip 1 | ForEach-Object { $_.Extent.Text }) -join ' '
-            if ($argText -notmatch '(?i)-Verb\s+RunAs\b' -or $codeOnly -notmatch '\$PSCommandPath') { $problems.Add("${rel}:${line}: Start-Process $argText (only the menu restarting itself with -Verb RunAs)") }
+            $viaSudo = $argText -match '(?i)^-FilePath \$sudo\b' -and $codeOnly -match "(?i)\`$sudo = Join-Path \`$env:SystemRoot 'System32\\sudo\.exe'"
+            if (($argText -notmatch '(?i)-Verb\s+RunAs\b' -and -not $viaSudo) -or $codeOnly -notmatch '\$PSCommandPath') { $problems.Add("${rel}:${line}: Start-Process $argText (only the menu restarting itself with -Verb RunAs or Windows sudo)") }
         }
         if ($lc -in 'set-content', 'export-csv', 'new-item', 'remove-item', 'compress-archive') { $writes.Add("${rel}:${line}: $($c.Extent.Text.Split("`n")[0].Trim())") }
     }

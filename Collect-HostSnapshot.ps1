@@ -1719,6 +1719,144 @@ $appx = Invoke-Section 'appx' {
     foreach ($n in $names) { [ordered]@{ name = $n; provisioned = $prov.ContainsKey($n); users = $(if ($users.ContainsKey($n)) { $users[$n] } else { 0 }) } }
 }
 
+# ------------------------------------------------------------------ browser extensions
+# The extensions of every user profile of Chrome, Edge, Brave, Vivaldi, Chromium and Firefox, read from
+# their files only (the browser is never started or asked): where each one came from, whether it is on,
+# its name and the permissions its manifest asks for. No browsing data, no extension storage.
+function ConvertFrom-JsonFile {
+    # Preferences files can be several MB and hold keys that differ only by case: PowerShell 7 reads
+    # them as hashtables, Windows PowerShell 5.1 through JavaScriptSerializer (no 2 MB limit).
+    param([string]$Path)
+    $text = [System.IO.File]::ReadAllText($Path)
+    if ($PSVersionTable.PSVersion.Major -ge 7) { return (ConvertFrom-Json -InputObject $text -AsHashtable -Depth 100) }
+    Add-Type -AssemblyName System.Web.Extensions
+    $ser = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+    $ser.MaxJsonLength = [int]::MaxValue; $ser.RecursionLimit = 256
+    return $ser.DeserializeObject($text)
+}
+function Get-JsonKey {
+    # A key of a parsed JSON object (hashtable or dictionary), $null when it is missing.
+    param($Obj, [string]$Key)
+    if ($null -eq $Obj -or -not ($Obj -is [System.Collections.IDictionary])) { return $null }
+    # The indexer, not .Contains(): a 5.1 Dictionary hides it, and a missing key gives $null.
+    return $Obj[$Key]
+}
+function Get-ManifestName {
+    # The name in a manifest, with a "__MSG_x__" placeholder read from the default locale.
+    param($Manifest, [string]$Dir)
+    $name = "$(Get-JsonKey $Manifest 'name')"
+    if ($name -match '^__MSG_(\w+)__$') {
+        $key = $Matches[1]
+        $loc = "$(Get-JsonKey $Manifest 'default_locale')"
+        foreach ($l in @($loc, 'en', 'en_US') | Where-Object { $_ }) {
+            $mf = Join-Path $Dir "_locales\$l\messages.json"
+            if (-not (Test-Path -LiteralPath $mf -PathType Leaf)) { continue }
+            try {
+                $msgs = ConvertFrom-JsonFile $mf
+                foreach ($k in @($msgs.Keys)) { if ("$k" -ieq $key) { $m = "$(Get-JsonKey $msgs[$k] 'message')"; if ($m) { return $m } } }
+            }
+            catch { }
+        }
+    }
+    return $name
+}
+# Store hosts, compared with the host of an extension's update or source address (never contacted).
+$script:ExtensionStoreHosts = @('clients2.google.com', 'edge.microsoft.com', 'addons.mozilla.org')
+function Get-UrlHost {
+    param([string]$Url)
+    try { return ([uri]$Url).Host.ToLower() } catch { return '' }
+}
+$script:ChromiumBrowsers = [ordered]@{
+    'Chrome'   = 'AppData\Local\Google\Chrome\User Data'
+    'Edge'     = 'AppData\Local\Microsoft\Edge\User Data'
+    'Brave'    = 'AppData\Local\BraveSoftware\Brave-Browser\User Data'
+    'Vivaldi'  = 'AppData\Local\Vivaldi\User Data'
+    'Chromium' = 'AppData\Local\Chromium\User Data'
+}
+$browserExtensions = Invoke-Section 'browserExtensions' {
+    $out = @()
+    foreach ($pf in @(Get-ProfileFolders)) {
+        $user = Split-Path -Leaf $pf
+        foreach ($b in $script:ChromiumBrowsers.Keys) {
+            $ud = Join-Path $pf $script:ChromiumBrowsers[$b]
+            if (-not (Test-Path -LiteralPath $ud -PathType Container)) { continue }
+            foreach ($prof in @(Get-ChildItem -LiteralPath $ud -Directory -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'Default' -or $_.Name -match '^Profile \d+$' })) {
+                Step-Spinner 'Collecting browserExtensions'
+                # Secure Preferences holds the extension settings on current versions, Preferences on older ones.
+                $settings = $null
+                foreach ($pn in 'Secure Preferences', 'Preferences') {
+                    $pp = Join-Path $prof.FullName $pn
+                    if (-not (Test-Path -LiteralPath $pp -PathType Leaf)) { continue }
+                    try { $s = Get-JsonKey (Get-JsonKey (ConvertFrom-JsonFile $pp) 'extensions') 'settings' } catch { $s = $null }
+                    if ($s -and @($s.Keys).Count) { $settings = $s; break }
+                }
+                if (-not $settings) { continue }
+                $exts = @()
+                foreach ($id in @($settings.Keys | Select-Object -First 300)) {
+                    $e = $settings[$id]
+                    $loc = [int](Get-JsonKey $e 'location')
+                    # 5 and 10: parts of the browser itself; 0: not a real install.
+                    if ($loc -in 0, 5, 10) { continue }
+                    $dis = Get-JsonKey $e 'disable_reasons'
+                    $state = Get-JsonKey $e 'state'
+                    $enabled = -not (@($dis | Where-Object { $_ -and "$_" -ne '0' }).Count) -and ($null -eq $state -or [int]$state -ne 0)
+                    $rel = "$(Get-JsonKey $e 'path')"
+                    $dir = if ($rel -match '^[a-zA-Z]:\\|^\\\\') { $rel } elseif ($rel) { Join-Path $prof.FullName "Extensions\$rel" } else { '' }
+                    $man = Get-JsonKey $e 'manifest'
+                    if ($dir -and (Test-Path -LiteralPath (Join-Path $dir 'manifest.json') -PathType Leaf)) { try { $man = ConvertFrom-JsonFile (Join-Path $dir 'manifest.json') } catch { } }
+                    $upd = "$(Get-JsonKey $man 'update_url')"
+                    $storeUrl = $script:ExtensionStoreHosts -contains (Get-UrlHost $upd)
+                    $source = switch ($loc) {
+                        1 { if ((Get-JsonKey $e 'from_webstore') -eq $true -or $storeUrl) { 'store' } else { 'file' } }
+                        # Installed by another program: from the store (a vendor's preinstall) or from a file.
+                        { $_ -in 2, 3, 6 } { if ((Get-JsonKey $e 'from_webstore') -eq $true -or $storeUrl) { 'external-store' } else { 'external' } }
+                        { $_ -in 4, 8 } { 'unpacked' }
+                        { $_ -in 7, 9 } { 'policy' }
+                        default { "location $loc" }
+                    }
+                    $perms = @(@(Get-JsonKey $man 'permissions') + @(Get-JsonKey $man 'host_permissions') | Where-Object { $_ -is [string] } | Select-Object -Unique)
+                    $scripts = @(foreach ($cs in @(Get-JsonKey $man 'content_scripts')) { @(Get-JsonKey $cs 'matches') }) | Where-Object { $_ -is [string] } | Select-Object -Unique
+                    $exts += [ordered]@{
+                        id = "$id"; name = $(if ($man) { Get-ManifestName $man $dir } else { '' }); version = "$(Get-JsonKey $man 'version')"
+                        enabled = [bool]$enabled; source = $source; permissions = @($perms); contentScripts = @($scripts)
+                    }
+                }
+                if ($exts.Count) { $out += [ordered]@{ user = $user; browser = $b; profile = $prof.Name; extensions = $exts } }
+            }
+        }
+        # Firefox: extensions.json of each profile lists every add-on with its origin and permissions.
+        $ffRoot = Join-Path $pf 'AppData\Roaming\Mozilla\Firefox\Profiles'
+        foreach ($prof in @(Get-ChildItem -LiteralPath $ffRoot -Directory -Force -ErrorAction SilentlyContinue)) {
+            $ej = Join-Path $prof.FullName 'extensions.json'
+            if (-not (Test-Path -LiteralPath $ej -PathType Leaf)) { continue }
+            Step-Spinner 'Collecting browserExtensions'
+            try { $doc = ConvertFrom-JsonFile $ej } catch { continue }
+            $exts = @()
+            foreach ($a in @(Get-JsonKey $doc 'addons' | Select-Object -First 300)) {
+                if ("$(Get-JsonKey $a 'type')" -ne 'extension') { continue }
+                $loc = "$(Get-JsonKey $a 'location')"
+                # Built into Firefox or its system add-ons.
+                if ($loc -match '^app-(builtin|system-defaults|system-addons)$') { continue }
+                $signed = Get-JsonKey $a 'signedState'
+                $how = "$(Get-JsonKey (Get-JsonKey $a 'installTelemetryInfo') 'source')"
+                $source = if ($how -eq 'enterprise-policy') { 'policy' }
+                    elseif ((Get-JsonKey $a 'foreignInstall') -eq $true -or $loc -match '^(winreg-|app-global|app-system-share|app-system-user)') { 'external' }
+                    elseif ($null -ne $signed -and [int]$signed -le 0) { 'unsigned' }
+                    elseif ((Get-UrlHost "$(Get-JsonKey $a 'sourceURI')") -eq 'addons.mozilla.org' -or $how -eq 'amo') { 'store' }
+                    else { 'file' }
+                $up = Get-JsonKey $a 'userPermissions'
+                $exts += [ordered]@{
+                    id = "$(Get-JsonKey $a 'id')"; name = "$(Get-JsonKey (Get-JsonKey $a 'defaultLocale') 'name')"; version = "$(Get-JsonKey $a 'version')"
+                    enabled = ((Get-JsonKey $a 'active') -eq $true); source = $source
+                    permissions = @(@(Get-JsonKey $up 'permissions') + @(Get-JsonKey $up 'origins') | Where-Object { $_ -is [string] } | Select-Object -Unique); contentScripts = @()
+                }
+            }
+            if ($exts.Count) { $out += [ordered]@{ user = $user; browser = 'Firefox'; profile = $prof.Name; extensions = $exts } }
+        }
+    }
+    [ordered]@{ profiles = $out }
+}
+
 # ------------------------------------------------------------------ pending Windows updates (only with -CheckUpdates)
 # Asks the Windows Update Agent on this machine what is missing. This is the one place where the
 # collector causes network traffic: the agent contacts the WSUS server set by policy (WUServer) or, if
@@ -2413,6 +2551,7 @@ $snapshot = [ordered]@{
     persistence          = $persistence
     certificates         = $certificates
     wifi                 = @($wifi | Where-Object { $_ })
+    browserExtensions    = $browserExtensions
 }
 
 if (-not (Test-Path -LiteralPath $OutDir)) { New-Item -ItemType Directory -Path $OutDir -Force | Out-Null }

@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
-## [1.8] - 2026-10-22
+## [1.8] - 2026-10-23
 ### Added
 - Remediation profiles. `-RemediationProfile Essential | Recommended |
   Strict` (with `-OutRemediation`) adds a fixed list of settings to every
@@ -84,8 +84,50 @@ new major if the snapshot or the JSON Lines format ever breaks.
 - Changes that the rollback file cannot undo (an app removed, LSA protection
   with its UEFI lock) are marked NOT REVERSIBLE in the preview and counted in
   the summary; the menu points to the System Restore point for them.
+- Browser extensions. The collector reads the extensions of Chrome, Edge,
+  Brave, Vivaldi, Chromium and Firefox in every user profile (new
+  `browserExtensions` section: id, name, version, enabled, source,
+  permissions, content scripts), read only. Four new checks:
+  `browser_extension_malicious` (removed from the store as malware, spyware or
+  adware, or documented as malicious; severity from the reason, Low when
+  switched off everywhere), `browser_extension_sideloaded` (developer mode, a
+  file outside a store, unsigned), `browser_extension_not_allowed` (with the
+  new `-AllowedExtensions`, ids or names with wildcards; extensions pushed by
+  policy count as approved) and `browser_extension_broad_access` (every site,
+  without a list; Low, to verify). 167 checks.
+- `data\malicious-extensions.json`: the malicious_extension_sentry list
+  (malext.io, CC BY 4.0) and Wladimir Palant's list (CC0), rebuilt by
+  `tools\Convert-MaliciousExtensions.ps1`. `-ExtensionsOnline` downloads the
+  current store list (raw.githubusercontent.com) and keeps a copy next to the
+  report; `-ExtensionsFile` reuses it or a CSV you downloaded. The guided menu
+  asks for it like the other catalogs, and keeps the allowed extensions in the
+  global settings.
+- NIS2 in Italy, with `-Nis2Acn` (the guided menu asks, and keeps the answer
+  in the global settings): the basic security measures of the Agenzia per la
+  Cybersicurezza Nazionale (Determinazione 379907/2025, D.Lgs. 138/2024,
+  Allegato 1 soggetti importanti and Allegato 2 soggetti essenziali). The
+  requirements a host shows are tied to the checks that give evidence about
+  them, quoted in ACN's wording: a dashboard panel with those not met or not
+  judged, a row in the summary by framework, the measures under each check,
+  a section in `COVERAGE.md`, and `acn_unmet` / `acn_not_judged` in the JSON
+  Lines `host_summary`. `data\acn-nis2-measures.json` is built by
+  `tools\Convert-AcnMeasures.ps1` from the spreadsheets ACN publishes. The
+  software inventory requirement is judged only with an approved list, drift
+  only among five hosts of a role.
+
+### Changed
+- The guided menu restarted as administrator stays in the shell it was started
+  from when it can: Windows `sudo` in inline mode, else a new Windows Terminal
+  tab, else a PowerShell window that stays open.
+
+### Removed
+- `-OutTickets` / `-TicketFormat` (the Jira / ServiceNow CSV export, never
+  documented). The CSV and JSON Lines exports cover the same data.
 
 ### Fixed
+- The guided menu analyzed everything a second time when you asked for the AI
+  summary after the report. The analysis now stays in the session's memory
+  (`-AiLater`, never on disk) and `-AiContinue` runs only the AI step on it.
 - The profiles set diagnostic data to "required" (1) even where it was
   already off (0): the setting is now "at most 1" (`atMost` in
   `data\remediation-profiles.json`, `-AtMost` in the fix script), so a

@@ -56,6 +56,18 @@
     A LOLDrivers catalog you already have, instead of the copy in data\: the
     drivers.json from www.loldrivers.io, or the <report>_drivers.json that
     -DriversOnline keeps next to a report. No network.
+.PARAMETER ExtensionsOnline
+    Download the current list of browser extensions removed from the Chrome Web
+    Store and Edge Add-ons (malicious_extension_sentry by toborrm9, malext.io,
+    CC BY 4.0, updated daily) instead of the copy shipped in
+    data\malicious-extensions.json. One HTTPS GET of about 2 MB to
+    raw.githubusercontent.com; nothing is sent. The converted copy is kept next
+    to the report (<report>_extensions.json).
+.PARAMETER ExtensionsFile
+    A list you already have instead of the shipped copy: the
+    malicious_extensions_detailed.csv of malicious_extension_sentry, or the
+    <report>_extensions.json that -ExtensionsOnline keeps next to a report. No
+    network.
 .PARAMETER EolOnline
     Download software lifecycle data from endoflife.date now (MIT licensed): the
     release lines of Python, Node.js, .NET, Office, Exchange, Oracle Java, Firefox,
@@ -115,12 +127,6 @@
 .PARAMETER OutJsonl
     JSON Lines for a SIEM (findings, resolved findings with -CompareTo, one
     summary per host). Not written unless given.
-.PARAMETER OutTickets
-    CSV with one ticket per check (the hosts it fired on, how to fix it), for
-    an import into Jira or ServiceNow (-TicketFormat). Open findings only.
-.PARAMETER TicketFormat
-    Jira (default): Summary, Issue Type, Priority, Description, Labels.
-    ServiceNow: incident fields with correlation_id hostbadger-<check>.
 .PARAMETER CompareTo
     Findings CSV of an earlier run: new and resolved findings are shown.
 .PARAMETER ExceptionsFile
@@ -144,6 +150,11 @@
 .PARAMETER ExtraEdrServices
     Names of services that belong to an EDR that HostBadger does not know, so that they are
     counted as an agent (and flagged if they are stopped).
+.PARAMETER AllowedExtensions
+    Optional: the browser extensions the organization approves, by id or name
+    (wildcards allowed, e.g. 'uBlock Origin', 'nngceckbapebfimnlniiiahkandclblb').
+    The other enabled extensions are reported as browser_extension_not_allowed;
+    without the list, those that can read every website are reported as Low.
 .PARAMETER AllowedRemoteTools
     The remote access tools the organization approves (AnyDesk, TeamViewer, ScreenConnect, VNC,
     NinjaOne...: the tool's key or part of its name). Others found are Medium; without the list,
@@ -204,6 +215,20 @@
 .PARAMETER AiDryRun
     Path: write the exact pseudonymized prompt that would be sent and send
     nothing. Useful for a privacy review before enabling the AI step.
+.PARAMETER Nis2Acn
+    Optional, for organizations in Italy: add the NIS2 basic security measures
+    of the Agenzia per la Cybersicurezza Nazionale (Determinazione 379907/2025,
+    D.Lgs. 138/2024) to the report: a dashboard panel with the requirements a
+    host shows evidence against, a row in the summary by framework, the
+    measures under each check, and acn_unmet / acn_not_judged in JSON Lines.
+.PARAMETER AiLater
+    Used by the guided menu: without -SendToAI or -AiDryRun, keep the analysis
+    in this PowerShell session's memory (never on disk) so that a following
+    run with -AiContinue can add the AI step without analyzing again.
+.PARAMETER AiContinue
+    Run only the AI step (with -SendToAI or -AiDryRun and their options) on
+    the analysis kept by an -AiLater run in the same PowerShell session, and
+    add its section to that report.
 .PARAMETER ApiKey
     Gemini API key. Defaults to $env:GEMINI_API_KEY.
 .PARAMETER Model
@@ -224,8 +249,6 @@ param(
     [string]$OutHtml = '',
     [string]$OutCsv = '',
     [string]$OutJsonl = '',
-    [string]$OutTickets = '',
-    [ValidateSet('Jira', 'ServiceNow')][string]$TicketFormat = 'Jira',
     [string]$CompareTo = '',
     [string]$ExceptionsFile = '',
     [string]$PolicyFile = '',
@@ -239,6 +262,7 @@ param(
     [string[]]$ExpectedEdr = @(),
     [string[]]$ExtraEdrServices = @(),
     [string[]]$AllowedRemoteTools = @(),
+    [string[]]$AllowedExtensions = @(),
     [string]$OutRemediation = '',
     [ValidateSet('', 'Essential', 'Recommended', 'Strict')]
     [string]$RemediationProfile = '',
@@ -252,6 +276,8 @@ param(
     [switch]$KevOnline,
     [switch]$DriversOnline,
     [string]$DriversFile = '',
+    [switch]$ExtensionsOnline,
+    [string]$ExtensionsFile = '',
     [switch]$EolOnline,
     [string]$EolFile = '',
     [switch]$ChocoOnline,
@@ -268,6 +294,9 @@ param(
     [switch]$SendToAI,
     [switch]$AiConfirm,
     [string]$AiDryRun = '',
+    [switch]$AiLater,
+    [switch]$AiContinue,
+    [switch]$Nis2Acn,
     [string]$ApiKey = $env:GEMINI_API_KEY,
     [string]$Model = 'gemini-3.8-flash',
     [int]$AiMaxAttempts = 3,
@@ -294,6 +323,81 @@ Write-Host @'
       '--..--'
 '@ -ForegroundColor DarkYellow
 
+$fmtElapsed = { param($span) if ($span.TotalMinutes -ge 1) { '{0}m {1}s' -f [int][Math]::Floor($span.TotalMinutes), $span.Seconds } else { '{0:N1}s' -f $span.TotalSeconds } }
+# The AI step (-SendToAI, -AiDryRun), dot-sourced at the end of the analysis or, with -AiContinue, on
+# the analysis a -AiLater run kept in this session's memory.
+$aiStep = {
+    if (-not $SendToAI -and -not $AiDryRun) { return }
+    # The DISA STIG findings can be hundreds per host. They go to Gemini only if asked for (-AiIncludeStig):
+    # a prompt that large can make the request time out.
+    $aiFindings = if ($AiIncludeStig) { $active } else { @($active | Where-Object { $_.Category -ne 'DISA STIG' }) }
+    $stigLeftOut = $active.Count - $aiFindings.Count
+    if ($stigLeftOut -gt 0) { Write-Host "AI: $stigLeftOut DISA STIG finding(s) are not part of the prompt (add -AiIncludeStig to send them; a very large prompt may time out)." -ForegroundColor DarkGray }
+    if ($AiIncludeStig -and @($active | Where-Object { $_.Category -eq 'DISA STIG' }).Count -gt 0) { Write-Host 'AI: DISA STIG findings included; with this many findings Gemini may time out.' -ForegroundColor Yellow }
+    if ($aiFindings.Count -eq 0) { Write-Host 'No findings: AI step skipped (nothing to ground a summary on).'; return }
+
+    $hostOrder = @($hosts | Sort-Object { $_.Score.Score }, Name | ForEach-Object { $_.Name })
+    Step-Spinner 'Replacing names with tokens'
+    $pz = New-HostPseudonymizer -Snapshots @($latest.Values) -Findings $aiFindings -HostOrder $hostOrder
+    Step-Spinner 'Building the AI prompt'
+    $userPrompt = New-AiPrompt -Findings $aiFindings -Hosts $hosts.ToArray() -Pz $pz -Comparison $comparison
+    Stop-Spinner
+    $leaks = @(Test-AiLeak -Pz $pz -Text $userPrompt)
+    if ($leaks.Count -gt 0) {
+        Write-Host "AI step aborted: identifiers still present after pseudonymization: $($leaks -join ', '). Nothing was sent. Please report this as a bug." -ForegroundColor Red
+        return
+    }
+    $maskedCount = $pz.Reverse.Count
+
+    if ($AiDryRun) {
+        Write-AiPromptFile -Path $AiDryRun -UserPrompt $userPrompt
+        Write-Host "AI dry run: prompt written to $AiDryRun ($($userPrompt.Length) chars, $maskedCount identifiers pseudonymized). Nothing sent." -ForegroundColor Cyan
+        return
+    }
+
+    # Written before sending, so it can be read first (and kept as the record of what left).
+    $promptFile = Get-AiSidecarPath $htmlFull '_ai_prompt.txt'
+    Write-AiPromptFile -Path $promptFile -UserPrompt $userPrompt
+    if ($AiConfirm) {
+        Write-Host ''
+        Write-Host "Optional AI step (Gemini, model $Model):" -ForegroundColor Cyan
+        Write-Host "  Sent: $($aiFindings.Count) findings grouped by check (max 12 lines per check), host table, coverage gaps, comparison if any."
+        Write-Host "  Pseudonymized: $maskedCount identifiers (hosts, domains, accounts, groups, SIDs, paths, service/task/autorun/adapter names, addresses). The map never leaves this machine."
+        Write-Host "  Not sent: the snapshots, ACL dumps, collector error messages."
+        Write-Host "  Exactly what would be sent: $promptFile" -ForegroundColor Cyan
+        $answer = Read-Host 'Open that file if you want, then: send to Gemini for an executive summary and remediation plan? (y/N)'
+        if ($answer -notmatch '^[Yy]') { Write-Host "Nothing sent. Deterministic report saved to $OutHtml."; return }
+    }
+    else { Write-Host "AI prompt kept at $promptFile ($maskedCount identifiers pseudonymized)" }
+    if (-not $ApiKey) { Write-Host 'ERROR: no API key (-ApiKey or GEMINI_API_KEY). Deterministic report kept as is.' -ForegroundColor Red; return }
+
+    $aiStarted = Get-Date
+    $raw = Invoke-GeminiAnalysis -UserPrompt $userPrompt -ApiKey $ApiKey -Model $Model -MaxAttempts $AiMaxAttempts
+    if (-not $raw) { Write-Host "AI step failed; deterministic report kept at $OutHtml." -ForegroundColor Yellow; return }
+    $responseFile = Get-AiSidecarPath $htmlFull '_ai_response.json'
+    Write-AiResponseFile -Path $responseFile -Raw $raw
+    Write-Host "Gemini reply (still pseudonymized) kept at $responseFile"
+    $aiResult = ConvertFrom-AiResponse -Raw $raw -Pz $pz -Findings $aiFindings -Model $Model
+    # Time spent waiting for Gemini (retries included), shown next to the analysis time.
+    $aiResult | Add-Member -NotePropertyName ElapsedText -NotePropertyValue (& $fmtElapsed ((Get-Date) - $aiStarted)) -Force
+
+    $html = ConvertTo-ReportHtml -Hosts $hosts.ToArray() -Split $split -Comparison $comparison -Config $config -ToolVersion $script:HostBadgerVersion -ElapsedText $elapsedText -AiResult $aiResult -Remediation $remInfo -HideCis:$HideCis -HideStig:$HideStig -KevLoaded:([bool]$config.Kev)
+    [System.IO.File]::WriteAllText($htmlFull, $html, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "AI section added to $OutHtml ($(@($aiResult.RemediationPlan).Count) remediation items)." -ForegroundColor Green
+}
+
+# -AiContinue: only the AI step, on the analysis kept by -AiLater in this PowerShell session (the guided
+# menu asks about the AI summary once the report is out, without analyzing again). Never on disk.
+if ($AiContinue) {
+    $st = $global:HostBadgerAiPending
+    $global:HostBadgerAiPending = $null
+    if (-not $st) { Write-Host 'No analysis kept for the AI step in this session: run the analysis again with -SendToAI or -AiDryRun.' -ForegroundColor Yellow; return }
+    $active = $st.Active; $hosts = $st.Hosts; $latest = $st.Latest; $comparison = $st.Comparison; $split = $st.Split; $config = $st.Config
+    $remInfo = $st.Remediation; $elapsedText = $st.ElapsedText; $htmlFull = $st.HtmlFull; $OutHtml = $st.OutHtml
+    $HideCis = [switch]$st.HideCis; $HideStig = [switch]$st.HideStig
+    . $aiStep
+    return
+}
 if (-not $Snapshot -or $Snapshot.Count -eq 0) {
     Write-Host 'Usage: .\HostBadger.ps1 -Snapshot <file|zip|folder> [-OutDir .\output] [-OutHtml report.html] [-OutCsv findings.csv] [-OutJsonl siem.jsonl] [-CompareTo old.csv]'
     Write-Host 'Collect first on each host with Collect-HostSnapshot.ps1 (as SYSTEM or administrator). Get-Help .\HostBadger.ps1 -Full for every option.'
@@ -306,7 +410,7 @@ $config = @{
     SupportWarningDays = $SupportWarningDays; MaxCachedLogonsWorkstation = $MaxCachedLogonsWorkstation
     MaxCachedLogonsServer = $MaxCachedLogonsServer; MinSecurityLogKB = $MinSecurityLogKB
     ExpectedEdr = @($ExpectedEdr); ExtraEdrServices = @($ExtraEdrServices); SoftwareGraceDays = $SoftwareGraceDays
-    AllowedRemoteTools = @($AllowedRemoteTools)
+    AllowedRemoteTools = @($AllowedRemoteTools); AllowedExtensions = @($AllowedExtensions)
 }
 # The organization's policy: read first, so a wrong check name stops the run before any work.
 $policy = Import-HostBadgerPolicy $PolicyFile
@@ -333,11 +437,10 @@ if (-not $OutHtml) { $OutHtml = "hostbadger_$stamp.html" }
 $OutHtml = Resolve-OutPath $OutHtml
 if (-not $OutCsv) { $OutCsv = ($OutHtml -replace '\.html?$', '') + '.csv' } else { $OutCsv = Resolve-OutPath $OutCsv }
 $OutJsonl = Resolve-OutPath $OutJsonl
-$OutTickets = Resolve-OutPath $OutTickets
 $OutRemediation = Resolve-OutPath $OutRemediation
 if (($RemediationProfile -or $RemediationDebloat -or $RemediationPrivacy) -and -not $OutRemediation) { Write-Warning '-RemediationProfile, -RemediationDebloat and -RemediationPrivacy shape the per-host fix scripts: add -OutRemediation <folder> to write them.' }
 # Create the directories the resolved (absolute) paths need, so a bare name in .\output just works.
-foreach ($p in @($OutHtml, $OutCsv, $OutJsonl, $OutTickets, $OutRemediation) | Where-Object { $_ }) {
+foreach ($p in @($OutHtml, $OutCsv, $OutJsonl, $OutRemediation) | Where-Object { $_ }) {
     $dir = Split-Path -Path $p -Parent
     if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
 }
@@ -355,7 +458,6 @@ if (-not $NoLog) {
     $settings.Add("Report:     $OutHtml")
     $settings.Add("Findings:   $OutCsv")
     if ($OutJsonl) { $settings.Add("JSON Lines: $OutJsonl") }
-    if ($OutTickets) { $settings.Add("Tickets:    $OutTickets ($TicketFormat)") }
     if ($OutRemediation) { $settings.Add("Fix scripts: $OutRemediation$(if ($RemediationProfile) { " (profile $RemediationProfile)" })$(if ($RemediationDebloat) { ' (with debloat)' })$(if ($RemediationPrivacy) { ' (with privacy and telemetry)' })$(if ($RemediationOnlyProfile) { ' (no finding fixes)' })") }
     $settings.Add('Settings given:')
     foreach ($k in @($PSBoundParameters.Keys | Sort-Object)) {
@@ -429,6 +531,36 @@ try {
             catch { Write-Host "LOLDrivers catalog not readable, using the copy in data\: $($_.Exception.Message)" -ForegroundColor Yellow; $config.Remove('Drivers') }
         }
         else { Write-Host 'Using the LOLDrivers copy in data\.' -ForegroundColor Yellow }
+    }
+
+    # Browser extensions removed from the stores: the copy in data\ unless a file (-ExtensionsFile) or a
+    # fresh one (-ExtensionsOnline) was asked for. Either way the Palant entries of the copy stay.
+    if ($ExtensionsFile) {
+        if (Test-Path -LiteralPath $ExtensionsFile) {
+            try {
+                $extText = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $ExtensionsFile).Path)
+                # The kept copy (<report>_extensions.json) has "entries"; the original is the sentry CSV.
+                $config['Extensions'] = if ($extText.TrimStart([char]0xFEFF).TrimStart().StartsWith('{')) { @(foreach ($e in @((ConvertFrom-Json -InputObject $extText).entries)) { foreach ($x in $e) { $x } }) } else { @(ConvertFrom-ExtensionSentryCsv $extText) }
+                Write-Host "Browser extension list: $(@($config['Extensions']).Count) extensions from $ExtensionsFile" -ForegroundColor DarkGray
+            }
+            catch { Write-Host "Browser extension list not readable, using the copy in data\: $($_.Exception.Message)" -ForegroundColor Yellow; $config.Remove('Extensions') }
+        }
+        else { Write-Host "Browser extension list not found, using the copy in data\: $ExtensionsFile" -ForegroundColor Yellow }
+    }
+    elseif ($ExtensionsOnline) {
+        $extCsv = Get-ExtensionCatalogOnline
+        if ($extCsv) {
+            try {
+                $config['Extensions'] = @(ConvertFrom-ExtensionSentryCsv $extCsv)
+                if (-not @($config['Extensions']).Count) { throw 'no extension id in the download' }
+                $extCopy = ([System.IO.Path]::GetFullPath($OutHtml) -replace '\.html?$', '') + '_extensions.json'
+                $extDoc = [ordered]@{ source = "malicious_extension_sentry ($($script:ExtensionSentryUrl)), extension IOC data from malext.io, CC BY 4.0; downloaded $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC"; count = @($config['Extensions']).Count; entries = @($config['Extensions']) }
+                [System.IO.File]::WriteAllText($extCopy, ($extDoc | ConvertTo-Json -Depth 5 -Compress), (New-Object System.Text.UTF8Encoding($false)))
+                Write-Host "Browser extension list: $(@($config['Extensions']).Count) extensions, kept at $extCopy" -ForegroundColor DarkGray
+            }
+            catch { Write-Host "Browser extension list not readable, using the copy in data\: $($_.Exception.Message)" -ForegroundColor Yellow; $config.Remove('Extensions') }
+        }
+        else { Write-Host 'Using the browser extension list in data\.' -ForegroundColor Yellow }
     }
 
     # Software lifecycle data (endoflife.date): a file you give, or a download. Without it software_eol
@@ -573,6 +705,7 @@ try {
                 OptionalOff  = @($r.Off)
                 PolicyOff    = @($r.PolicyOff)
                 E8           = Get-E8Maturity -Role (Get-SnapshotRole $s) -Findings $r.Findings -NotEvaluated $r.NotEvaluated -Off (@($r.Off) + @($r.PolicyOff)) -StigByType $r.StigByType -SkipStig ([bool]$SkipStig) -Office ([bool]($s.hardening.officeInstalled -eq $true -or ($s.stig -and $s.stig.products.office -eq $true)))
+                Acn          = $null
                 Software     = @($s.software | Where-Object { $_ })
                 AccountMix   = Get-LocalAccountMix $s
                 UpdatesSource = $(if ($s.updatesPending) { "$($s.updatesPending.source)" } else { '' })
@@ -592,6 +725,13 @@ try {
     foreach ($f in @(Invoke-FleetChecks -Snapshots @($latest.Values) -NotEvaluated $neByHost -Config $config)) {
         $allFindings.Add($f)
         foreach ($h in $hosts) { if ($h.Name -eq $f.Host) { $h.Findings = @($h.Findings) + @($f) } }
+    }
+    # NIS2 / ACN basic measures (-Nis2Acn), once the fleet findings are in. Drift is only judged among
+    # at least five hosts of the same role.
+    foreach ($h in @($hosts | Where-Object { $Nis2Acn })) {
+        $off = @(@($h.OptionalOff) + @($h.PolicyOff) | Where-Object { $_ })
+        if (@($hosts | Where-Object { $_.Role -eq $h.Role }).Count -lt 5) { $off += 'config_drift' }
+        $h.Acn = @(Get-AcnStatus -Role $h.Role -Findings $h.Findings -NotEvaluated $h.NotEvaluated -Off $off -Config $config)
     }
     Stop-Spinner
     $script:RunHosts = @($hosts | ForEach-Object { $_.Name })
@@ -623,8 +763,6 @@ try {
     Step-Spinner 'Writing the findings CSV'
     Export-FindingsCsv -Findings $split.Active -Path $OutCsv
     if ($OutJsonl) { Export-FindingsJsonl -Findings $split.Active -Hosts $hosts -Path $OutJsonl -ToolVersion $script:HostBadgerVersion -Comparison $comparison }
-    if ($OutTickets) { $null = Export-FindingsTickets -Findings $split.Active -Path $OutTickets -Format $TicketFormat -ToolVersion $script:HostBadgerVersion }
-    $fmtElapsed = { param($span) if ($span.TotalMinutes -ge 1) { '{0}m {1}s' -f [int][Math]::Floor($span.TotalMinutes), $span.Seconds } else { '{0:N1}s' -f $span.TotalSeconds } }
     $elapsedText = & $fmtElapsed ((Get-Date) - $started)
     Step-Spinner 'Building the HTML report'
     $html = ConvertTo-ReportHtml -Hosts $hosts.ToArray() -Split $split -Comparison $comparison -Config $config -ToolVersion $script:HostBadgerVersion -ElapsedText $elapsedText -Remediation $remInfo -HideCis:$HideCis -HideStig:$HideStig -KevLoaded:([bool]$config.Kev)
@@ -676,7 +814,6 @@ try {
     Write-Host "Findings: $OutCsv"
     foreach ($pf in $perHostFiles) { Write-Host "Host:     $pf" }
     if ($OutJsonl) { Write-Host "SIEM:     $OutJsonl" }
-    if ($OutTickets) { Write-Host "Tickets:  $OutTickets ($TicketFormat)" }
     if ($remInfo) {
         foreach ($ri in $remInfo) { if ($ri.File) { Write-Host ("Fix:      {0}  ({1} setting(s) for {2} of {3} finding(s))" -f (Join-Path $remDir $ri.File), $ri.Actions, $ri.Fixable, $ri.Total) } }
         Write-Host "          Preview first (it changes nothing without -Apply), try it on a pilot host, then -Apply; -Restore <rollback file> -Apply undoes it." -ForegroundColor DarkGray
@@ -684,65 +821,15 @@ try {
 
     # --------------------------------------------------------------------------
     # Optional AI step. The report is already on disk by now; without -SendToAI or
-    # -AiDryRun nothing below runs, and HostBadger never asks.
+    # -AiDryRun nothing below runs, and HostBadger never asks. -AiLater (the guided
+    # menu) keeps the analysis in this session's memory instead, so the menu can ask
+    # about the AI summary and run only this step with -AiContinue.
     # --------------------------------------------------------------------------
-    if (-not $SendToAI -and -not $AiDryRun) { return }
-    # The DISA STIG findings can be hundreds per host. They go to Gemini only if asked for (-AiIncludeStig):
-    # a prompt that large can make the request time out.
-    $aiFindings = if ($AiIncludeStig) { $active } else { @($active | Where-Object { $_.Category -ne 'DISA STIG' }) }
-    $stigLeftOut = $active.Count - $aiFindings.Count
-    if ($stigLeftOut -gt 0) { Write-Host "AI: $stigLeftOut DISA STIG finding(s) are not part of the prompt (add -AiIncludeStig to send them; a very large prompt may time out)." -ForegroundColor DarkGray }
-    if ($AiIncludeStig -and @($active | Where-Object { $_.Category -eq 'DISA STIG' }).Count -gt 0) { Write-Host 'AI: DISA STIG findings included; with this many findings Gemini may time out.' -ForegroundColor Yellow }
-    if ($aiFindings.Count -eq 0) { Write-Host 'No findings: AI step skipped (nothing to ground a summary on).'; return }
-
-    $hostOrder = @($hosts | Sort-Object { $_.Score.Score }, Name | ForEach-Object { $_.Name })
-    Step-Spinner 'Replacing names with tokens'
-    $pz = New-HostPseudonymizer -Snapshots @($latest.Values) -Findings $aiFindings -HostOrder $hostOrder
-    Step-Spinner 'Building the AI prompt'
-    $userPrompt = New-AiPrompt -Findings $aiFindings -Hosts $hosts.ToArray() -Pz $pz -Comparison $comparison
-    Stop-Spinner
-    $leaks = @(Test-AiLeak -Pz $pz -Text $userPrompt)
-    if ($leaks.Count -gt 0) {
-        Write-Host "AI step aborted: identifiers still present after pseudonymization: $($leaks -join ', '). Nothing was sent. Please report this as a bug." -ForegroundColor Red
+    if ($AiLater -and -not $SendToAI -and -not $AiDryRun) {
+        $global:HostBadgerAiPending = @{ Active = $active; Hosts = $hosts; Latest = $latest; Comparison = $comparison; Split = $split; Config = $config; Remediation = $remInfo; ElapsedText = $elapsedText; HtmlFull = $htmlFull; OutHtml = $OutHtml; HideCis = [bool]$HideCis; HideStig = [bool]$HideStig }
         return
     }
-    $maskedCount = $pz.Reverse.Count
-
-    if ($AiDryRun) {
-        Write-AiPromptFile -Path $AiDryRun -UserPrompt $userPrompt
-        Write-Host "AI dry run: prompt written to $AiDryRun ($($userPrompt.Length) chars, $maskedCount identifiers pseudonymized). Nothing sent." -ForegroundColor Cyan
-        return
-    }
-
-    # Written before sending, so it can be read first (and kept as the record of what left).
-    $promptFile = Get-AiSidecarPath $htmlFull '_ai_prompt.txt'
-    Write-AiPromptFile -Path $promptFile -UserPrompt $userPrompt
-    if ($AiConfirm) {
-        Write-Host ''
-        Write-Host "Optional AI step (Gemini, model $Model):" -ForegroundColor Cyan
-        Write-Host "  Sent: $($aiFindings.Count) findings grouped by check (max 12 lines per check), host table, coverage gaps, comparison if any."
-        Write-Host "  Pseudonymized: $maskedCount identifiers (hosts, domains, accounts, groups, SIDs, paths, service/task/autorun/adapter names, addresses). The map never leaves this machine."
-        Write-Host "  Not sent: the snapshots, ACL dumps, collector error messages."
-        Write-Host "  Exactly what would be sent: $promptFile" -ForegroundColor Cyan
-        $answer = Read-Host 'Open that file if you want, then: send to Gemini for an executive summary and remediation plan? (y/N)'
-        if ($answer -notmatch '^[Yy]') { Write-Host "Nothing sent. Deterministic report saved to $OutHtml."; return }
-    }
-    else { Write-Host "AI prompt kept at $promptFile ($maskedCount identifiers pseudonymized)" }
-    if (-not $ApiKey) { Write-Host 'ERROR: no API key (-ApiKey or GEMINI_API_KEY). Deterministic report kept as is.' -ForegroundColor Red; return }
-
-    $aiStarted = Get-Date
-    $raw = Invoke-GeminiAnalysis -UserPrompt $userPrompt -ApiKey $ApiKey -Model $Model -MaxAttempts $AiMaxAttempts
-    if (-not $raw) { Write-Host "AI step failed; deterministic report kept at $OutHtml." -ForegroundColor Yellow; return }
-    $responseFile = Get-AiSidecarPath $htmlFull '_ai_response.json'
-    Write-AiResponseFile -Path $responseFile -Raw $raw
-    Write-Host "Gemini reply (still pseudonymized) kept at $responseFile"
-    $aiResult = ConvertFrom-AiResponse -Raw $raw -Pz $pz -Findings $aiFindings -Model $Model
-    # Time spent waiting for Gemini (retries included), shown next to the analysis time.
-    $aiResult | Add-Member -NotePropertyName ElapsedText -NotePropertyValue (& $fmtElapsed ((Get-Date) - $aiStarted)) -Force
-
-    $html = ConvertTo-ReportHtml -Hosts $hosts.ToArray() -Split $split -Comparison $comparison -Config $config -ToolVersion $script:HostBadgerVersion -ElapsedText $elapsedText -AiResult $aiResult -Remediation $remInfo -HideCis:$HideCis -HideStig:$HideStig -KevLoaded:([bool]$config.Kev)
-    [System.IO.File]::WriteAllText($htmlFull, $html, (New-Object System.Text.UTF8Encoding($false)))
-    Write-Host "AI section added to $OutHtml ($(@($aiResult.RemediationPlan).Count) remediation items)." -ForegroundColor Green
+    . $aiStep
 }
 finally {
     if ($script:RunLogOn) { try { Stop-Transcript | Out-Null } catch { } ; if ($OutLog) { Write-Host "Run log: $OutLog" -ForegroundColor DarkGray } }

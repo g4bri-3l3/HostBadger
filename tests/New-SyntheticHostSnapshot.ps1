@@ -162,7 +162,7 @@ $s = [ordered]@{
         tool = 'HostBadger'; kind = 'host'; computerName = $name; schemaVersion = 1; collectorVersion = '1.0'; synthetic = $true
         collectedAtUtc = $CollectedAtUtc; collectedBy = 'NT AUTHORITY\SYSTEM'; runningAsSystem = $true; runningAsAdmin = $true; psVersion = '5.1.20348.2849'
         options = [ordered]@{ skipAcl = $false; checkUpdates = $false }
-        sectionsCollected = @('host', 'patches', 'defender', 'bitlocker', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'audit', 'securityPolicy', 'hardening', 'stig', 'software', 'appx', 'services', 'drivers', 'scheduledTasks', 'autoruns', 'writablePaths', 'credentialExposure', 'persistence', 'certificates', 'wifi')
+        sectionsCollected = @('host', 'patches', 'defender', 'bitlocker', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'audit', 'securityPolicy', 'hardening', 'stig', 'software', 'appx', 'services', 'drivers', 'scheduledTasks', 'autoruns', 'writablePaths', 'credentialExposure', 'persistence', 'certificates', 'wifi', 'browserExtensions')
         collectionErrors = @()
     }
     host                 = [ordered]@{
@@ -271,6 +271,11 @@ $s = [ordered]@{
     }
     certificates         = [ordered]@{ microsoftListAvailable = $true; roots = @([ordered]@{ thumbprint = '245C97DF7514E7CF2DF8BE72AE957B9E04741E85'; store = 'machine'; subject = 'OU=Copyright (c) 1997 Microsoft Corp., OU=Microsoft Time Stamping Service Root, OU=Microsoft Corporation, O=Microsoft Trust Network'; notAfterUtc = '1999-12-30T23:00:00Z'; selfSigned = $true; hasPrivateKey = $false; inMicrosoftProgram = $false }) }
     wifi                 = @([ordered]@{ name = 'CORP-WLAN'; authentication = 'WPA2'; encryption = 'AES'; connectionMode = 'auto'; nonBroadcast = $false })
+    # A store extension that reads one site only, and the single sign-on extension the organization pushes by
+    # policy (every site, but its own choice): nothing to report.
+    browserExtensions    = [ordered]@{ profiles = @([ordered]@{ user = 'jsmith'; browser = 'Edge'; profile = 'Default'; extensions = @(
+                    [ordered]@{ id = 'bbbbccccddddeeeeffffgggghhhhiiii'; name = 'Docs Viewer'; version = '2.1.0'; enabled = $true; source = 'store'; permissions = @('storage', 'https://docs.example.com/*'); contentScripts = @() },
+                    [ordered]@{ id = 'ccccddddeeeeffffgggghhhhiiiijjjj'; name = 'Corp SSO'; version = '5.0.1'; enabled = $true; source = 'policy'; permissions = @('<all_urls>', 'cookies', 'webRequest'); contentScripts = @() }) }) }
 }
 
 # ------------------------------------------------------------------ scenarios
@@ -469,6 +474,14 @@ switch ($Scenario) {
                 [ordered]@{ name = 'Python 3.9.13 Tcl/Tk Support'; dir = 'C:\Python39\tcl'; writableBy = @([ordered]@{ sid = 'S-1-5-11'; rights = 'Modify, Synchronize' }) },
                 [ordered]@{ name = 'Vendor Agent'; dir = 'C:\ProgramData\Vendor'; writableBy = @([ordered]@{ sid = 'S-1-5-11'; rights = 'Modify, Synchronize' }) },
                 [ordered]@{ name = 'Contoso CLI Tools'; dir = 'C:\Tools\bin'; writableBy = @([ordered]@{ sid = 'S-1-5-32-545'; rights = 'Write' }) }) }
+        # Browser extensions in another user's Brave: a wallet extension the store removed as malware (High), a
+        # wallpaper removed as adware but disabled (Low), an in-house extension loaded in developer mode
+        # (sideloaded), and a store translator that reads every site with cookies (Low, to verify).
+        $s.browserExtensions.profiles += [ordered]@{ user = 'mbianchi'; browser = 'Brave'; profile = 'Profile 1'; extensions = @(
+                [ordered]@{ id = 'nhjjepfbhpdhehdeiolbnjembodcgaee'; name = 'Token.im - Browser Extension'; version = '1.0.4'; enabled = $true; source = 'store'; permissions = @('storage', 'tabs'); contentScripts = @('<all_urls>') },
+                [ordered]@{ id = 'manfnidnmcdlomkeabeoimjiikhbdloe'; name = 'Jinx Arcane Lol Live Wallpaper'; version = '1.2'; enabled = $false; source = 'store'; permissions = @('storage'); contentScripts = @() },
+                [ordered]@{ id = 'ddddeeeeffffgggghhhhiiiijjjjkkkk'; name = 'Acme Ledger Bridge'; version = '0.3.0'; enabled = $true; source = 'unpacked'; permissions = @('nativeMessaging', 'https://ledger.acme.example/*'); contentScripts = @() },
+                [ordered]@{ id = 'eeeeffffgggghhhhiiiijjjjkkkkllll'; name = 'Page Translator Plus'; version = '4.4.2'; enabled = $true; source = 'store'; permissions = @('<all_urls>', 'cookies', 'scripting', 'storage'); contentScripts = @() }) }
         # A domain account behind a service and a task (password in the LSA secrets), a gMSA (fine), a VNC server.
         $s.services += @((Svc 'BackupExecAgent' '"C:\Program Files\Backup\beremote.exe"' 'C:\Program Files\Backup\beremote.exe' 'CORP\svc_backup'), (Svc 'ReportSvc' '"C:\Program Files\Reports\rs.exe"' 'C:\Program Files\Reports\rs.exe' 'CORP\gmsa_reports$'),
             (Svc 'tvnserver' '"C:\Program Files\TightVNC\tvnserver.exe" -service' 'C:\Program Files\TightVNC\tvnserver.exe'))
@@ -539,7 +552,7 @@ switch ($Scenario) {
     'partial' {
         $s.meta.collectedBy = 'CORP\jdoe'; $s.meta.runningAsSystem = $false; $s.meta.runningAsAdmin = $false
         $s.meta.options.skipAcl = $true
-        $s.meta.sectionsCollected = @('host', 'patches', 'defender', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'hardening', 'stig', 'software', 'appx', 'services', 'scheduledTasks', 'autoruns', 'credentialExposure', 'persistence', 'certificates', 'wifi')
+        $s.meta.sectionsCollected = @('host', 'patches', 'defender', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'hardening', 'stig', 'software', 'appx', 'services', 'scheduledTasks', 'autoruns', 'credentialExposure', 'persistence', 'certificates', 'wifi', 'browserExtensions')
         $s.meta.collectionErrors = @(
             [ordered]@{ section = 'defender.exclusions'; message = 'exclusions not readable (administrator or SYSTEM needed)' },
             [ordered]@{ section = 'bitlocker'; message = 'BitLocker status not readable: Access is denied' },

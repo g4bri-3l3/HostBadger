@@ -71,5 +71,17 @@ foreach ($r in $script:E8Requirements) {
     $null = $sb.AppendLine("| $($script:E8Strategies[$r.S].Label) | $($r.L) | $($r.Req) | $checks | $($scope -join '; ') |")
 }
 $null = $sb.AppendLine()
+$null = $sb.AppendLine('## NIS2: ACN basic measures judged from a host')
+$null = $sb.AppendLine()
+$null = $sb.AppendLine("The requirements of the basic security measures of the Italian National Cybersecurity Agency (ACN Determinazione 379907/2025, D.Lgs. 138/2024: Allegato 1 for soggetti importanti, Allegato 2 for soggetti essenziali) that a host shows, in ACN's wording (``data\acn-nis2-measures.json``), with the checks that give evidence about them. The dashboard lists those with a finding against them. The other requirements (governance, risk and vulnerability plans, inventories, backups, multi-factor authentication, training, incident handling, documented procedures) need evidence a host does not hold: no contrary evidence on a host is not compliance.")
+$null = $sb.AppendLine()
+$null = $sb.AppendLine('| Measure | Point | Requirement (ACN) | Checks | Notes |')
+$null = $sb.AppendLine('|---|---|---|---|---|')
+foreach ($r in $script:AcnRequirements) {
+    $scope = @(); if ($r.E) { $scope += 'Allegato 2 only (soggetti essenziali)' }; if ($r.Roles) { $scope += "roles: $(@($r.Roles | ForEach-Object { $roleShort[$_] }) -join ', ')" }; if ($r.List) { $scope += "judged only with -$($r.List)" }; if ($r.Match) { $scope += "finding matching ``$($r.Match)``" }; if ($r.Note) { $scope += $r.Note }
+    $checks = (@($r.Checks) | ForEach-Object { '`' + $_ + '`' }) -join ', '
+    $null = $sb.AppendLine("| $($r.Code) | $($r.P) | $(Get-AcnMeasureText $r.Code $r.P) | $checks | $($scope -join '; ') |")
+}
+$null = $sb.AppendLine()
 [System.IO.File]::WriteAllText($OutFile, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
 "Wrote $OutFile ($($script:CheckCatalog.Count) checks, $($stig.Count) STIG rules)."

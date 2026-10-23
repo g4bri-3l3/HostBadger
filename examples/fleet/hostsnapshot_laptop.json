@@ -43,6 +43,7 @@
       "persistence",
       "certificates",
       "wifi",
+      "browserExtensions",
       "updatesPending"
     ],
     "collectionErrors": []
@@ -4037,5 +4038,41 @@
       "connectionMode": "manual",
       "nonBroadcast": false
     }
-  ]
+  ],
+  "browserExtensions": {
+    "profiles": [
+      {
+        "user": "jsmith",
+        "browser": "Edge",
+        "profile": "Default",
+        "extensions": [
+          {
+            "id": "bbbbccccddddeeeeffffgggghhhhiiii",
+            "name": "Docs Viewer",
+            "version": "2.1.0",
+            "enabled": true,
+            "source": "store",
+            "permissions": [
+              "storage",
+              "https://docs.example.com/*"
+            ],
+            "contentScripts": []
+          },
+          {
+            "id": "ccccddddeeeeffffgggghhhhiiiijjjj",
+            "name": "Corp SSO",
+            "version": "5.0.1",
+            "enabled": true,
+            "source": "policy",
+            "permissions": [
+              "<all_urls>",
+              "cookies",
+              "webRequest"
+            ],
+            "contentScripts": []
+          }
+        ]
+      }
+    ]
+  }
 }
