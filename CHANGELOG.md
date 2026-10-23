@@ -6,6 +6,111 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
+## [1.8] - 2026-10-22
+### Added
+- Remediation profiles. `-RemediationProfile Essential | Recommended |
+  Strict` (with `-OutRemediation`) adds a fixed list of settings to every
+  per-host fix script, on top of the fixes of the findings; the guided menu
+  asks for it in "Remediate this machine" (menu 6) and keeps a default in the
+  global settings (menu 8). The tiers nest. Essential: CIS Level 1 and
+  Essential Eight Maturity Level One settings safe on any machine (consumer
+  experiences and Remote Assistance off, required diagnostic data only, Xbox,
+  SSDP, UPnP and other unused services disabled, Internet Explorer 11
+  removed). Recommended: the rest of CIS Level 1 that fits a managed machine
+  and Essential Eight Maturity Level Two (the 13 CIS attack surface reduction
+  rules in block mode, Cortana and widgets off, SSH server, hotspot, IIS and
+  FTP services disabled on workstations). Strict: CIS Level 2, Essential
+  Eight Maturity Level Three (LSA protection, .NET 3.5 and PowerShell 2.0
+  removed) and opinionated hardening (three more ASR rules, outbound
+  firewall rules for certutil, mshta, wscript, cscript, regsvr32, wmic,
+  bitsadmin and hh, script files opened as text, Windows Script Host off),
+  and the removal of preinstalled apps. Each setting quotes its CIS rule or
+  Essential Eight requirement (`data\remediation-profiles.json`, rule numbers
+  and values from the ansible-lockdown Windows-11-CIS role), is filtered by
+  the host's role, and is read before it is changed. Left out on purpose:
+  services whose loss breaks a core function (Print Spooler, Server, Remote
+  Desktop, WinRM, push notifications) and the virtualization-based security
+  settings that set a UEFI lock.
+- `-RemediationDebloat`: the removal of the preinstalled apps on its own,
+  with or without a profile (menu 6 keeps asking per group of apps).
+- `-RemediationPrivacy`: the privacy and telemetry settings of every tier,
+  with or without a profile. Menu 6 and menu 8 offer "[D]ebloat and
+  telemetry only" (this, `-RemediationDebloat` and `-RemediationOnlyProfile`,
+  which leaves the safe fixes of the findings out: nothing but privacy,
+  telemetry and apps).
+- Menu 6 lists the preinstalled apps found on the machine, and only those;
+  Enter removes them all, C asks group by group, N keeps them. With Strict
+  or debloat and telemetry the list comes straight after the fixes (the
+  script leaves the apps to the menu: `-RemediationNoApps`); otherwise it is
+  offered as before.
+- Menu 6 and menu 7 propose a restart at the end: typing YES restarts the
+  machine at once, Enter leaves it for later.
+- Menu 7 says what each run did (profile, finding fixes, profile settings,
+  apps removed); menu 6 writes the profile chosen in `run.json` in the run
+  folder.
+- The fix scripts offer a System Restore point before `-Apply` changes
+  anything (asked at a console; `-RestorePoint` makes one without asking, for
+  a run through an RMM or EDR job; `-NoRestorePoint` skips it). Without a
+  console and without either switch they say so and go on, so an unattended
+  run never waits for an answer. Menu 6 still makes its own and passes
+  `-NoRestorePoint`. When Windows cannot make one, the script and menu 6
+  name the disabled service it needs (Volume Shadow Copy `VSS` or its
+  provider `swprv`) and how to put it back.
+- `system_path_writable` (High): a folder of the machine PATH that
+  non-administrators can write, or that does not exist and that they can
+  create (an uninstalled program often leaves its entry, and Authenticated
+  Users may create folders at the root of C:). Every process searches the
+  PATH, services running as SYSTEM included, so a planted DLL runs as SYSTEM
+  (CWE-427). Medium when only one non-admin account can write it.
+- `program_dir_writable` (Medium): a program installed for all users in a
+  folder non-administrators can write, typically outside Program Files
+  (C:\Python39 inherits the right of Authenticated Users to change files).
+  Windows looks for a program's DLLs in its own folder first. A folder
+  already reported as a PATH folder or as the folder of a service, task or
+  autorun program is not reported twice.
+- Organization policy, `-PolicyFile policy.json` (menu 8 keeps one, and the
+  settings shown before each analysis can change it): the checks your
+  organization turns off, each with an optional reason (`*` patterns work,
+  such as `stig_*`). They are not run, do not count in the score or in the
+  CIS and Essential Eight panels (a requirement judged only by a check turned
+  off is not shown as met), are not "not evaluated", and the report lists
+  them with the policy's name and the reason. A name that matches no check
+  stops the run. JSON Lines: `policy_disabled_checks` in the host summary.
+  Example: `examples\policy.example.json`.
+- Collector section `writablePaths` (Get-Acl only): the machine PATH folders
+  with who may create files in them, and the install folders of the programs
+  that someone besides the administrators may write. The AI pseudonymizer
+  tokenizes those folders and program names.
+- Changes that the rollback file cannot undo (an app removed, LSA protection
+  with its UEFI lock) are marked NOT REVERSIBLE in the preview and counted in
+  the summary; the menu points to the System Restore point for them.
+
+### Fixed
+- The profiles set diagnostic data to "required" (1) even where it was
+  already off (0): the setting is now "at most 1" (`atMost` in
+  `data\remediation-profiles.json`, `-AtMost` in the fix script), so a
+  stricter value is never loosened.
+- Removing a preinstalled app reported "The system cannot find the path
+  specified" although the app was gone: removing it for every user also
+  takes it off the provisioned list, and the second removal found nothing.
+  The provisioned copy goes first now, and an app counts as removed when it
+  is no longer there, whatever a single command answered.
+- The restore point failed with "the service cannot be started because it is
+  disabled" when System Protection is off (the default on many new and virtual
+  machines), and the hint blamed the shadow copy services. Menu 6 and the fix
+  scripts now see that System Protection is off and offer to turn it on for
+  the system drive first (at a console only; an unattended run prints the
+  command).
+- The profile question of the guided menu accepted any answer (typing 1 went
+  on with the default): it now asks again until the answer is one of the
+  choices on screen.
+- A fix script that disables a service matches the exact service name:
+  `Get-Service -Name` falls back to the display name, so "Browser" found the
+  `bowser` driver.
+- A service or Windows feature that is not installed is reported as such
+  instead of as a failure, and a preview without elevation says which
+  settings only an elevated PowerShell can read.
+
 ## [1.7] - 2026-10-21
 ### Added
 - Run logs. Every analysis writes `<report>.log` next to the report: the

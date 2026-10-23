@@ -1,6 +1,6 @@
 # HostBadger coverage
 
-Every check in `lib\Checks.ps1`, generated from the catalog (161 checks, of which 13 cover the 1475 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
+Every check in `lib\Checks.ps1`, generated from the catalog (163 checks, of which 13 cover the 1475 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
 
 The CIS column gives the rule number in the *CIS Microsoft Windows 11 Enterprise Benchmark v3.0.0* and its profile level (L1 corporate, L2 high security); the descriptions are HostBadger's own. A check is a read-only comparison of the host's setting with the rule; it is not a certification of conformity, and the benchmark covers many more settings (most of the administrative templates, for instance) than HostBadger reads. On Windows 10 and on Windows Server 2022, 2019 and 2016 the findings quote the same setting in that version's CIS benchmark instead (Windows 10 Enterprise v3.0.0, Server 2022 and 2019 v4.0.0, Server 2016 v3.0.0). Checks marked *Server* follow a rule that only the server benchmarks have.
 
@@ -136,6 +136,8 @@ The last column says whether HostBadger can write a remediation script for the c
 | `service_binary_writable` | High | T1574.010 |  | W, S, DC | no | Service program writable by users |
 | `task_binary_writable` | High | T1053.005 |  | W, S, DC | no | Privileged scheduled task runs a user-writable program |
 | `autorun_writable` | High | T1547.001 |  | W, S, DC | no | Machine-wide autorun points to a user-writable program |
+| `system_path_writable` | High | T1574.007 |  | W, S, DC | no | Folder of the machine PATH writable by users |
+| `program_dir_writable` | Medium | T1574.001 |  | W, S, DC | no | Program installed in a folder users can write |
 | `vulnerable_driver_present` | High | T1068 |  | W, S, DC | no | Known vulnerable or malicious driver on the host |
 | `driver_blocklist_off` | Medium | T1068 |  | W, S, DC | yes | Microsoft vulnerable driver blocklist turned off |
 | `spooler_on_dc` | Medium | T1187 |  | DC | yes | Print Spooler running on a domain controller |

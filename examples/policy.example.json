@@ -1,0 +1,8 @@
+{
+  "name": "Contoso baseline",
+  "disabledChecks": [
+    { "check": "bloatware_installed", "reason": "consumer apps are allowed on this fleet" },
+    { "check": "sysmon_missing", "reason": "the EDR records process and network events" },
+    { "check": "stig_firefox", "reason": "Firefox is not a supported browser here" }
+  ]
+}

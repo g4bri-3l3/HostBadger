@@ -115,11 +115,22 @@
 .PARAMETER OutJsonl
     JSON Lines for a SIEM (findings, resolved findings with -CompareTo, one
     summary per host). Not written unless given.
+.PARAMETER OutTickets
+    CSV with one ticket per check (the hosts it fired on, how to fix it), for
+    an import into Jira or ServiceNow (-TicketFormat). Open findings only.
+.PARAMETER TicketFormat
+    Jira (default): Summary, Issue Type, Priority, Description, Labels.
+    ServiceNow: incident fields with correlation_id hostbadger-<check>.
 .PARAMETER CompareTo
     Findings CSV of an earlier run: new and resolved findings are shown.
 .PARAMETER ExceptionsFile
     JSON list of accepted risks: [{ "type", "host", "object", "reason",
     "owner", "expires" }], host and object accept "*".
+.PARAMETER PolicyFile
+    The organization's own policy (JSON): { "name": "...", "disabledChecks":
+    [ "check_type" | "stig_*" | { "check": "...", "reason": "..." } ] }. The
+    checks it turns off do not run, do not count in the score, and the report
+    lists them with the reason. A name that matches no check stops the run.
 .PARAMETER AllowedAdmins
     Members of the local Administrators group that belong there (names as
     "DOMAIN/Group", the bare name, or SIDs). Domain Admins and the built-in
@@ -148,6 +159,37 @@
     each check, write one remediate_<host>.ps1 per host with all of that host's
     fixes in one file, for scripted rollouts. It previews unless run with -Apply,
     writes a rollback file, and HostBadger never runs it.
+.PARAMETER RemediationProfile
+    Optional, with -OutRemediation: add a remediation profile to every
+    remediate_<host>.ps1, on top of the fixes of the findings. Essential (CIS
+    Level 1 and Essential Eight Maturity Level One settings safe on any machine),
+    Recommended (Essential, plus the rest of CIS Level 1 for managed machines and
+    Essential Eight Maturity Level Two: attack surface reduction rules in block
+    mode) or Strict (Recommended, plus CIS Level 2, Essential Eight Maturity
+    Level Three, opinionated hardening and the removal of preinstalled apps).
+    The settings come from data\remediation-profiles.json, filtered by the host's
+    role; each one quotes its rule. Some Strict changes cannot be undone by the
+    rollback file: the script marks them NOT REVERSIBLE.
+.PARAMETER RemediationDebloat
+    Optional, with -OutRemediation: add the removal of the preinstalled apps
+    (games, consumer apps, trials) to the workstation scripts, with or without a
+    profile (Strict already includes it). Not reversible: the apps come back only
+    from the Microsoft Store.
+.PARAMETER RemediationPrivacy
+    Optional, with -OutRemediation: add the privacy and telemetry settings of
+    every profile tier (dataemediation-profiles.json, category privacy) to the
+    scripts, with or without a profile. With -RemediationDebloat and no profile it
+    gives "debloat and telemetry only": no hardening setting is added.
+.PARAMETER RemediationNoApps
+    Optional, with -OutRemediation: leave the removal of preinstalled apps out of
+    the scripts even with -RemediationProfile Strict or -RemediationDebloat. The
+    guided menu (option 6) uses it: it lists the apps found on the machine and
+    asks for them itself.
+.PARAMETER RemediationOnlyProfile
+    Optional, with -OutRemediation: leave the safe fixes of the findings out of the
+    scripts, so they hold only what -RemediationProfile, -RemediationPrivacy and
+    -RemediationDebloat add. "Debloat and telemetry only" in the guided menu uses
+    it with -RemediationPrivacy and -RemediationDebloat.
 .PARAMETER SendToAI
     Optional: after the report is saved, send the findings to Gemini for an
     executive summary and a remediation plan, and add them to the report.
@@ -182,8 +224,11 @@ param(
     [string]$OutHtml = '',
     [string]$OutCsv = '',
     [string]$OutJsonl = '',
+    [string]$OutTickets = '',
+    [ValidateSet('Jira', 'ServiceNow')][string]$TicketFormat = 'Jira',
     [string]$CompareTo = '',
     [string]$ExceptionsFile = '',
+    [string]$PolicyFile = '',
     [string[]]$AllowedAdmins = @(),
     [int]$MaxPatchAgeDays = 45,
     [int]$MaxSignatureAgeDays = 7,
@@ -195,6 +240,12 @@ param(
     [string[]]$ExtraEdrServices = @(),
     [string[]]$AllowedRemoteTools = @(),
     [string]$OutRemediation = '',
+    [ValidateSet('', 'Essential', 'Recommended', 'Strict')]
+    [string]$RemediationProfile = '',
+    [switch]$RemediationDebloat,
+    [switch]$RemediationPrivacy,
+    [switch]$RemediationNoApps,
+    [switch]$RemediationOnlyProfile,
     [switch]$PerHost,
     [switch]$SkipStig,
     [string]$KevFile = '',
@@ -225,7 +276,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:HostBadgerVersion = '1.7'
+$script:HostBadgerVersion = '1.8'
 . (Join-Path $PSScriptRoot 'lib\Common.ps1')
 . (Join-Path $PSScriptRoot 'lib\Checks.ps1')
 . (Join-Path $PSScriptRoot 'lib\AI.ps1')
@@ -235,7 +286,7 @@ $script:HostBadgerVersion = '1.7'
 Write-Host @'
      _.--""--._
    .'  |    |  '.
-  /    |    |    \      HostBadger v1.7
+  /    |    |    \      HostBadger v1.8
  |  (o)|    |(o)  |     Windows host hardening
  |     |    |     |     read-only snapshots, offline analysis
   \    '.__.'    /
@@ -257,6 +308,13 @@ $config = @{
     ExpectedEdr = @($ExpectedEdr); ExtraEdrServices = @($ExtraEdrServices); SoftwareGraceDays = $SoftwareGraceDays
     AllowedRemoteTools = @($AllowedRemoteTools)
 }
+# The organization's policy: read first, so a wrong check name stops the run before any work.
+$policy = Import-HostBadgerPolicy $PolicyFile
+if ($policy) {
+    $config.DisabledChecks = $policy.Disabled
+    $config.PolicyName = $policy.Name
+    Write-Host "Policy '$($policy.Name)': $($policy.Disabled.Count) check(s) turned off." -ForegroundColor DarkGray
+}
 
 $stamp = (Get-Date).ToString('yyyyMMdd_HHmmss')
 # Where output goes by default. A bare file name (-OutHtml report.html) lands in -OutDir (default
@@ -275,9 +333,11 @@ if (-not $OutHtml) { $OutHtml = "hostbadger_$stamp.html" }
 $OutHtml = Resolve-OutPath $OutHtml
 if (-not $OutCsv) { $OutCsv = ($OutHtml -replace '\.html?$', '') + '.csv' } else { $OutCsv = Resolve-OutPath $OutCsv }
 $OutJsonl = Resolve-OutPath $OutJsonl
+$OutTickets = Resolve-OutPath $OutTickets
 $OutRemediation = Resolve-OutPath $OutRemediation
+if (($RemediationProfile -or $RemediationDebloat -or $RemediationPrivacy) -and -not $OutRemediation) { Write-Warning '-RemediationProfile, -RemediationDebloat and -RemediationPrivacy shape the per-host fix scripts: add -OutRemediation <folder> to write them.' }
 # Create the directories the resolved (absolute) paths need, so a bare name in .\output just works.
-foreach ($p in @($OutHtml, $OutCsv, $OutJsonl, $OutRemediation) | Where-Object { $_ }) {
+foreach ($p in @($OutHtml, $OutCsv, $OutJsonl, $OutTickets, $OutRemediation) | Where-Object { $_ }) {
     $dir = Split-Path -Path $p -Parent
     if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
 }
@@ -295,7 +355,8 @@ if (-not $NoLog) {
     $settings.Add("Report:     $OutHtml")
     $settings.Add("Findings:   $OutCsv")
     if ($OutJsonl) { $settings.Add("JSON Lines: $OutJsonl") }
-    if ($OutRemediation) { $settings.Add("Fix scripts: $OutRemediation") }
+    if ($OutTickets) { $settings.Add("Tickets:    $OutTickets ($TicketFormat)") }
+    if ($OutRemediation) { $settings.Add("Fix scripts: $OutRemediation$(if ($RemediationProfile) { " (profile $RemediationProfile)" })$(if ($RemediationDebloat) { ' (with debloat)' })$(if ($RemediationPrivacy) { ' (with privacy and telemetry)' })$(if ($RemediationOnlyProfile) { ' (no finding fixes)' })") }
     $settings.Add('Settings given:')
     foreach ($k in @($PSBoundParameters.Keys | Sort-Object)) {
         $v = $PSBoundParameters[$k]
@@ -510,7 +571,8 @@ try {
                 StigEvaluated = $(if ($SkipStig) { 0 } else { [int]$r.StigEvaluated })
                 StigByType   = $(if ($SkipStig) { @{} } else { $r.StigByType })
                 OptionalOff  = @($r.Off)
-                E8           = Get-E8Maturity -Role (Get-SnapshotRole $s) -Findings $r.Findings -NotEvaluated $r.NotEvaluated -Off $r.Off -StigByType $r.StigByType -SkipStig ([bool]$SkipStig) -Office ([bool]($s.hardening.officeInstalled -eq $true -or ($s.stig -and $s.stig.products.office -eq $true)))
+                PolicyOff    = @($r.PolicyOff)
+                E8           = Get-E8Maturity -Role (Get-SnapshotRole $s) -Findings $r.Findings -NotEvaluated $r.NotEvaluated -Off (@($r.Off) + @($r.PolicyOff)) -StigByType $r.StigByType -SkipStig ([bool]$SkipStig) -Office ([bool]($s.hardening.officeInstalled -eq $true -or ($s.stig -and $s.stig.products.office -eq $true)))
                 Software     = @($s.software | Where-Object { $_ })
                 AccountMix   = Get-LocalAccountMix $s
                 UpdatesSource = $(if ($s.updatesPending) { "$($s.updatesPending.source)" } else { '' })
@@ -525,7 +587,8 @@ try {
     # Fleet checks: findings that need several hosts (shared local passwords, cloned machine SIDs, drift).
     Step-Spinner 'Analyzing the fleet'
     $neByHost = @{}
-    foreach ($h in $hosts) { $neByHost[$h.Name] = @($h.NotEvaluated | ForEach-Object { $_.Type }) }
+    # A check the policy turns off is skipped there too.
+    foreach ($h in $hosts) { $neByHost[$h.Name] = @(@($h.NotEvaluated | ForEach-Object { $_.Type }) + @($h.PolicyOff) | Where-Object { $_ }) }
     foreach ($f in @(Invoke-FleetChecks -Snapshots @($latest.Values) -NotEvaluated $neByHost -Config $config)) {
         $allFindings.Add($f)
         foreach ($h in $hosts) { if ($h.Name -eq $f.Host) { $h.Findings = @($h.Findings) + @($f) } }
@@ -546,7 +609,7 @@ try {
         if (-not (Test-Path -LiteralPath $remDir)) { New-Item -ItemType Directory -Path $remDir -Force | Out-Null }
         $remInfo = @()
         foreach ($h in $hosts) {
-            $r = New-RemediationScript -HostName $h.Name -Role $h.Role -Findings $split.Active -Config $config -CollectedUtc $h.CollectedUtc.ToString('yyyy-MM-dd HH:mm') -ToolVersion $script:HostBadgerVersion
+            $r = New-RemediationScript -HostName $h.Name -Role $h.Role -Findings $split.Active -Config $config -CollectedUtc $h.CollectedUtc.ToString('yyyy-MM-dd HH:mm') -ToolVersion $script:HostBadgerVersion -ProfileName $RemediationProfile -Debloat:$RemediationDebloat -Privacy:$RemediationPrivacy -NoApps:$RemediationNoApps -OnlyProfile:$RemediationOnlyProfile
             $file = ''
             if ($r.ActionCount -gt 0) {
                 $file = 'remediate_' + ($h.Name -replace '[^\w\-]', '_') + '.ps1'
@@ -560,6 +623,7 @@ try {
     Step-Spinner 'Writing the findings CSV'
     Export-FindingsCsv -Findings $split.Active -Path $OutCsv
     if ($OutJsonl) { Export-FindingsJsonl -Findings $split.Active -Hosts $hosts -Path $OutJsonl -ToolVersion $script:HostBadgerVersion -Comparison $comparison }
+    if ($OutTickets) { $null = Export-FindingsTickets -Findings $split.Active -Path $OutTickets -Format $TicketFormat -ToolVersion $script:HostBadgerVersion }
     $fmtElapsed = { param($span) if ($span.TotalMinutes -ge 1) { '{0}m {1}s' -f [int][Math]::Floor($span.TotalMinutes), $span.Seconds } else { '{0:N1}s' -f $span.TotalSeconds } }
     $elapsedText = & $fmtElapsed ((Get-Date) - $started)
     Step-Spinner 'Building the HTML report'
@@ -612,6 +676,7 @@ try {
     Write-Host "Findings: $OutCsv"
     foreach ($pf in $perHostFiles) { Write-Host "Host:     $pf" }
     if ($OutJsonl) { Write-Host "SIEM:     $OutJsonl" }
+    if ($OutTickets) { Write-Host "Tickets:  $OutTickets ($TicketFormat)" }
     if ($remInfo) {
         foreach ($ri in $remInfo) { if ($ri.File) { Write-Host ("Fix:      {0}  ({1} setting(s) for {2} of {3} finding(s))" -f (Join-Path $remDir $ri.File), $ri.Actions, $ri.Fixable, $ri.Total) } }
         Write-Host "          Preview first (it changes nothing without -Apply), try it on a pilot host, then -Apply; -Restore <rollback file> -Apply undoes it." -ForegroundColor DarkGray

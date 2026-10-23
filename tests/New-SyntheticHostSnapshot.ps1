@@ -162,7 +162,7 @@ $s = [ordered]@{
         tool = 'HostBadger'; kind = 'host'; computerName = $name; schemaVersion = 1; collectorVersion = '1.0'; synthetic = $true
         collectedAtUtc = $CollectedAtUtc; collectedBy = 'NT AUTHORITY\SYSTEM'; runningAsSystem = $true; runningAsAdmin = $true; psVersion = '5.1.20348.2849'
         options = [ordered]@{ skipAcl = $false; checkUpdates = $false }
-        sectionsCollected = @('host', 'patches', 'defender', 'bitlocker', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'audit', 'securityPolicy', 'hardening', 'stig', 'software', 'appx', 'services', 'drivers', 'scheduledTasks', 'autoruns', 'credentialExposure', 'persistence', 'certificates', 'wifi')
+        sectionsCollected = @('host', 'patches', 'defender', 'bitlocker', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'audit', 'securityPolicy', 'hardening', 'stig', 'software', 'appx', 'services', 'drivers', 'scheduledTasks', 'autoruns', 'writablePaths', 'credentialExposure', 'persistence', 'certificates', 'wifi')
         collectionErrors = @()
     }
     host                 = [ordered]@{
@@ -252,6 +252,10 @@ $s = [ordered]@{
     scheduledTasks       = @([ordered]@{ path = '\'; name = 'Backup'; state = 'Ready'; userId = 'SYSTEM'; groupId = ''; logonType = 'ServiceAccount'; runLevel = 'Highest'; author = 'CORP\backupadm'
             actions = @([ordered]@{ execute = 'C:\Program Files\Backup\agent.exe'; arguments = '-p ***'; executable = 'C:\Program Files\Backup\agent.exe'; writableBy = @() }) })
     autoruns             = @([ordered]@{ location = 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'; name = 'SecurityHealth'; command = '%windir%\system32\SecurityHealthSystray.exe'; executable = 'C:\Windows\system32\SecurityHealthSystray.exe'; writableBy = @() })
+    # The stock PATH, nobody but the administrators can write it; no program folder users can write.
+    writablePaths        = [ordered]@{
+        systemPath  = @([ordered]@{ dir = 'C:\Windows\system32'; exists = $true; parent = ''; writableBy = @() }, [ordered]@{ dir = 'C:\Windows'; exists = $true; parent = ''; writableBy = @() })
+        programDirs = @() }
     # Nothing left on disk; Windows' own persistence entries, signed by Microsoft; no root added; one WPA2 network.
     credentialExposure   = [ordered]@{ unattendFiles = @([ordered]@{ path = 'C:\Windows\Panther\unattend.xml'; passwords = 0; domainJoin = $false }); gppFiles = @(); psHistory = @() }
     persistence          = [ordered]@{
@@ -448,6 +452,23 @@ switch ($Scenario) {
             actions = @([ordered]@{ execute = 'C:\Windows\system32\UsoClient.exe'; arguments = 'StartScan'; executable = 'C:\Windows\system32\UsoClient.exe'; writableBy = @() }) }
         $s.autoruns = @(
             [ordered]@{ location = 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'; name = 'TrayHelper'; command = 'C:\ProgramData\TrayHelper\tray.exe'; executable = 'C:\ProgramData\TrayHelper\tray.exe'; writableBy = @((W 'file' 'S-1-5-32-545')) })
+        # PATH: a folder an uninstalled Python left behind, which Authenticated Users may create in C:\
+        # (High), a tools folder one non-admin account may write (Medium), a scripts folder only an
+        # administrator may write (not reported). Program folders: Python installed at the drive root
+        # (Medium, with the Tcl/Tk part installed inside it named in the same finding); the vendor
+        # agent's folder (already a service finding) and the tools folder (already a PATH finding) are
+        # not reported twice.
+        $s.writablePaths = [ordered]@{
+            systemPath  = @(
+                [ordered]@{ dir = 'C:\Windows\system32'; exists = $true; parent = ''; writableBy = @() },
+                [ordered]@{ dir = 'C:\Python27'; exists = $false; parent = 'C:\'; writableBy = @([ordered]@{ sid = 'S-1-5-11'; rights = 'CreateDirectories' }) },
+                [ordered]@{ dir = 'C:\Tools\bin'; exists = $true; parent = ''; writableBy = @([ordered]@{ sid = "$machineSid-1002"; rights = 'Modify, Synchronize' }) },
+                [ordered]@{ dir = 'C:\Admin\scripts'; exists = $true; parent = ''; writableBy = @([ordered]@{ sid = "$machineSid-1001"; rights = 'FullControl' }) })
+            programDirs = @(
+                [ordered]@{ name = 'Python 3.9.13 (64-bit)'; dir = 'C:\Python39'; writableBy = @([ordered]@{ sid = 'S-1-5-11'; rights = 'Modify, Synchronize' }) },
+                [ordered]@{ name = 'Python 3.9.13 Tcl/Tk Support'; dir = 'C:\Python39\tcl'; writableBy = @([ordered]@{ sid = 'S-1-5-11'; rights = 'Modify, Synchronize' }) },
+                [ordered]@{ name = 'Vendor Agent'; dir = 'C:\ProgramData\Vendor'; writableBy = @([ordered]@{ sid = 'S-1-5-11'; rights = 'Modify, Synchronize' }) },
+                [ordered]@{ name = 'Contoso CLI Tools'; dir = 'C:\Tools\bin'; writableBy = @([ordered]@{ sid = 'S-1-5-32-545'; rights = 'Write' }) }) }
         # A domain account behind a service and a task (password in the LSA secrets), a gMSA (fine), a VNC server.
         $s.services += @((Svc 'BackupExecAgent' '"C:\Program Files\Backup\beremote.exe"' 'C:\Program Files\Backup\beremote.exe' 'CORP\svc_backup'), (Svc 'ReportSvc' '"C:\Program Files\Reports\rs.exe"' 'C:\Program Files\Reports\rs.exe' 'CORP\gmsa_reports$'),
             (Svc 'tvnserver' '"C:\Program Files\TightVNC\tvnserver.exe" -service' 'C:\Program Files\TightVNC\tvnserver.exe'))

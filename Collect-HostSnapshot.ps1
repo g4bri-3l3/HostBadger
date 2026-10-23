@@ -80,7 +80,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:CollectorVersion = '1.7'
+$script:CollectorVersion = '1.8'
 $script:SchemaVersion = 1
 $script:Errors = New-Object System.Collections.Generic.List[object]
 $script:Sections = New-Object System.Collections.Generic.List[string]
@@ -429,6 +429,32 @@ function Get-AncestorControl {
         $dir = $parent; $level++
     }
     return $out
+}
+
+function Get-FolderCreators {
+    # Who, outside SYSTEM, the administrators and service identities, may create a file (Kind 'file')
+    # or a subfolder (Kind 'folder') in a folder, or take it over (ChangePermissions, TakeOwnership,
+    # GENERIC_WRITE/ALL). Only entries that apply to the folder itself count: an inherit-only entry is
+    # about what gets created later. Local accounts are kept (the analyzer drops the administrators);
+    # the built-in administrator and the domain admin groups are not. Read only (Get-Acl).
+    param([string]$Path, [string]$Kind = 'file')
+    $create = if ($Kind -eq 'folder') { 0x4 } else { 0x2 }
+    $mask = [int64]($create -bor 0x40000 -bor 0x80000 -bor 0x10000000 -bor 0x40000000)
+    $res = @()
+    try {
+        $acl = Get-Acl -LiteralPath $Path
+        foreach ($ace in $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
+            if ($ace.AccessControlType -ne 'Allow') { continue }
+            if ($ace.PropagationFlags -band [System.Security.AccessControl.PropagationFlags]::InheritOnly) { continue }
+            $sid = $ace.IdentityReference.Value
+            if (-not (Test-LowPrivSid $sid) -and $sid -notmatch '^S-1-5-21-\d+-\d+-\d+-\d+$') { continue }
+            if ($sid -match '^S-1-5-21-\d+-\d+-\d+-(498|500|512|516|518|519|520|521)$') { continue }
+            if (([int64]$ace.FileSystemRights -band $mask) -eq 0) { continue }
+            $res += [ordered]@{ sid = $sid; rights = (ConvertTo-ReadableFileRights ([int64]$ace.FileSystemRights)) }
+        }
+    }
+    catch { }
+    return $res
 }
 
 $isAdmin = $false
@@ -1017,6 +1043,63 @@ $autoruns = Invoke-Section 'autoruns' {
         }
     }
     $out
+}
+
+# ------------------------------------------------------------------ writable search path and program folders
+# The folders of the machine PATH (every process searches them, services running as SYSTEM included,
+# for a program or a DLL it finds nowhere else) and the install folders of the programs (Windows looks
+# for a program's DLLs in its own folder first): who, outside the administrators, may create files
+# there. A PATH folder that does not exist is judged on its nearest existing parent, where a user could
+# create it. Only program folders someone may write are kept. Read only.
+$writablePaths = Invoke-Section 'writablePaths' {
+    $pathOut = @(); $progOut = @()
+    if (-not $SkipAcl) {
+        $raw = "$((Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -Name 'Path' -ErrorAction Stop).Path)"
+        $seen = @{}
+        foreach ($entry in @($raw -split ';')) {
+            $dir = [Environment]::ExpandEnvironmentVariables($entry.Trim().Trim('"')).TrimEnd('\')
+            if ($dir -notmatch '^[a-zA-Z]:\\.' -or $seen.ContainsKey($dir.ToLower())) { continue }
+            $seen[$dir.ToLower()] = $true
+            Step-Spinner 'Collecting writablePaths'
+            $exists = Test-Path -LiteralPath $dir -PathType Container
+            $writers = @(); $parent = ''
+            if ($exists) { $writers = @(Get-FolderCreators $dir 'file') }
+            else {
+                $p = Split-Path -Path $dir -Parent
+                while ($p -and -not (Test-Path -LiteralPath $p -PathType Container)) {
+                    $up = Split-Path -Path $p -Parent
+                    if (-not $up -or $up -eq $p) { $p = ''; break }
+                    $p = $up
+                }
+                if ($p) { $parent = $p; $writers = @(Get-FolderCreators $p 'folder') }
+            }
+            $pathOut += [ordered]@{ dir = $dir; exists = $exists; parent = $parent; writableBy = $writers }
+        }
+        $seenDir = @{}
+        foreach ($root in @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall')) {
+            foreach ($k in @(Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue)) {
+                try { $p = Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction Stop } catch { continue }
+                $n = "$($p.DisplayName)".Trim()
+                if (-not $n -or $p.SystemComponent -eq 1) { continue }
+                # The install folder, else the folder of the program named as its icon.
+                $loc = "$($p.InstallLocation)".Trim().Trim('"')
+                if (-not $loc -and "$($p.DisplayIcon)") {
+                    $icon = Get-ExecutablePath ("$($p.DisplayIcon)" -replace ',\s*-?\d+$', '')
+                    if ($icon -match '^[a-zA-Z]:\\.+\\') { $loc = Split-Path -Path $icon -Parent }
+                }
+                $loc = "$loc".TrimEnd('\')
+                if ($loc -notmatch '^[a-zA-Z]:\\.' -or $loc -match '(?i)^[a-z]:\\(windows|users)(\\|$)') { continue }
+                if ($seenDir.ContainsKey($loc.ToLower())) { continue }
+                $seenDir[$loc.ToLower()] = $true
+                Step-Spinner 'Collecting writablePaths'
+                if (-not (Test-Path -LiteralPath $loc -PathType Container)) { continue }
+                $w = @(Get-FolderCreators $loc 'file')
+                if ($w.Count -gt 0) { $progOut += [ordered]@{ name = $n; dir = $loc; writableBy = $w } }
+                if ($progOut.Count -ge 500) { break }
+            }
+        }
+    }
+    [ordered]@{ systemPath = $pathOut; programDirs = $progOut }
 }
 
 # ------------------------------------------------------------------ credentials left on disk
@@ -2325,6 +2408,7 @@ $snapshot = [ordered]@{
     drivers              = $drivers
     scheduledTasks       = @($tasks | Where-Object { $_ })
     autoruns             = @($autoruns | Where-Object { $_ })
+    writablePaths        = $writablePaths
     credentialExposure   = $credExposure
     persistence          = $persistence
     certificates         = $certificates

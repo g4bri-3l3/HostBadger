@@ -22,7 +22,7 @@ is weak. It works in two steps. A single PowerShell script takes a
 Lines for a SIEM. Hand it one snapshot or a folder with hundreds and you get
 the whole fleet in one report, or one report per host.
 
-- **161 checks** and about 1,600 settings: 148 hand-written checks plus 1475 DISA
+- **163 checks** and about 1,600 settings: 150 hand-written checks plus 1475 DISA
   STIG registry rules, with the CIS Windows 11 benchmark as the baseline, and
   the drivers matched against 2,198 known vulnerable or malicious driver files
   (LOLDrivers).
@@ -68,7 +68,9 @@ should.
 - **Local accounts and UAC**: built-in accounts, local administrators, LAPS,
   password and lockout policy, user rights, UAC settings.
 - **Privilege escalation**: writable service and task programs, unquoted
-  paths, AlwaysInstallElevated, autoruns, Point and Print (PrintNightmare).
+  paths, AlwaysInstallElevated, autoruns, Point and Print (PrintNightmare),
+  folders of the machine PATH and program install folders that users can
+  write.
 - **Logging and audit**: advanced audit policy, command-line auditing,
   PowerShell script block, module and transcription logging, log sizes.
 - **Patching and lifecycle**: Windows update age, end of support and, if you
@@ -189,6 +191,12 @@ should.
   previewed by default, with a rollback file. The analyzer never runs them;
   the guided menu can apply this machine's own script after showing it and
   asking for YES (menu 6), and put the values back (menu 7).
+- **Remediation profiles** (`-RemediationProfile Essential | Recommended |
+  Strict`): a ready-made hardening level on top of the fixes of the findings,
+  each setting quoting its CIS rule or Essential Eight requirement, from
+  "safe on any machine" to CIS Level 2 plus opinionated hardening and the
+  removal of preinstalled apps. What cannot be undone is marked NOT
+  REVERSIBLE before you apply it.
 - **Optional AI summary** with Gemini: host names, accounts, paths and
   addresses are replaced by tokens first and a leak check refuses to send if
   one survives. You choose whether the STIG findings go too (there can be
@@ -251,8 +259,10 @@ host (previewing until `-Apply`, with a rollback), and, as administrator,
 remediate this machine: it collects and analyzes it, shows what the fix script
 would change, creates a System Restore point where Windows has one and applies
 it only after you type YES; another option puts the values back from the
-rollback file. Preinstalled apps (games, consumer apps, antivirus trials) can
-be removed there too, one group at a time on an explicit yes. When an
+rollback file. It asks for a remediation profile (Essential, Recommended,
+Strict, or none for only the safe fixes of the findings). Preinstalled apps
+(games, consumer apps, antivirus trials) can be removed there too, one group
+at a time on an explicit yes. When an
 analysis is done it offers to open the report in your default browser. If you
 stop it halfway (Ctrl+C, a closed window), the next start offers to resume
 with the answers already given; passwords and keys are asked again, and a
@@ -424,7 +434,7 @@ the same way as on a standalone machine, elevated or as SYSTEM. What to expect:
 | Network Exposure | 17 | SMBv1, SMB signing on server and client, LLMNR, NetBIOS, firewall profiles that are off or allow everything in, dropped packet logging, risky listeners (Telnet, FTP, TFTP, SNMP, VNC, databases, caches, WinRM over HTTP on workstations). From CIS: insecure SMB guest logons, LDAP client signing, anonymous shares and pipes, the domain secure channel, clear-text SMB passwords, WinRM Basic, Digest and unencrypted traffic, the SMBv1 client driver, IP source routing and ICMP redirects. |
 | Remote Access | 3 | RDP without NLA, RDP on workstations. From CIS: RDP security layer, encryption, password prompt, drive redirection. |
 | Local Accounts | 15 | The built-in Administrator, Guest, extra members of local Administrators, accounts that may have an empty password, passwords that never expire, LAPS (Windows or legacy), UAC off or silent, LocalAccountTokenFilterPolicy. From CIS: blank passwords over the network, ForceGuest, UAC secure desktop and the other UAC options, the local password and lockout policy, Guests and local accounts denied remote logon. |
-| Privilege Escalation | 7 | Services, privileged scheduled tasks and machine-wide autoruns whose program (High) or folder (Medium) can be written by low-privileged users, unquoted service paths, AlwaysInstallElevated, Print Spooler on DCs. From CIS: user rights held by more principals than the Level 1 baseline allows, with the member server and domain controller lists on servers (debug, act as part of the OS, load drivers and a few more are High). |
+| Privilege Escalation | 7 | Services, privileged scheduled tasks and machine-wide autoruns whose program (High) or folder (Medium) can be written by low-privileged users, folders of the machine PATH users can write or create (High), programs installed in a folder users can write (Medium), unquoted service paths, AlwaysInstallElevated, Print Spooler on DCs. From CIS: user rights held by more principals than the Level 1 baseline allows, with the member server and domain controller lists on servers (debug, act as part of the OS, load drivers and a few more are High). |
 | Logging | 7 | The 16 audit subcategories the CIS benchmark expects (matched by GUID, so any language works), command lines in event 4688, PowerShell script block logging, the PowerShell 2.0 downgrade engine, Security log size. From CIS: Application and System log size, PowerShell transcription. |
 | Patching | 4 | A Windows build and edition that is out of support or about to be, no Windows update installed within the threshold, Automatic Updates turned off by policy. |
 | System Hardening | 7 | All from CIS: AutoPlay and AutoRun, inactivity lock, logon message, last user shown, SEHOP, safe DLL search, and the services the baseline wants disabled (workstations). |
@@ -653,12 +663,14 @@ standard user with Defender in passive mode.
     [-OutHtml report.html] [-OutCsv findings.csv] [-OutJsonl siem.jsonl]
     [-CompareTo previous_findings.csv]           # new and resolved findings
     [-ExceptionsFile exceptions.json]            # accepted risks, with an owner and an expiry
+    [-PolicyFile policy.json]                    # your organization's policy: the checks it turns off
     [-AllowedAdmins 'CORP/Workstation Admins', 'S-1-5-21-...-1105']
     [-MaxPatchAgeDays 45] [-MaxSignatureAgeDays 7] [-SupportWarningDays 90]
     [-MaxCachedLogonsWorkstation 4] [-MaxCachedLogonsServer 1] [-MinSecurityLogKB 196608]
     [-ExpectedEdr CrowdStrike] [-ExtraEdrServices MyAgentService]   # the EDR every host should run; services to count as an agent
     [-AllowedRemoteTools TeamViewer,ScreenConnect]   # approved remote access tools: the others are Medium
     [-OutRemediation .\fixes]                    # one remediate_<host>.ps1 per host, with a rollback file
+    [-RemediationProfile Recommended] [-RemediationDebloat] [-RemediationPrivacy]   # add a hardening profile (Essential, Recommended, Strict), the removal of preinstalled apps and/or the privacy and telemetry settings to those scripts
     [-PerHost]                                   # also one HTML report per host: <report>_<HOST>.html
     [-SkipStig]                                  # leave out the DISA STIG checks (about 1,400 registry rules)
     [-KevFile known_exploited_vulnerabilities.json] | [-KevOnline]   # match installed software to the CISA KEV catalog (-KevOnline downloads it from www.cisa.gov)
@@ -680,6 +692,22 @@ An exception (see `examples/exceptions.example.json`) has a `type`, a `host`
 and an `object` (`*` matches anything), a `reason`, an `owner` and an
 `expires` date. Once an exception has expired it is ignored and listed, so the
 finding comes back.
+
+A policy (see `examples/policy.example.json`) is the other way round: it says
+which checks do not apply to your organization at all, for every host and with
+no expiry. A check it turns off is not run, does not count in the score or in
+the CIS and Essential Eight panels (a requirement judged only by that check is
+not shown as met), and is listed in the report with the policy's name and the
+reason; the JSON Lines host summary names it in `policy_disabled_checks`.
+Names may use `*` (`"stig_*"` turns every DISA STIG product off), and a name
+that matches no check stops the run, so a typo cannot leave a check on
+unnoticed. The guided menu keeps a policy file in the global settings (menu 8)
+and shows it before every analysis.
+
+```json
+{ "name": "Contoso baseline",
+  "disabledChecks": [ { "check": "bloatware_installed", "reason": "consumer apps allowed" }, "stig_firefox" ] }
+```
 
 `-CompareTo` matches findings by check, host and object. A host that is
 missing from this run is not counted as resolved. It just wasn't collected.
@@ -719,7 +747,8 @@ host**, with all of that host's fixes and a rollback file:
 .\HostBadger.ps1 -Snapshot .\snapshots\ -OutHtml fleet.html -OutRemediation .\fixes
 # on a pilot host, in Windows PowerShell 5.1 as administrator:
 .\remediate_WKS-ACCT-017.ps1                 # preview: shows every change, changes nothing
-.\remediate_WKS-ACCT-017.ps1 -Apply          # applies, and writes rollback_WKS-ACCT-017_<time>.json
+.\remediate_WKS-ACCT-017.ps1 -Apply          # offers a System Restore point, applies, and writes rollback_WKS-ACCT-017_<time>.json
+.\remediate_WKS-ACCT-017.ps1 -Apply -RestorePoint   # no console (RMM, EDR job): makes the restore point without asking
 .\remediate_WKS-ACCT-017.ps1 -Restore .\rollback_WKS-ACCT-017_<time>.json -Apply   # undo
 ```
 
@@ -733,7 +762,17 @@ computer name. That file:
 - **Keeps a way back.** Before each change, the old value (or the fact that
   there was none) goes into a rollback file. The file is rewritten after every
   change, so even an interrupted run can be undone. `-Restore` puts the values
-  back and removes the ones the script created.
+  back and removes the ones the script created. Before the first change,
+  `-Apply` offers a System Restore point when it runs at a console (Enter
+  makes it); `-RestorePoint` makes it without asking and `-NoRestorePoint`
+  skips it. With no console and neither switch it says so and goes on, so an
+  unattended run never waits. Windows has no System Restore on servers or in
+  PowerShell 7, and makes at most one point a day: the rollback file is the
+  way back in every case, the restore point is the way back for what the
+  rollback file cannot undo (a removed app). When System Protection is off
+  (the default on many new and virtual machines), Windows refuses the point
+  with "service disabled": at a console the script, and menu 6, offer to turn
+  it on for the system drive first.
 - **Checks where it runs.** It stops if the computer name is not the one in
   the snapshot (`-IgnoreHostName` overrides that), and it refuses `-Apply`
   without administrator rights.
@@ -768,6 +807,48 @@ remediation:
 - LAPS, which needs the directory;
 - user rights, local administrators, scheduled tasks and autoruns;
 - Secure Boot and an unsupported Windows, which need an upgrade.
+
+### Remediation profiles
+
+The fixes above answer the findings one by one and stay within "one setting,
+reversible, no decision". A **profile** is the other way round: a fixed list of
+settings you choose as a whole, added to the same per-host script (and to menu
+6, which asks for it; menu 8 keeps a default):
+
+```powershell
+.\HostBadger.ps1 -Snapshot .\snapshots\ -OutHtml fleet.html -OutRemediation .\fixes -RemediationProfile Recommended
+```
+
+| Profile | On top of the fixes of the findings |
+|---|---|
+| **Essential** | CIS Level 1 and Essential Eight Maturity Level One settings that are safe on any machine: consumer experiences and Remote Assistance off, required diagnostic data only, Xbox, SSDP, UPnP and other unused services disabled, Internet Explorer 11 removed |
+| **Recommended** | Essential, plus the rest of CIS Level 1 that fits a managed machine and Essential Eight Maturity Level Two: the 13 CIS attack surface reduction rules in block mode, Cortana and widgets off, SSH server, hotspot, IIS and FTP services disabled on workstations |
+| **Strict** | Recommended, plus CIS Level 2, Essential Eight Maturity Level Three (LSA protection, .NET 3.5 and PowerShell 2.0 removed) and opinionated hardening: three more ASR rules, outbound firewall rules for the download tools (certutil, mshta, wscript, cscript, regsvr32, wmic, bitsadmin, hh), script files opened as text, Windows Script Host off, and the removal of preinstalled apps |
+
+Each line of the script names the setting, the tier and the rule it comes from
+(`data\remediation-profiles.json`; CIS rule numbers and values from the
+MIT-licensed ansible-lockdown Windows-11-CIS role). Settings are filtered by the
+host's role, and the script still reads every value first and skips what is
+already set or not installed. `-RemediationDebloat` adds only the removal of the
+preinstalled apps, with or without a profile; `-RemediationPrivacy` adds the
+privacy and telemetry settings of every tier. The two together, with no
+profile, plus `-RemediationOnlyProfile` (which leaves the safe fixes of the
+findings out), are "debloat and telemetry only" (choice D in menu 6): no
+hardening setting at all. A setting where a lower value is stricter
+(diagnostic data) is never raised: the script leaves a stricter value alone. `-RemediationNoApps` leaves the app removals out even with
+Strict or `-RemediationDebloat`: menu 6 uses it, lists the apps it finds on
+the machine and removes them all on Enter (or asks group by group), then
+proposes a restart (type YES to restart at once).
+
+A profile embodies choices: Strict turns off Bluetooth, location, Windows
+Subsystem for Linux and Windows Script Host, which some people need. Some
+changes cannot be undone by the rollback file (an app removed comes back only
+from the Microsoft Store; LSA protection sets a UEFI lock): the preview marks
+them NOT REVERSIBLE and counts them, and menu 6 creates a System Restore point
+first. Left out of every profile on purpose: services whose loss breaks a core
+function (Print Spooler, Server, Remote Desktop, WinRM, push notifications) and
+the virtualization-based security settings that set a UEFI lock. Try a profile
+on a pilot machine before a rollout.
 
 Keep in mind that Group Policy or Intune can put a setting back, so for
 managed machines fix it there. Several fixes need a restart, and the script
@@ -869,7 +950,7 @@ on the host and the value the CIS benchmark or the DISA STIG requires (null
 when the check has no single value, such as the list of audit subcategories),
 and `cis_benchmark` names the CIS benchmark the `cis` rule comes from. A `resolved` line says the finding has
 gone. There is also one `host_summary` per host, with score, grade, counts,
-`not_evaluated_checks`, whether it was collected as SYSTEM, and `e8_levels`
+`not_evaluated_checks`, `policy_disabled_checks` (turned off by `-PolicyFile`), whether it was collected as SYSTEM, and `e8_levels`
 (the Essential Eight maturity level per strategy, null when a host cannot show
 it) with `e8_capped` (strategies where a requirement of the next level could
 not be judged). Fields are only ever added, never renamed.

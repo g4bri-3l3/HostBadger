@@ -75,7 +75,7 @@ function Show-Banner {
         ''
         '    _.--""--._'
         '  .''  |    |  ''.'
-        ' /    |    |    \      HostBadger v1.7'
+        ' /    |    |    \      HostBadger v1.8'
         '|  (o)|    |(o)  |     Windows host hardening'
         '|     |    |     |     collect, analyze, optional AI summary'
         ' \    ''.__.''    /'
@@ -325,7 +325,8 @@ function New-GlobalSettings {
         SnapshotDir = ''; SkipAcl = $false; CheckUpdates = $false; Encrypt = 'ask'; Certificate = ''
         ReportDir = 'output'; PerHost = $true; SkipStig = $false; HideCis = $false; HideStig = $false
         Kev = 'kept'; KevFile = ''; Drivers = 'kept'; Eol = 'kept'; Choco = 'kept'; Cve = 'kept'
-        Jsonl = $false; Remediation = $false; ExceptionsFile = ''; AllowedAdmins = ''; ExpectedEdr = ''; AllowedRemoteTools = ''
+        Jsonl = $false; Remediation = $false; RemediationProfile = ''; RemediationDebloat = $false
+        ExceptionsFile = ''; PolicyFile = ''; AllowedAdmins = ''; ExpectedEdr = ''; AllowedRemoteTools = ''
         Ai = 'A'; AiIncludeStig = $false; Model = ''; AiMaxAttempts = ''
     }
 }
@@ -394,9 +395,16 @@ function Set-GlobalAnalysisParams {
         }
     }
     if ($S.Jsonl) { $Ap['OutJsonl'] = $Ap['OutHtml'] -replace '\.html?$', '.jsonl' }
-    if ($S.Remediation) { $Ap['OutRemediation'] = $Ap['OutHtml'] -replace '\.html?$', '_remediation' }
+    if ($S.Remediation) {
+        $Ap['OutRemediation'] = $Ap['OutHtml'] -replace '\.html?$', '_remediation'
+        if ("$($S.RemediationProfile)" -in $script:ProfileNames) { Set-ProfileParams $Ap "$($S.RemediationProfile)" }
+        if ($S.RemediationDebloat) { $Ap['RemediationDebloat'] = $true }
+    }
     if ("$($S.ExceptionsFile)".Trim()) {
         if (Test-Path -LiteralPath $S.ExceptionsFile) { $Ap['ExceptionsFile'] = "$($S.ExceptionsFile)" } else { Write-Host "Saved exceptions file not found, exceptions skipped: $($S.ExceptionsFile)" -ForegroundColor Yellow }
+    }
+    if ("$($S.PolicyFile)".Trim()) {
+        if (Test-Path -LiteralPath $S.PolicyFile) { $Ap['PolicyFile'] = "$($S.PolicyFile)" } else { Write-Host "Saved policy file not found, no policy applied: $($S.PolicyFile)" -ForegroundColor Yellow }
     }
     $adm = @("$($S.AllowedAdmins)" -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     if ($adm.Count) { $Ap['AllowedAdmins'] = $adm }
@@ -431,7 +439,10 @@ function Edit-GlobalSettings {
         foreach ($cn in $script:CatalogDefs.Keys) { $items.Add(@($cn, $script:CatalogDefs[$cn].Label, (Get-CatalogModeText -Name $cn -S $s), '')) }
         $items.Add(@('Jsonl', 'JSON Lines', "$(& $yn $s.Jsonl)$(if ($s.Jsonl) { ', next to the report' })", ''))
         $items.Add(@('Remediation', 'Remediation scripts', "$(& $yn $s.Remediation)$(if ($s.Remediation) { ', next to the report' })", ''))
+        $items.Add(@('RemediationProfile', 'Remediation profile', $(if ("$($s.RemediationProfile)" -in $script:ProfileNames) { "$(if ($s.RemediationProfile -eq 'DebloatTelemetry') { 'Debloat and telemetry only' } else { $s.RemediationProfile }) (scripts and menu 6)" } else { 'none: only the safe fixes of the findings' }), ''))
+        $items.Add(@('RemediationDebloat', 'Remove preinstalled apps', "$(& $yn $s.RemediationDebloat) (in the scripts; menu 6 asks per group)", ''))
         $items.Add(@('ExceptionsFile', 'Exceptions file', (& $orElse $s.ExceptionsFile 'no'), ''))
+        $items.Add(@('PolicyFile', 'Policy file', (& $orElse $s.PolicyFile 'no'), ''))
         $items.Add(@('AllowedAdmins', 'Allowed administrators', (& $orElse $s.AllowedAdmins 'none'), ''))
         $items.Add(@('ExpectedEdr', 'Expected EDR', (& $orElse $s.ExpectedEdr 'none'), ''))
         $items.Add(@('AllowedRemoteTools', 'Approved remote tools', (& $orElse $s.AllowedRemoteTools 'none'), ''))
@@ -454,7 +465,8 @@ function Edit-GlobalSettings {
         if ($pick -notmatch '^\d+$' -or [int]$pick -lt 1 -or [int]$pick -gt $items.Count) { Write-Host "Pick 1-$($items.Count), Enter, D or Q." -ForegroundColor Yellow; continue }
         $k = $items[[int]$pick - 1][0]
         switch ($k) {
-            { $_ -in 'SkipAcl', 'PerHost', 'SkipStig', 'HideCis', 'HideStig', 'Jsonl', 'Remediation', 'AiIncludeStig' } { $s[$k] = -not $s[$k] }
+            { $_ -in 'SkipAcl', 'PerHost', 'SkipStig', 'HideCis', 'HideStig', 'Jsonl', 'Remediation', 'RemediationDebloat', 'AiIncludeStig' } { $s[$k] = -not $s[$k] }
+            'RemediationProfile' { $s[$k] = Read-RemediationProfile "$($s.RemediationProfile)" }
             'CheckUpdates' {
                 $s[$k] = -not $s[$k]
                 if ($s[$k]) { Write-Host "Every collection that uses these settings asks Windows Update for the missing updates: the Windows Update service of this machine contacts $(Get-WuSource); the collector itself sends nothing." -ForegroundColor Yellow }
@@ -480,6 +492,10 @@ function Edit-GlobalSettings {
             }
             'ExceptionsFile' {
                 $v = Read-PathRaw 'Exceptions file ("-" for none)' $s.ExceptionsFile
+                if ($v -eq '-' -or -not $v) { $s[$k] = '' } elseif (Test-Path -LiteralPath $v) { $s[$k] = "$v" } else { Write-Host "Not found, unchanged: $v" -ForegroundColor Yellow }
+            }
+            'PolicyFile' {
+                $v = Read-PathRaw 'Policy file, the checks your organization turns off ("-" for none)' $s.PolicyFile
                 if ($v -eq '-' -or -not $v) { $s[$k] = '' } elseif (Test-Path -LiteralPath $v) { $s[$k] = "$v" } else { Write-Host "Not found, unchanged: $v" -ForegroundColor Yellow }
             }
             'AllowedAdmins' { $v = "$(Read-Host 'Allowed local administrators, comma separated ("-" for none)')".Trim(); if ($v -eq '-') { $s[$k] = '' } elseif ($v) { $s[$k] = $v } }
@@ -751,6 +767,7 @@ function Edit-AnalysisParams {
         $items.Add(@('Rem', 'Remediation scripts', $(if ($Ap['OutRemediation']) { $Ap['OutRemediation'] } else { 'no' })))
         $items.Add(@('Compare', 'Compare with', $(if ($Ap['CompareTo']) { $Ap['CompareTo'] } else { 'no' })))
         $items.Add(@('Exceptions', 'Exceptions file', $(if ($Ap['ExceptionsFile']) { $Ap['ExceptionsFile'] } else { 'no' })))
+        $items.Add(@('Policy', 'Policy file', $(if ($Ap['PolicyFile']) { $Ap['PolicyFile'] } else { 'no' })))
         $items.Add(@('Admins', 'Allowed administrators', $(if ($Ap['AllowedAdmins']) { @($Ap['AllowedAdmins']) -join ', ' } else { 'none' })))
         $items.Add(@('Edr', 'Expected EDR', $(if ($Ap['ExpectedEdr']) { @($Ap['ExpectedEdr']) -join ', ' } else { 'none' })))
         $items.Add(@('Rat', 'Approved remote tools', $(if ($Ap['AllowedRemoteTools']) { @($Ap['AllowedRemoteTools']) -join ', ' } else { 'none' })))
@@ -796,6 +813,10 @@ function Edit-AnalysisParams {
             'Exceptions' {
                 $v = Read-PathRaw 'Exceptions file ("-" for none)' $Ap['ExceptionsFile']
                 if ($v -eq '-' -or -not $v) { $Ap.Remove('ExceptionsFile'); Set-WizardValue $q.Exceptions '' } elseif (Test-Path -LiteralPath $v) { $Ap['ExceptionsFile'] = $v; Set-WizardValue $q.Exceptions $v } else { Write-Host "Not found, unchanged: $v" -ForegroundColor Yellow }
+            }
+            'Policy' {
+                $v = Read-PathRaw 'Policy file, the checks your organization turns off ("-" for none)' $Ap['PolicyFile']
+                if ($v -eq '-' -or -not $v) { $Ap.Remove('PolicyFile') } elseif (Test-Path -LiteralPath $v) { $Ap['PolicyFile'] = $v } else { Write-Host "Not found, unchanged: $v" -ForegroundColor Yellow }
             }
             'Admins' {
                 $v = "$(Read-Host 'Allowed local administrators, comma separated ("-" for none)')".Trim()
@@ -888,10 +909,47 @@ function Invoke-AiOffer {
 # ---------------- Remediation of this machine: the only part of HostBadger that changes anything.
 # Each run gets a folder with its snapshot, report, fix script and rollback file.
 $script:RemediationRoot = Join-Path (Join-Path $PWD.Path 'output') 'remediation'
+$script:ProfileNames = @('Essential', 'Recommended', 'Strict', 'DebloatTelemetry')
 
+# The remediation profile (data\remediation-profiles.json): '' keeps only the safe fixes of the findings,
+# 'DebloatTelemetry' is no tier, only the privacy and telemetry settings plus the removal of preinstalled apps.
+function Read-RemediationProfile {
+    param([string]$Current)
+    $now = if ($Current -in $script:ProfileNames) { $Current } else { 'none' }
+    Write-Host 'Remediation profile, on top of the safe fixes of the findings: Essential (CIS Level 1 and Essential Eight ML1 settings safe on any machine), Recommended (+ the rest of CIS Level 1, Essential Eight ML2, attack surface reduction rules in block mode), Strict (+ CIS Level 2, Essential Eight ML3, opinionated hardening and the removal of preinstalled apps; some of it is NOT REVERSIBLE), Debloat and telemetry only (the privacy and telemetry settings of every profile and the removal of preinstalled apps, no hardening; the apps are NOT REVERSIBLE).' -ForegroundColor DarkGray
+    while ($true) {
+        $v = "$(Read-Line "Profile: [N]one, [E]ssential, [R]ecommended, [S]trict, [D]ebloat and telemetry only (Enter = $now)")".Trim().ToUpper()
+        switch ($v) {
+            '' { return $(if ($now -eq 'none') { '' } else { $now }) }
+            { $_ -in 'N', 'NONE' } { return '' }
+            { $_ -in 'E', 'ESSENTIAL' } { return 'Essential' }
+            { $_ -in 'R', 'RECOMMENDED' } { return 'Recommended' }
+            { $_ -in 'S', 'STRICT' } { return 'Strict' }
+            { $_ -in 'D', 'DEBLOAT' } { return 'DebloatTelemetry' }
+        }
+        Write-Host "'$v' is not one of the choices: type N, E, R, S or D." -ForegroundColor Yellow
+    }
+}
+
+# Turns a menu profile into the HostBadger.ps1 parameters.
+function Set-ProfileParams {
+    param([hashtable]$Params, [string]$Name)
+    if ($Name -eq 'DebloatTelemetry') { $Params['RemediationDebloat'] = $true; $Params['RemediationPrivacy'] = $true; $Params['RemediationOnlyProfile'] = $true }
+    elseif ($Name) { $Params['RemediationProfile'] = $Name }
+}
 function New-HbRestorePoint {
     # A System Restore point before the changes, where Windows has one (not on servers, not in
     # PowerShell 7, and Windows makes at most one a day).
+    # With System Protection off (RPSessionInterval 0, the default on many new or virtual machines)
+    # Windows answers "service disabled": offer to turn it on for the system drive first.
+    $srKey = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore' -ErrorAction SilentlyContinue
+    if ($srKey -and $null -ne $srKey.RPSessionInterval -and [int]$srKey.RPSessionInterval -eq 0) {
+        Write-Host "System Protection is off on this machine, so Windows cannot make a restore point. Turning it on for $env:SystemDrive keeps restore points there (Windows reserves a few percent of the disk; System Properties > System Protection turns it off again)." -ForegroundColor Yellow
+        if (Test-Yes "Turn System Protection on for $env:SystemDrive and make the restore point? (y/N)") {
+            try { Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction Stop }
+            catch { Write-Host "System Protection not turned on: $($_.Exception.Message)" -ForegroundColor Yellow }
+        }
+    }
     try {
         Checkpoint-Computer -Description 'HostBadger: before remediation' -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop
         Write-Host 'System Restore point created (Windows skips it if one was made in the last 24 hours).' -ForegroundColor Green
@@ -899,30 +957,50 @@ function New-HbRestorePoint {
     }
     catch {
         Write-Host "No System Restore point: $($_.Exception.Message)" -ForegroundColor Yellow
+        # System Restore starts the Volume Shadow Copy service and its provider: name the one that is disabled.
+        $off = @(Get-CimInstance -ClassName Win32_Service -Filter "Name='VSS' OR Name='swprv'" -ErrorAction SilentlyContinue | Where-Object { "$($_.StartMode)" -eq 'Disabled' } | ForEach-Object { $_.Name })
+        if ($off.Count -gt 0) { Write-Host "Disabled: $($off -join ', '). System Restore needs them on Manual (the Windows default): Set-Service <name> -StartupType Manual, then Enable-ComputerRestore -Drive 'C:\'." -ForegroundColor Yellow }
         return (Test-Yes 'Go on without it? The rollback file still records every value changed (y/N)')
     }
 }
 
 function Invoke-BloatwareStep {
-    # Preinstalled apps from the curated list in lib\Checks.ps1, removed only on an explicit yes, one
-    # group at a time, for every user and from the provisioned list (new profiles).
+    # Preinstalled apps from the curated list in lib\Checks.ps1: only the groups found on this machine are
+    # listed; Enter removes them all, C asks group by group, N keeps them. For every user and from the
+    # provisioned list (new profiles). Returns the number of apps removed.
     param([string]$Run)
     . (Join-Path $root 'lib\Common.ps1'); . (Join-Path $root 'lib\Checks.ps1')
     $installed = @(Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue)
     $provisioned = @(Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue)
     $removed = @()
-    foreach ($b in @($script:BloatwareApps | Where-Object { $_.Appx })) {
+    $groups = @(foreach ($b in @($script:BloatwareApps | Where-Object { $_.Appx })) {
         $names = @(@($installed | ForEach-Object { "$($_.Name)" }) + @($provisioned | ForEach-Object { "$($_.DisplayName)" }) | Where-Object { $_ -match $b.Appx } | Sort-Object -Unique)
-        if ($names.Count -eq 0) { continue }
-        if (-not (Test-Yes "Remove $($b.Label) ($($names -join ', ')) for every user and from new profiles? It comes back only from the Microsoft Store (y/N)")) { continue }
+        if ($names.Count) { [PSCustomObject]@{ Label = $b.Label; Names = $names } }
+    })
+    if ($groups.Count -eq 0) { Write-Host 'None of the preinstalled apps on HostBadger''s list is on this machine.' -ForegroundColor Green }
+    else {
+        Write-Host 'Preinstalled apps found on this machine (removed for every user and from new profiles; they come back only from the Microsoft Store):' -ForegroundColor Cyan
+        foreach ($g in $groups) { Write-Host "  - $($g.Label): $($g.Names -join ', ')" }
+    }
+    $mode = ''
+    while ($groups.Count -and -not $mode) {
+        $v = "$(Read-Line 'Remove them: [A]ll, [C]hoose one group at a time, [N]one (Enter = all)')".Trim().ToUpper()
+        if ($v -in '', 'A', 'ALL') { $mode = 'all' } elseif ($v -in 'C', 'CHOOSE') { $mode = 'choose' } elseif ($v -in 'N', 'NONE') { $mode = 'none' }
+        else { Write-Host "'$v' is not one of the choices: type A, C or N." -ForegroundColor Yellow }
+    }
+    foreach ($g in @($groups | Where-Object { $mode -ne 'none' })) {
+        $names = $g.Names
+        if ($mode -eq 'choose' -and -not (Test-Yes "Remove $($g.Label) ($($names -join ', '))? (y/N)")) { continue }
         foreach ($n in $names) {
-            try {
-                $installed | Where-Object { "$($_.Name)" -eq $n } | Remove-AppxPackage -AllUsers -ErrorAction Stop
-                $provisioned | Where-Object { "$($_.DisplayName)" -eq $n } | Remove-AppxProvisionedPackage -Online -ErrorAction Stop | Out-Null
-                Write-Host "  removed $n" -ForegroundColor Green
-                $removed += $n
-            }
-            catch { Write-Host "  $n not removed: $($_.Exception.Message)" -ForegroundColor Red }
+            # Provisioned list first (new profiles), then every user. Removing for every user can take the
+            # provisioned copy away too, and DISM then answers "path not found" for a package that is
+            # gone: what counts is what is still there afterwards.
+            $err = ''
+            foreach ($p in @($provisioned | Where-Object { "$($_.DisplayName)" -eq $n })) { try { Remove-AppxProvisionedPackage -Online -PackageName $p.PackageName -ErrorAction Stop | Out-Null } catch { if (-not $err) { $err = "$($_.Exception.Message)".Trim() } } }
+            foreach ($i in @(Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue | Where-Object { "$($_.Name)" -eq $n })) { try { Remove-AppxPackage -Package $i.PackageFullName -AllUsers -ErrorAction Stop } catch { if (-not $err) { $err = "$($_.Exception.Message)".Trim() } } }
+            $still = @(Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue | Where-Object { "$($_.Name)" -eq $n }).Count + @(Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue | Where-Object { "$($_.DisplayName)" -eq $n }).Count
+            if ($still -eq 0) { Write-Host "  removed $n" -ForegroundColor Green; $removed += $n }
+            else { Write-Host "  $n not removed$(if ($err) { ": $err" })" -ForegroundColor Red }
         }
     }
     foreach ($b in @($script:BloatwareApps | Where-Object { $_.Program })) {
@@ -930,6 +1008,31 @@ function Invoke-BloatwareStep {
         if ($progs.Count) { Write-Host "$($b.Label): $($progs -join ', '). Uninstall it from Settings > Apps (its own uninstaller)." -ForegroundColor Yellow }
     }
     if ($removed.Count) { [System.IO.File]::WriteAllText((Join-Path $Run 'removed_apps.json'), (ConvertTo-Json -InputObject @($removed)), (New-Object System.Text.UTF8Encoding($false))) }
+    return $removed.Count
+}
+
+# What a remediation run did, for menu 7: the profile chosen (run.json, written by menu 6) and what the
+# rollback file and removed_apps.json record. Runs from before run.json still get the counts.
+function Get-RemediationRunSummary {
+    param([string]$Dir)
+    $parts = @()
+    $info = $null
+    try { $info = Get-Content -LiteralPath (Join-Path $Dir 'run.json') -Raw -ErrorAction Stop | ConvertFrom-Json } catch { }
+    if ($info) {
+        $parts += switch ("$($info.profile)") { '' { 'safe fixes only' } 'DebloatTelemetry' { 'debloat and telemetry only' } default { "profile $($info.profile)" } }
+    }
+    $entries = @()
+    try { $entries = @(Get-Content -LiteralPath (Join-Path $Dir 'rollback.json') -Raw -ErrorAction Stop | ConvertFrom-Json | ForEach-Object { $_ }) } catch { }
+    $fixes = @($entries | Where-Object { "$($_.kind)" -ne 'appx' -and "$($_.id)" -notmatch '^(essential|recommended|strict)/' }).Count
+    $prof = @($entries | Where-Object { "$($_.id)" -match '^(essential|recommended|strict)/' }).Count
+    $apps = @($entries | Where-Object { "$($_.kind)" -eq 'appx' } | ForEach-Object { @($_.names) }).Count
+    try { $apps += @(Get-Content -LiteralPath (Join-Path $Dir 'removed_apps.json') -Raw -ErrorAction Stop | ConvertFrom-Json | ForEach-Object { $_ }).Count } catch { }
+    $counts = @()
+    if ($fixes) { $counts += "$fixes finding fix(es)" }
+    if ($prof) { $counts += "$prof profile setting(s)" }
+    if ($apps) { $counts += "$apps app(s) removed" }
+    if (-not $counts) { $counts += 'nothing changed' }
+    return "$(if ($parts) { "$($parts -join ', '): " })$($counts -join ', ')"
 }
 
 # Snapshots of this machine already taken (by menu 1, an earlier remediation, the global snapshot folder):
@@ -963,14 +1066,22 @@ function Select-OwnSnapshot {
 
 function Invoke-RemediateStep {
     if (-not (Test-IsAdmin)) { Write-Host 'Remediation changes system settings: start an elevated PowerShell (Run as administrator), or restart the menu as administrator, and choose it again.' -ForegroundColor Yellow; return }
-    Write-Host "`nRemediate this machine: HostBadger collects and analyzes this machine (or starts from a snapshot of it already taken), then shows what its fix script would change. Only settings with a safe, reversible fix are in it (one value, the one the baseline expects, no organizational choice). Nothing changes until you type YES; a System Restore point comes first where Windows has one, and the script writes every previous value to a rollback file (menu 7 puts them back). Group Policy or Intune may set a value back on managed machines." -ForegroundColor DarkGray
+    Write-Host "`nRemediate this machine: HostBadger collects and analyzes this machine (or starts from a snapshot of it already taken), then shows what its fix script would change. Without a profile only settings with a safe, reversible fix are in it (one value, the one the baseline expects, no organizational choice); a profile adds its own list of settings. Nothing changes until you type YES; a System Restore point comes first where Windows has one, and the script writes every previous value to a rollback file (menu 7 puts them back, except what is marked NOT REVERSIBLE). Group Policy or Intune may set a value back on managed machines." -ForegroundColor DarkGray
     if (-not (Test-Yes 'Continue? (y/N)')) { return }
+    # The saved profile (menu 8) is the default; the question is always asked, so the answers do not shift.
+    $g = Read-GlobalSettings
+    $remProfile = Read-RemediationProfile $(if ($g) { "$($g.RemediationProfile)" } else { '' })
     $from = Select-OwnSnapshot
     $run = Join-Path $script:RemediationRoot (Ts)
     New-Item -ItemType Directory -Path $run -Force | Out-Null
     # Never resumed: an interrupted run is only explained at the next start (and option 7 offered).
     Start-WizardState 'remediate'; Set-WizardValue 'run' $run
     $hp = @{ OutHtml = (Join-Path $run 'report.html'); OutRemediation = $run }
+    if ($remProfile) { Set-ProfileParams $hp $remProfile; Set-WizardValue 'profile' $remProfile }
+    # The apps are asked below, from what is on this machine: the script leaves them out.
+    $hp['RemediationNoApps'] = $true
+    $withApps = $remProfile -in 'Strict', 'DebloatTelemetry'
+    [System.IO.File]::WriteAllText((Join-Path $run 'run.json'), (ConvertTo-Json -InputObject ([ordered]@{ profile = "$remProfile"; started = (Get-Date).ToString('yyyy-MM-dd HH:mm') })), (New-Object System.Text.UTF8Encoding($false)))
     if ($from.Path) {
         $hp['Snapshot'] = $from.Path
         if ($from.Kind -eq 'hbx') {
@@ -986,29 +1097,41 @@ function Invoke-RemediateStep {
     }
     Invoke-Sub 'HostBadger.ps1' $hp
     $fix = @(Get-ChildItem -LiteralPath $run -Filter 'remediate_*.ps1' -ErrorAction SilentlyContinue | Select-Object -First 1)
+    $applied = $false
     if ($fix.Count -eq 0) { Write-Host 'No setting on this machine has a safe fix script.' -ForegroundColor Green }
     else {
         Write-Host "`nWhat the fix script would change (nothing changed yet):" -ForegroundColor Cyan
         try { & $fix[0].FullName | Out-Host } catch { Write-Host "Preview failed: $($_.Exception.Message)" -ForegroundColor Red; return }
+        if ($remProfile) { Write-Host "Profile $(if ($remProfile -eq 'DebloatTelemetry') { 'debloat and telemetry' } else { $remProfile })`: the lines marked NOT REVERSIBLE (in magenta) cannot be put back by menu 7; the System Restore point is the way back for them." -ForegroundColor Magenta }
         if ((Read-Host 'Apply these changes to this machine? Type YES to apply') -cne 'YES') { Write-Host 'Nothing changed.' -ForegroundColor Yellow }
         elseif (New-HbRestorePoint) {
             $rb = Join-Path $run 'rollback.json'
             Set-WizardStage 'applying'
-            try { & $fix[0].FullName -Apply -RollbackFile $rb | Out-Host } catch { Write-Host "The fix script stopped: $($_.Exception.Message)" -ForegroundColor Red }
+            $applied = $true
+            try { & $fix[0].FullName -Apply -RollbackFile $rb -NoRestorePoint | Out-Host } catch { Write-Host "The fix script stopped: $($_.Exception.Message)" -ForegroundColor Red }
             if (Test-Path -LiteralPath $rb) { Write-Host "Previous values saved in $rb. Menu 7 puts them back." -ForegroundColor Green }
         }
     }
-    Write-Host "`nPreinstalled apps: games, consumer apps and trials from HostBadger's list. Each group is asked separately." -ForegroundColor DarkGray
-    if (Test-Yes 'Look for preinstalled apps to remove? (y/N)') { Invoke-BloatwareStep -Run $run }
+    # Strict and "debloat and telemetry" include the apps: the list comes straight away (Enter = all).
+    $appsGone = 0
+    if ($withApps) { Write-Host ''; $appsGone = Invoke-BloatwareStep -Run $run }
+    else {
+        Write-Host "`nPreinstalled apps: games, consumer apps and trials from HostBadger's list." -ForegroundColor DarkGray
+        if (Test-Yes 'Look for preinstalled apps to remove? (y/N)') { $appsGone = Invoke-BloatwareStep -Run $run }
+    }
     Write-Host "Report of this run: $(Join-Path $run 'report.html')" -ForegroundColor Green
+    if ($applied -or $appsGone) {
+        Write-Host 'Windows applies some of these changes (services, features, policies read at startup) only after a restart.' -ForegroundColor Yellow
+        if ((Read-Host 'Restart now? Type YES to restart this machine now (Enter = later)') -ceq 'YES') { Restart-Computer -Force }
+        else { Write-Host 'Restart later to finish the changes.' -ForegroundColor Yellow }
+    }
 }
 
 function Invoke-RestoreStep {
     $runs = @(Get-ChildItem -LiteralPath $script:RemediationRoot -Directory -ErrorAction SilentlyContinue | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'rollback.json') } | Sort-Object Name -Descending)
     if ($runs.Count -eq 0) { Write-Host "No remediation backup found in $($script:RemediationRoot)." -ForegroundColor Yellow; return }
     for ($i = 0; $i -lt $runs.Count; $i++) {
-        $n = @(Get-Content -LiteralPath (Join-Path $runs[$i].FullName 'rollback.json') -Raw | ConvertFrom-Json | ForEach-Object { $_ }).Count
-        Write-Host ("  [{0}] {1}  ({2} value(s) changed)" -f ($i + 1), $runs[$i].Name, $n)
+        Write-Host ("  [{0}] {1}  {2}" -f ($i + 1), $runs[$i].Name, (Get-RemediationRunSummary $runs[$i].FullName))
     }
     $pick = "$(Read-Host 'Which run to undo? (Enter = the newest)')".Trim()
     $idx = if ($pick -match '^\d+$') { [int]$pick - 1 } else { 0 }
@@ -1022,6 +1145,7 @@ function Invoke-RestoreStep {
     if (-not (Test-IsAdmin)) { Write-Host 'Restoring changes system settings: start an elevated PowerShell and choose it again.' -ForegroundColor Yellow; return }
     if ((Read-Host 'Put these values back? Type YES to restore') -cne 'YES') { Write-Host 'Nothing changed.' -ForegroundColor Yellow; return }
     try { & $fix[0].FullName -Restore $rb -Apply | Out-Host } catch { Write-Host "The restore stopped: $($_.Exception.Message)" -ForegroundColor Red }
+    if ((Read-Host 'Windows reads some of these values only at startup. Restart now? Type YES to restart this machine now (Enter = later)') -ceq 'YES') { Restart-Computer -Force }
 }
 
 Start-SessionLog

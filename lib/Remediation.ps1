@@ -10,6 +10,14 @@
 # runs this machine's own script after showing it and asking for YES. Fixes that need a decision (banner text, allowed administrators,
 # password policy, services to disable, BitLocker, Credential Guard, LAPS, user rights...) are left
 # out on purpose.
+#
+# Remediation profiles (-RemediationProfile Essential / Recommended / Strict, user decision 2026-10-22)
+# are the one exception, and only when asked for: a fixed list of settings from
+# data\remediation-profiles.json (CIS Windows 11 rules, Essential Eight requirements, and for Strict
+# opinionated hardening and the removal of preinstalled apps), added after the fixes of the findings.
+# They may embody an organizational choice, and some cannot be undone by the rollback file (an app
+# removed, LSA protection with its UEFI lock): the script marks those NOT REVERSIBLE in the preview
+# and counts them in the summary.
 
 function ConvertTo-PsLiteral {
     param([string]$Text)
@@ -197,6 +205,72 @@ function Get-RemediationActions {
     return $out.ToArray()
 }
 
+# ---------------------------------------------------------------- remediation profiles
+$script:RemediationTiers = @('Essential', 'Recommended', 'Strict')
+
+# The tier as written in $script:RemediationTiers ('strict' -> 'Strict'), or '' for none.
+function Get-TierName {
+    param([string]$Name)
+    foreach ($t in $script:RemediationTiers) { if ($t -ieq "$Name".Trim()) { return $t } }
+    return ''
+}
+
+function Get-RemediationProfileData {
+    # data\remediation-profiles.json, read once. Windows PowerShell 5.1 hands a JSON array back as
+    # one object: foreach takes it apart.
+    if ($null -eq $script:RemediationProfileData) {
+        $path = Join-Path $PSScriptRoot '..\data\remediation-profiles.json'
+        $doc = ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText($path))
+        $script:RemediationProfileData = [PSCustomObject]@{ Tiers = $doc.tiers; Items = @(foreach ($i in $doc.items) { $i }) }
+    }
+    return $script:RemediationProfileData
+}
+
+# The actions of a profile for one host: every item of that tier and the ones below it that applies
+# to the host's role, then (Strict, or -Debloat on its own) one removal per group of preinstalled apps
+# of $script:BloatwareApps. Same data as Get-RemediationActions, plus Tier and NoUndo.
+function Get-ProfileActions {
+    # Privacy: the privacy and telemetry settings of every tier, with or without a tier.
+    param([string]$ProfileName, [string]$Role, [switch]$Debloat, [switch]$Privacy)
+    $out = New-Object System.Collections.Generic.List[object]
+    $rank = [array]::IndexOf($script:RemediationTiers, (Get-TierName $ProfileName))
+    if ($rank -ge 0 -or $Privacy) {
+        foreach ($i in (Get-RemediationProfileData).Items) {
+            $inTier = $rank -ge 0 -and [array]::IndexOf($script:RemediationTiers, (Get-TierName $i.tier)) -le $rank
+            if (-not $inTier -and -not ($Privacy -and "$($i.category)" -eq 'privacy')) { continue }
+            if (@($i.roles) -notcontains $Role) { continue }
+            $a = @{ Kind = "$($i.kind)"; Id = "$($i.tier)/$($i.id)"; Why = "$($i.title) - $($i.ref)"; Tier = "$($i.tier)"; NoUndo = (-not $i.reversible) }
+            switch ("$($i.kind)") {
+                'reg' { $a.Path = "$($i.path)"; $a.Name = "$($i.name)"; $a.Value = $i.value; $a.Type = "$($i.type)"; $a.Restart = [bool]$i.restart; $a.AtMost = [bool]$i.atMost }
+                'fwrule' { $a.Name = "$($i.name)"; $a.Program = @($i.program | ForEach-Object { "$_" }) }
+                default { $a.Name = "$($i.name)" }
+            }
+            $out.Add($a)
+        }
+    }
+    # Preinstalled consumer apps are a workstation matter.
+    if (($Debloat -or $rank -eq 2) -and $Role -eq 'workstation') {
+        foreach ($b in @($script:BloatwareApps | Where-Object { $_.Appx })) {
+            $slug = ("$($b.Label)".ToLower() -replace '[^a-z0-9]+', '-').Trim('-')
+            $out.Add(@{ Kind = 'appx'; Id = "debloat/$slug"; Why = "Preinstalled app: $($b.Label)"; Tier = 'debloat'; NoUndo = $true; Label = "$($b.Label)"; Pattern = "$($b.Appx)" })
+        }
+    }
+    return $out.ToArray()
+}
+
+# What a change touches, so the same setting from a finding fix and from a profile is written once.
+function Get-ActionTarget {
+    param($A)
+    switch ($A.Kind) {
+        'reg' { return "reg|$($A.Path)|$($A.Name)".ToLower() }
+        'smb' { return "smb|$($A.Side)|$($A.Setting)".ToLower() }
+        'mp' { return "mp|$($A.Setting)".ToLower() }
+        'fw' { return "fw|$($A.ProfileName)|$($A.Setting)".ToLower() }
+        'appx' { return "appx|$($A.Pattern)" }
+        default { return "$($A.Kind)|$($A.Name)".ToLower() }
+    }
+}
+
 # One action as a line of the per-host script, which defines the helper functions it calls.
 function ConvertTo-EngineLine {
     param($A)
@@ -205,8 +279,10 @@ function ConvertTo-EngineLine {
     switch ($A.Kind) {
         'reg' {
             $v = if ($A.Type -eq 'DWord') { [string][int64]$A.Value } elseif ($A.Type -eq 'MultiString') { '([string[]]@())' } else { ConvertTo-PsLiteral "$($A.Value)" }
-            return "Set-HbRegistry -Id $id -Path $(ConvertTo-PsLiteral $A.Path) -Name $(ConvertTo-PsLiteral $A.Name) -Value $v -Type $(ConvertTo-PsLiteral $A.Type) -Why $why$(if ($A.Restart) { ' -Restart' })"
+            return "Set-HbRegistry -Id $id -Path $(ConvertTo-PsLiteral $A.Path) -Name $(ConvertTo-PsLiteral $A.Name) -Value $v -Type $(ConvertTo-PsLiteral $A.Type) -Why $why$(if ($A.Restart) { ' -Restart' })$(if ($A.NoUndo) { ' -NoUndo' })$(if ($A.AtMost) { ' -AtMost' })"
         }
+        'fwrule' { return "Set-HbFwRule -Id $id -Name $(ConvertTo-PsLiteral $A.Name) -Program @($((@($A.Program) | ForEach-Object { ConvertTo-PsLiteral $_ }) -join ', ')) -Why $why" }
+        'appx' { return "Remove-HbAppx -Id $id -Label $(ConvertTo-PsLiteral $A.Label) -Pattern $(ConvertTo-PsLiteral $A.Pattern) -Why $why" }
         'smb' { return "Set-HbSmb -Id $id -Side $(ConvertTo-PsLiteral $A.Side) -Setting $(ConvertTo-PsLiteral $A.Setting) -Value $(if ($A.Value) { '$true' } else { '$false' }) -Why $why" }
         'mp' {
             $v = if ($A.Value -is [bool]) { if ($A.Value) { '$true' } else { '$false' } } else { "$($A.Value)" }
@@ -311,6 +387,29 @@ function ConvertTo-FixSnippet {
                     'if ($Apply) { Set-Service -Name $name -StartupType Disabled; if ($svc.Status -eq ''Running'') { Stop-Service -Name $name -Force } }',
                     '# Undo: Set-Service -Name $name -StartupType Automatic; Start-Service -Name $name') -join "`n"))
     }
+    foreach ($a in @($Actions | Where-Object { $_.Kind -eq 'fwrule' })) {
+        $progs = (@($a.Program) | ForEach-Object { ConvertTo-PsLiteral $_ }) -join ', '
+        $blocks.Add((@(
+                    (& $head 'Outbound firewall rule. Windows PowerShell 5.1, elevated.'),
+                    "`$name = $(ConvertTo-PsLiteral $a.Name)",
+                    "foreach (`$p in @($progs)) {",
+                    '    $rule = ''HostBadger-BlockOut-'' + $name + ''-'' + ((Split-Path $p -Parent) -replace ''^%SystemRoot%'', ''Windows'' -replace ''[^\w]'', '''')',
+                    '    ''Firewall rule {0}: {1} -> block outbound {2}'' -f $rule, $(if (Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue) { ''present'' } else { ''absent'' }), $p',
+                    '    if ($Apply -and -not (Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue)) { New-NetFirewallRule -Name $rule -DisplayName "HostBadger: block outbound $name" -Direction Outbound -Action Block -Program $p | Out-Null }',
+                    '}',
+                    '# Undo: Remove-NetFirewallRule -Name ''HostBadger-BlockOut-*''') -join "`n"))
+    }
+    foreach ($a in @($Actions | Where-Object { $_.Kind -eq 'appx' })) {
+        $blocks.Add((@(
+                    (& $head 'Preinstalled app, for every user and new profiles. Windows PowerShell 5.1, elevated. NOT REVERSIBLE: it comes back only from the Microsoft Store.'),
+                    "`$pattern = $(ConvertTo-PsLiteral $a.Pattern)",
+                    '$found = @(Get-AppxPackage -AllUsers | Where-Object { $_.Name -match $pattern }) + @(Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -match $pattern })',
+                    '''Remove: {0}'' -f $(if ($found.Count) { ($found | ForEach-Object { if ($_.Name) { $_.Name } else { $_.DisplayName } } | Sort-Object -Unique) -join '', '' } else { ''nothing installed'' })',
+                    'if ($Apply) {',
+                    '    Get-AppxPackage -AllUsers | Where-Object { $_.Name -match $pattern } | Remove-AppxPackage -AllUsers',
+                    '    Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -match $pattern } | Remove-AppxProvisionedPackage -Online | Out-Null',
+                    '}') -join "`n"))
+    }
     return $blocks.ToArray()
 }
 
@@ -349,7 +448,7 @@ $script:RemediationTemplate = @'
 
 .DESCRIPTION
     Generated by HostBadger {{VERSION}} from the snapshot taken {{COLLECTED}} UTC:
-    {{COUNT}} setting(s) for {{FINDINGS}} finding(s).
+    {{COUNT}} setting(s) for {{FINDINGS}} finding(s).{{PROFILE}}
 
     Run without -Apply it only shows what it would change. With -Apply it changes the settings,
     after writing the previous value of each one to a rollback file; -Restore <file> -Apply puts
@@ -367,13 +466,20 @@ $script:RemediationTemplate = @'
     Where to write the rollback file (default: next to this script).
 .PARAMETER IgnoreHostName
     Run on a computer whose name is not the one in the snapshot.
+.PARAMETER RestorePoint
+    With -Apply: create a System Restore point first, without asking (a run with no console, such as
+    an RMM or EDR job). By default -Apply offers one when it runs at a console.
+.PARAMETER NoRestorePoint
+    With -Apply: neither create nor offer a System Restore point.
 #>
 [CmdletBinding()]
 param(
     [switch]$Apply,
     [string]$Restore = '',
     [string]$RollbackFile = '',
-    [switch]$IgnoreHostName
+    [switch]$IgnoreHostName,
+    [switch]$RestorePoint,
+    [switch]$NoRestorePoint
 )
 
 $ErrorActionPreference = 'Stop'
@@ -382,6 +488,7 @@ $script:Backups = New-Object System.Collections.Generic.List[object]
 $script:Changed = 0
 $script:Skipped = 0
 $script:Failed = 0
+$script:NoUndo = 0
 $script:NeedRestart = New-Object System.Collections.Generic.List[string]
 $script:RollbackPath = ''
 
@@ -404,7 +511,10 @@ function Save-HbBackup {
 }
 
 function Set-HbRegistry {
-    param([string]$Id, [string]$Path, [string]$Name, $Value, [string]$Type, [string]$Why, [switch]$Restart)
+    # -NoUndo: the rollback file records the old value, but putting it back does not undo the change
+    # (LSA protection with its UEFI lock).
+    # -AtMost: a DWord already at or below the value is left alone (a stricter setting is never loosened).
+    param([string]$Id, [string]$Path, [string]$Name, $Value, [string]$Type, [string]$Why, [switch]$Restart, [switch]$NoUndo, [switch]$AtMost)
     try {
         $existed = $false; $old = $null; $oldKind = $null
         try {
@@ -421,13 +531,14 @@ function Set-HbRegistry {
         $same = $false
         if ($existed -and $oldKind -eq $Type) {
             if ($Type -eq 'MultiString') { $same = ((@($old) -join ';') -eq (@($Value) -join ';')) }
-            elseif ($Type -eq 'DWord') { $same = ([int64]$old -eq [int64]$Value) }
+            elseif ($Type -eq 'DWord') { $same = $(if ($AtMost) { [int64]$old -le [int64]$Value } else { [int64]$old -eq [int64]$Value }) }
             else { $same = ("$old" -eq "$Value") }
         }
         if ($same) { Write-HbLine 'ok' "$Path\$Name already set" 'DarkGray'; $script:Skipped++; return }
         $was = if ($existed) { if ($oldKind -eq 'MultiString') { '(' + (@($old) -join ', ') + ')' } else { "$old" } } else { 'not set' }
         $will = if ($Type -eq 'MultiString') { '(empty)' } else { "$Value" }
-        Write-HbLine $(if ($Apply) { 'SET' } else { 'WOULD SET' }) "$Path\$Name : $was -> $will   [$Id] $Why" 'Yellow'
+        Write-HbLine $(if ($Apply) { 'SET' } else { 'WOULD SET' }) "$Path\$Name : $was -> $will   [$Id] $Why$(if ($NoUndo) { '   NOT REVERSIBLE' })" $(if ($NoUndo) { 'Magenta' } else { 'Yellow' })
+        if ($NoUndo) { $script:NoUndo++ }
         if (-not $Apply) { return }
         Save-HbBackup ([ordered]@{ kind = 'registry'; id = $Id; path = $Path; name = $Name; existed = $existed; valueKind = $oldKind; value = $old })
         if (-not (Test-Path -LiteralPath $Path)) { New-Item -Path $Path -Force | Out-Null }
@@ -486,8 +597,10 @@ function Set-HbFirewall {
 
 function Set-HbFeature {
     param([string]$Id, [string]$Name, [string]$Why)
+    if (-not (Test-HbAdmin)) { Write-HbLine 'UNKNOWN' "Feature $Name : Windows lets only an elevated PowerShell read it   [$Id] $Why" 'DarkYellow'; return }
     try {
-        $old = "$((Get-WindowsOptionalFeature -Online -FeatureName $Name).State)"
+        $old = "$((Get-WindowsOptionalFeature -Online -FeatureName $Name -ErrorAction SilentlyContinue).State)"
+        if (-not $old) { Write-HbLine 'ok' "Feature $Name not present on this Windows" 'DarkGray'; $script:Skipped++; return }
         if ($old -ne 'Enabled') { Write-HbLine 'ok' "Feature $Name already $old" 'DarkGray'; $script:Skipped++; return }
         Write-HbLine $(if ($Apply) { 'SET' } else { 'WOULD SET' }) "Feature $Name : Enabled -> Disabled   [$Id] $Why" 'Yellow'
         if (-not $Apply) { return }
@@ -517,7 +630,10 @@ function Set-HbService {
     # Stops the service and disables it.
     param([string]$Id, [string]$Name, [string]$Why)
     try {
-        $svc = Get-Service -Name $Name
+        # Get-Service -Name falls back to the display name: "Browser" finds the bowser driver. Only the
+        # exact service name counts.
+        $svc = @(Get-Service -Name $Name -ErrorAction SilentlyContinue | Where-Object { $_.Name -ieq $Name })[0]
+        if (-not $svc) { Write-HbLine 'ok' "Service $Name not installed" 'DarkGray'; $script:Skipped++; return }
         $mode = "$((Get-CimInstance -ClassName Win32_Service -Filter "Name='$Name'").StartMode)"
         if ($mode -eq 'Disabled' -and "$($svc.Status)" -ne 'Running') { Write-HbLine 'ok' "Service $Name already disabled" 'DarkGray'; $script:Skipped++; return }
         Write-HbLine $(if ($Apply) { 'SET' } else { 'WOULD SET' }) "Service $Name : $mode / $($svc.Status) -> Disabled / Stopped   [$Id] $Why" 'Yellow'
@@ -528,6 +644,88 @@ function Set-HbService {
         $script:Changed++
     }
     catch { $script:Failed++; Write-HbLine 'FAILED' "Service $Name : $($_.Exception.Message)" 'Red' }
+}
+
+function Set-HbFwRule {
+    # One outbound block rule per program path, named HostBadger-BlockOut-<exe>-<folder> (WindowsSystem32,
+    # WindowsSysWOW64wbem...); the restore
+    # removes the rules it added.
+    param([string]$Id, [string]$Name, [string[]]$Program, [string]$Why)
+    foreach ($p in $Program) {
+        $rule = 'HostBadger-BlockOut-' + $Name + '-' + ((Split-Path $p -Parent) -replace '^%SystemRoot%', 'Windows' -replace '[^\w]', '')
+        try {
+            if (-not (Test-Path -LiteralPath ([Environment]::ExpandEnvironmentVariables($p)))) { Write-HbLine 'ok' "$p not present" 'DarkGray'; $script:Skipped++; continue }
+            if (Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue) { Write-HbLine 'ok' "Firewall rule $rule already present" 'DarkGray'; $script:Skipped++; continue }
+            Write-HbLine $(if ($Apply) { 'ADD' } else { 'WOULD ADD' }) "Firewall rule $rule : block outbound $p   [$Id] $Why" 'Yellow'
+            if (-not $Apply) { continue }
+            Save-HbBackup ([ordered]@{ kind = 'fwrule'; id = $Id; name = $rule })
+            New-NetFirewallRule -Name $rule -DisplayName "HostBadger: block outbound $Name" -Direction Outbound -Action Block -Program $p | Out-Null
+            $script:Changed++
+        }
+        catch { $script:Failed++; Write-HbLine 'FAILED' "Firewall rule $rule : $($_.Exception.Message)" 'Red' }
+    }
+}
+
+function Remove-HbAppx {
+    # A group of preinstalled apps, for every user and from the provisioned list (new profiles).
+    # Not reversible: the rollback file only names them; they come back from the Microsoft Store.
+    param([string]$Id, [string]$Label, [string]$Pattern, [string]$Why)
+    if (-not (Test-HbAdmin)) { Write-HbLine 'UNKNOWN' "$Label : Windows lets only an elevated PowerShell list the apps of every user   [$Id]   NOT REVERSIBLE if removed" 'DarkYellow'; return }
+    try {
+        $inst = @(Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue | Where-Object { "$($_.Name)" -match $Pattern })
+        $prov = @(Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue | Where-Object { "$($_.DisplayName)" -match $Pattern })
+        $names = @(@($inst | ForEach-Object { "$($_.Name)" }) + @($prov | ForEach-Object { "$($_.DisplayName)" }) | Sort-Object -Unique)
+        if ($names.Count -eq 0) { Write-HbLine 'ok' "$Label not installed" 'DarkGray'; $script:Skipped++; return }
+        Write-HbLine $(if ($Apply) { 'REMOVE' } else { 'WOULD REMOVE' }) "$Label : $($names -join ', ')   [$Id]   NOT REVERSIBLE (back only from the Microsoft Store)" 'Magenta'
+        $script:NoUndo++
+        if (-not $Apply) { return }
+        Save-HbBackup ([ordered]@{ kind = 'appx'; id = $Id; label = $Label; names = $names })
+        # Provisioned list first (new profiles), then every user. Removing for every user can take the
+        # provisioned copy away too, and DISM then answers "path not found" for a package that is gone:
+        # what counts is what is still there afterwards.
+        $errs = @()
+        foreach ($p in $prov) { try { Remove-AppxProvisionedPackage -Online -PackageName $p.PackageName -ErrorAction Stop | Out-Null } catch { $errs += "$($_.Exception.Message)".Trim() } }
+        foreach ($i in @(Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue | Where-Object { "$($_.Name)" -match $Pattern })) {
+            try { Remove-AppxPackage -Package $i.PackageFullName -AllUsers -ErrorAction Stop } catch { $errs += "$($_.Exception.Message)".Trim() }
+        }
+        $left = @(@(Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue | Where-Object { "$($_.Name)" -match $Pattern } | ForEach-Object { "$($_.Name)" }) + @(Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue | Where-Object { "$($_.DisplayName)" -match $Pattern } | ForEach-Object { "$($_.DisplayName)" }) | Sort-Object -Unique)
+        if ($left.Count -gt 0) { throw "still installed: $($left -join ', ')$(if ($errs) { " ($($errs[0]))" })" }
+        $script:Changed++
+    }
+    catch { $script:Failed++; Write-HbLine 'FAILED' "$Label : $($_.Exception.Message)" 'Red' }
+}
+
+function New-HbRestorePoint {
+    # A System Restore point before the changes: offered at a console, made without asking with
+    # -RestorePoint. Windows has none on servers or in PowerShell 7, and makes at most one a day.
+    if ($NoRestorePoint) { return }
+    $console = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
+    if (-not $RestorePoint) {
+        if (-not $console) { Write-HbLine 'NOTE' 'No System Restore point offered (no console to ask; add -RestorePoint to make one).' 'DarkGray'; return }
+        if ("$(Read-Host 'Create a System Restore point before the changes? (Y/n)')".Trim() -match '^(?i)n(o)?$') { return }
+    }
+    # With System Protection off (RPSessionInterval 0, the default on many new or virtual machines)
+    # Windows answers "service disabled": at a console, offer to turn it on for the system drive.
+    $srKey = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore' -ErrorAction SilentlyContinue
+    if ($srKey -and $null -ne $srKey.RPSessionInterval -and [int]$srKey.RPSessionInterval -eq 0) {
+        Write-HbLine 'NOTE' "System Protection is off on this machine, so Windows cannot make a restore point (Enable-ComputerRestore -Drive '$env:SystemDrive\' turns it on)." 'Yellow'
+        if ($console -and "$(Read-Host "Turn System Protection on for $env:SystemDrive first? (y/N)")".Trim() -match '^(?i)y(es)?$') {
+            try { Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction Stop }
+            catch { Write-HbLine 'NOTE' "System Protection not turned on: $($_.Exception.Message)" 'Yellow' }
+        }
+    }
+    try {
+        if (-not (Get-Command Checkpoint-Computer -ErrorAction SilentlyContinue)) { throw 'Checkpoint-Computer exists only in Windows PowerShell 5.1 on a Windows client' }
+        Checkpoint-Computer -Description 'HostBadger: before remediation' -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop
+        Write-HbLine 'OK' 'System Restore point created (Windows skips it if one was made in the last 24 hours).' 'Green'
+    }
+    catch {
+        Write-HbLine 'NOTE' "No System Restore point: $($_.Exception.Message). The rollback file still records every value changed." 'Yellow'
+        # System Restore starts the Volume Shadow Copy service and its provider: name the one that is disabled.
+        $off = @(Get-Service -Name 'VSS', 'swprv' -ErrorAction SilentlyContinue | Where-Object { "$($_.StartType)" -eq 'Disabled' } | ForEach-Object { $_.Name })
+        if ($off.Count -gt 0) { Write-HbLine 'NOTE' "Disabled: $($off -join ', '). System Restore needs them on Manual (the Windows default): Set-Service <name> -StartupType Manual, then Enable-ComputerRestore -Drive 'C:\'." 'Yellow' }
+        if ($console -and -not $RestorePoint -and "$(Read-Host 'Go on without it? (y/N)')".Trim() -notmatch '^(?i)y(es)?$') { throw 'Stopped before any change: no System Restore point.' }
+    }
 }
 
 function Restore-HbEntry {
@@ -575,6 +773,13 @@ function Restore-HbEntry {
                     if ("$($E.status)" -eq 'Running') { Start-Service -Name $E.name }
                 }
             }
+            'fwrule' {
+                Write-HbLine $(if ($Apply) { 'RESTORE' } else { 'WOULD' }) "Firewall rule $($E.name) -> removed" 'Yellow'
+                if ($Apply) { Remove-NetFirewallRule -Name $E.name -ErrorAction SilentlyContinue }
+            }
+            'appx' {
+                Write-HbLine 'SKIPPED' "$($E.label) ($(@($E.names) -join ', ')) is not reinstalled: get it back from the Microsoft Store" 'Magenta'
+            }
         }
     }
     catch { $script:Failed++; Write-HbLine 'FAILED' "restore $($E.kind) : $($_.Exception.Message)" 'Red' }
@@ -605,6 +810,7 @@ if ($Restore) {
 
 # ---------------------------------------------------------------- the fixes
 $script:RollbackPath = if ($RollbackFile) { $RollbackFile } else { Join-Path $here ("rollback_{0}_{1}.json" -f ($script:ExpectedHost -replace '[^\w\-]', '_'), $stamp) }
+if ($Apply) { New-HbRestorePoint }
 Write-Host "$(if ($Apply) { 'Applying' } else { 'Preview (nothing is changed; add -Apply to apply)' }) HostBadger remediation for $($script:ExpectedHost)" -ForegroundColor Cyan
 
 {{ACTIONS}}
@@ -615,18 +821,25 @@ if ($Apply) {
     Write-Host "Changed $($script:Changed), already fine $($script:Skipped), failed $($script:Failed)." -ForegroundColor Cyan
     if ($script:Changed -gt 0) { Write-Host "Rollback file: $($script:RollbackPath)   (undo with: -Restore '$($script:RollbackPath)' -Apply)" -ForegroundColor Cyan }
     if ($script:NeedRestart.Count -gt 0) { Write-Host "A restart is needed for: $($script:NeedRestart -join '; ')" -ForegroundColor Yellow }
+    if ($script:NoUndo -gt 0) { Write-Host "$($script:NoUndo) change(s) marked NOT REVERSIBLE: -Restore cannot undo them." -ForegroundColor Magenta }
 }
-else { Write-Host "Preview only: $($script:Skipped) already fine. Nothing was changed." -ForegroundColor Cyan }
+else {
+    Write-Host "Preview only: $($script:Skipped) already fine. Nothing was changed." -ForegroundColor Cyan
+    if ($script:NoUndo -gt 0) { Write-Host "$($script:NoUndo) of the changes above are NOT REVERSIBLE: -Restore cannot undo them." -ForegroundColor Magenta }
+}
 if ($script:Failed -gt 0) { exit 1 }
 '@
 
 # Builds the script for one host from its active findings, and returns the text together with what
 # it covers.
 function New-RemediationScript {
-    param([string]$HostName, [string]$Role, $Findings, $Config, [string]$CollectedUtc, [string]$ToolVersion)
+    param([string]$HostName, [string]$Role, $Findings, $Config, [string]$CollectedUtc, [string]$ToolVersion, [string]$ProfileName = '', [switch]$Debloat, [switch]$Privacy, [switch]$NoApps, [switch]$OnlyProfile)
+    # OnlyProfile: the safe fixes of the findings stay out (debloat and telemetry only).
+    if ($OnlyProfile) { $Findings = @() }
     $mine = @($Findings | Where-Object { $_.Host -eq $HostName })
     $body = New-Object System.Collections.Generic.List[string]
     $seen = @{}
+    $targets = @{}
     $fixable = 0
     $notFixable = New-Object System.Collections.Generic.List[object]
     $actions = 0
@@ -638,7 +851,7 @@ function New-RemediationScript {
             $acts = @(Get-RemediationActions -Finding $f -Role $Role -Config $Config)
             if ($acts.Count -eq 0) { $notFixable.Add($f); continue }
             $done++
-            foreach ($a in $acts) { $line = ConvertTo-EngineLine $a; if (-not $seen.ContainsKey($line)) { $seen[$line] = $true; $lines.Add($line) } }
+            foreach ($a in $acts) { $line = ConvertTo-EngineLine $a; if (-not $seen.ContainsKey($line)) { $seen[$line] = $true; $targets[(Get-ActionTarget $a)] = $true; $lines.Add($line) } }
         }
         if ($lines.Count -eq 0) { continue }
         $fixable += $done
@@ -648,6 +861,33 @@ function New-RemediationScript {
         foreach ($l in $lines) { [void]$body.Add($l) }
         [void]$body.Add('')
     }
+    # The profile: its settings whether or not a finding asked for them (the script reads each current
+    # value first and skips what is already set), one block per category, a setting already written
+    # for a finding left out.
+    $profileActions = 0; $profileNoUndo = 0
+    # NoApps: the app removals stay out (the guided menu asks for them itself, one list per machine).
+    $prof = @(Get-ProfileActions -ProfileName $ProfileName -Role $Role -Debloat:$Debloat -Privacy:$Privacy | Where-Object { -not ($NoApps -and $_.Kind -eq 'appx') })
+    $catName = @{ hardening = 'hardening'; privacy = 'privacy and telemetry'; services = 'services'; features = 'Windows features'; debloat = 'preinstalled apps' }
+    $catOf = @{}; foreach ($i in (Get-RemediationProfileData).Items) { $catOf["$($i.tier)/$($i.id)"] = "$($i.category)" }
+    foreach ($cat in 'hardening', 'privacy', 'services', 'features', 'debloat') {
+        $lines = New-Object System.Collections.Generic.List[string]
+        foreach ($a in $prof) {
+            $c = if ($a.Kind -eq 'appx') { 'debloat' } else { $catOf[$a.Id] }
+            if ($c -ne $cat) { continue }
+            $tg = Get-ActionTarget $a
+            if ($targets.ContainsKey($tg)) { continue }
+            $targets[$tg] = $true
+            $lines.Add((ConvertTo-EngineLine $a))
+            if ($a.NoUndo) { $profileNoUndo++ }
+        }
+        if ($lines.Count -eq 0) { continue }
+        $profileActions += $lines.Count
+        $label = if (Get-TierName $ProfileName) { "profile $(Get-TierName $ProfileName)" } elseif ($cat -eq 'privacy') { 'privacy' } else { 'debloat' }
+        [void]$body.Add("# ---- $label`: $($catName[$cat])")
+        foreach ($l in $lines) { [void]$body.Add($l) }
+        [void]$body.Add('')
+    }
+    $actions += $profileActions
     $comment = ($HostName -replace '[^\w.\-]', '_')
     $text = $script:RemediationTemplate
     $text = $text.Replace('{{HOSTCOMMENT}}', $comment)
@@ -656,6 +896,15 @@ function New-RemediationScript {
     $text = $text.Replace('{{COLLECTED}}', $CollectedUtc)
     $text = $text.Replace('{{COUNT}}', "$actions")
     $text = $text.Replace('{{FINDINGS}}', "$fixable")
+    $profText = ''
+    if ($profileActions -gt 0) {
+        $what = @()
+        if (Get-TierName $ProfileName) { $what += "the $(Get-TierName $ProfileName) remediation profile" }
+        if ($Debloat -and -not $NoApps -and $ProfileName -notmatch '^(?i)strict$') { $what += 'the removal of preinstalled apps' }
+        if ($Privacy -and $ProfileName -notmatch '^(?i)strict$') { $what += 'the privacy and telemetry settings' }
+        $profText = "`r`n    Of them, $profileActions come from $($what -join ' and ')$(if ($profileNoUndo) { ", $profileNoUndo of which are NOT REVERSIBLE" })."
+    }
+    $text = $text.Replace('{{PROFILE}}', $profText)
     $text = $text.Replace('{{ACTIONS}}', ($body -join "`r`n"))
-    return [PSCustomObject]@{ Host = $HostName; Text = $text; FixableFindings = $fixable; ActionCount = $actions; NotFixable = $notFixable.ToArray(); TotalFindings = $mine.Count }
+    return [PSCustomObject]@{ Host = $HostName; Text = $text; FixableFindings = $fixable; ActionCount = $actions; ProfileActions = $profileActions; NoUndoActions = $profileNoUndo; NotFixable = $notFixable.ToArray(); TotalFindings = $mine.Count }
 }

@@ -199,6 +199,14 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Machine-wide autorun points to a user-writable program'
         Description = 'An HKLM Run key or the common Startup folder starts, for every user who logs on (administrators included), a program that low privileged users can change (High) or whose folder they can write (Medium).'
         Remediation = 'Fix the ACL of the program and its folder, or remove the autorun.' }
+    system_path_writable = @{ Category = 'Privilege Escalation'; Severity = 'High'; Mitre = 'T1574.007'; Needs = @('writablePaths', 'acl'); Roles = $script:AllRoles
+        Title = 'Folder of the machine PATH writable by users'
+        Description = 'A folder of the system PATH lets non-administrators create files in it, or does not exist and they can create it. Every process searches the PATH, services running as SYSTEM included: a DLL or program planted there runs with their rights (High for Everyone, Users, Authenticated Users or Domain Users; Medium for a single non-admin account).'
+        Remediation = 'Remove the folder from the machine PATH if nothing needs it (an uninstalled program often leaves its entry), or fix its ACL so that only Administrators, SYSTEM and TrustedInstaller can write it. A missing folder: remove the entry, or create it with that ACL.' }
+    program_dir_writable = @{ Category = 'Privilege Escalation'; Severity = 'Medium'; Mitre = 'T1574.001'; Needs = @('writablePaths', 'acl'); Roles = $script:AllRoles
+        Title = 'Program installed in a folder users can write'
+        Description = 'The install folder of a program (installed for all users) lets non-administrators create files in it, typically a program installed outside Program Files, which inherits the permissions of the drive root or ProgramData. Windows looks for a program''s DLLs in its own folder first: a DLL planted there runs with the rights of whoever starts the program, an administrator included.'
+        Remediation = 'Reinstall the program under Program Files, or fix the ACL of its folder so that only Administrators, SYSTEM and TrustedInstaller can write it. Check with the vendor before changing the ACL of a program that updates itself.' }
     vulnerable_driver_present = @{ Category = 'Privilege Escalation'; Severity = 'High'; Mitre = 'T1068'; Needs = @('drivers'); Roles = $script:AllRoles
         Title = 'Known vulnerable or malicious driver on the host'
         Description = 'The file of a kernel driver installed on the host has the SHA-256 of a driver in the LOLDrivers catalog. A vulnerable driver is signed and loads normally, but its flaws let an administrator, or malware that got admin rights, read and write kernel memory: that is how attackers switch off EDR agents and protections ("bring your own vulnerable driver"). Critical when the driver is a known malicious one, High for a vulnerable driver that is loaded, Medium when it is installed but not running; one level lower when LOLDrivers has not verified the sample. The match is by exact file hash, so a fixed version of the same driver does not match.'
@@ -710,6 +718,8 @@ $script:CheckAttacks = [ordered]@{
     autologon_enabled = 'Credential theft: the password of the auto-logon account sits in the registry (Winlogon DefaultPassword or LSA secrets) where an administrator or malware reads it in clear text, and anyone with physical access gets a signed-in session.'
     autoplay_enabled = 'Removable-media infection: a USB drive or CD runs or offers its content as soon as it is inserted, the way worms and dropped "found" USB sticks spread.'
     autorun_writable = 'Privilege escalation and persistence: a user replaces the program that starts at every logon for every user (Run key) and their code runs in the session of the next administrator who logs on.'
+    system_path_writable = 'Privilege escalation to SYSTEM: a user drops a DLL named like one a SYSTEM service looks for and does not find (a "phantom" DLL), or a program named like a command a script calls, into the PATH folder; the service loads it at its next start.'
+    program_dir_writable = 'Privilege escalation: a user plants a DLL the program loads from its own folder (DLL search order hijacking); it runs as the next administrator who starts the program, or as SYSTEM if an installer, updater or service runs from there.'
     bitlocker_data_volume_off = 'Data theft from a lost or stolen device: removing the disk or booting another OS gives full access to the files on the data volume.'
     bitlocker_os_volume_off = 'Offline attacks on a lost or stolen device: reading files and cached credentials (SAM, LSA secrets, DPAPI keys) from the disk, or planting a backdoor by editing the system files offline.'
     bitlocker_policy_gaps = 'Weaker recovery and key handling than the profile requires: recovery keys not escrowed, or unprotected drives allowed, which makes a lost device or a recovery more exposed.'
@@ -2247,9 +2257,16 @@ function Invoke-HostChecks {
     if (-not $Config.Kev -or @($Config.Kev).Count -eq 0) { $optionalOff['kev_software_match'] = $true }
     if ((-not $Config.Eol -or $Config.Eol.Count -eq 0) -and (-not $Config.Choco -or $Config.Choco.Count -eq 0)) { $optionalOff['software_outdated'] = $true }
     if (-not $Config.Cve -or -not $Config.Cve.Products -or $Config.Cve.Products.Count -eq 0) { $optionalOff['software_cve'] = $true }
-    $ne = @($ne | Where-Object { -not $optionalOff.ContainsKey($_.Type) })
+    # Checks the organization's policy turns off (-PolicyFile) do not run and are not "not evaluated"
+    # either: the report lists them apart. Only the ones that apply to this role are named.
+    $policyOff = [ordered]@{}
+    if ($Config.DisabledChecks) {
+        foreach ($k in $Config.DisabledChecks.Keys) { if ($role -eq 'unknown' -or $script:CheckCatalog[$k].Roles -contains $role) { $policyOff[$k] = $true } }
+    }
+    $ne = @($ne | Where-Object { -not $optionalOff.ContainsKey($_.Type) -and -not ($Config.DisabledChecks -and $Config.DisabledChecks.Contains($_.Type)) })
     $skip = @{}; foreach ($n in $ne) { $skip[$n.Type] = $true }
     foreach ($k in $optionalOff.Keys) { $skip[$k] = $true }
+    if ($Config.DisabledChecks) { foreach ($k in $Config.DisabledChecks.Keys) { $skip[$k] = $true } }
     $can = { param($t) (-not $skip.ContainsKey($t)) -and ($role -eq 'unknown' -or $script:CheckCatalog[$t].Roles -contains $role) }
 
     $groups = [ordered]@{
@@ -2276,7 +2293,7 @@ function Invoke-HostChecks {
         try { & $groups[$g] }
         catch { Stop-Spinner; Write-Warning "${script:CurrentHost}: $g checks failed: $($_.Exception.Message)" }
     }
-    return [PSCustomObject]@{ Findings = $script:Findings.ToArray(); NotEvaluated = $ne; StigEvaluated = $script:StigEvaluated; StigByType = $script:StigEvaluatedBy; Off = @($optionalOff.Keys) }
+    return [PSCustomObject]@{ Findings = $script:Findings.ToArray(); NotEvaluated = $ne; StigEvaluated = $script:StigEvaluated; StigByType = $script:StigEvaluatedBy; Off = @($optionalOff.Keys); PolicyOff = @($policyOff.Keys) }
 }
 
 function Invoke-CredentialChecks {
@@ -2660,6 +2677,61 @@ function Invoke-PrivescChecks {
             if ($w.Count -eq 0) { continue }
             $sev = if (@($w | Where-Object { $_.scope -eq 'file' }).Count -gt 0) { 'High' } else { 'Medium' }
             Add-Finding -Type 'autorun_writable' -Object "autorun: $($r.location) $($r.name)" -Severity $sev -Detail "$($r.executable): writable by $(Get-WriterText $w)."
+        }
+    }
+    if ((& $can 'system_path_writable') -or (& $can 'program_dir_writable')) {
+        # The collector keeps local accounts too; an administrator writing a folder is not a finding.
+        $adminSids = @{}; foreach ($m in @($S.localAccounts.administrators | Where-Object { $_ })) { $adminSids["$($m.sid)"] = $true }
+        $names = @{}; foreach ($u in @($S.localAccounts.users | Where-Object { $_ })) { $names["$($u.sid)"] = "$($u.name)" }
+        $unknownAdmins = ($S.localAccounts.administratorsReadable -ne $true)
+        $writersOf = { param($e) @($e.writableBy | Where-Object { $_ -and -not $adminSids.ContainsKey("$($_.sid)") }) }
+        $whoText = { param($w) (@($w | ForEach-Object { "$(if ($names.ContainsKey("$($_.sid)")) { $names["$($_.sid)"] } else { Get-SidLabel "$($_.sid)" }) ($($_.rights))" } | Select-Object -Unique) -join '; ') }
+        $isBroad = { param($w) @($w | Where-Object { "$($_.sid)" -in 'S-1-1-0', 'S-1-5-32-545', 'S-1-5-11', 'S-1-5-4', 'S-1-5-2', 'S-1-5-7' -or "$($_.sid)" -match '^S-1-5-21-\d+-\d+-\d+-(513|515)$' }).Count -gt 0 }
+        $adminNote = { param($w) if ($unknownAdmins -and @($w | Where-Object { "$($_.sid)" -match '^S-1-5-21-' }).Count -gt 0) { ' The local Administrators group could not be read: check that the account named is not an administrator.' } else { '' } }
+        $pathDirs = @{}
+        foreach ($e in @($S.writablePaths.systemPath | Where-Object { $_ })) {
+            $w = & $writersOf $e
+            if ($w.Count -eq 0) { continue }
+            $pathDirs["$($e.dir)".ToLower()] = $true
+            if (-not (& $can 'system_path_writable')) { continue }
+            $sev = if (& $isBroad $w) { 'High' } else { 'Medium' }
+            # A drive root is named "drive C:", not "C:\": the AI leak check takes any drive path for a name.
+            $where = if ("$($e.parent)" -match '^([a-zA-Z]:)\\?$') { "at the root of drive $($Matches[1])" } else { "in $($e.parent)" }
+            $detail = if ($e.exists -eq $false) { "The folder does not exist and $(& $whoText $w) may create it $where; whoever creates it owns it." } else { "$(& $whoText $w) may create files in it." }
+            $detail += ' Every process searches the machine PATH, services running as SYSTEM included: a DLL or a program planted here runs with the rights of the first one that looks for a name it finds nowhere else.'
+            Add-Finding -Type 'system_path_writable' -Object "path folder: $($e.dir)" -Severity $sev -Detail ($detail + (& $adminNote $w))
+        }
+        if (& $can 'program_dir_writable') {
+            # A folder already reported through the PATH, or as the folder of a service, task or autorun
+            # program, is not reported again here.
+            $reported = @(@($services | Where-Object { @($_.writableBy | Where-Object { $_ }).Count -gt 0 } | ForEach-Object { "$($_.executable)" }) +
+                @($S.scheduledTasks | Where-Object { $_ } | ForEach-Object { @($_.actions | Where-Object { $_ -and @($_.writableBy | Where-Object { $_ }).Count -gt 0 } | ForEach-Object { "$($_.executable)" }) }) +
+                @($S.autoruns | Where-Object { $_ -and @($_.writableBy | Where-Object { $_ }).Count -gt 0 } | ForEach-Object { "$($_.executable)" }) | Where-Object { $_ })
+            # Programs installed inside a folder already reported (the games of a Steam library) are named in
+            # that finding instead of one finding each: shortest folder first.
+            $kept = New-Object System.Collections.Generic.List[object]
+            foreach ($e in @($S.writablePaths.programDirs | Where-Object { $_ } | Sort-Object { "$($_.dir)".Length })) {
+                $w = & $writersOf $e
+                $dir = "$($e.dir)"
+                if ($w.Count -eq 0 -or $pathDirs.ContainsKey($dir.ToLower())) { continue }
+                if (@($reported | Where-Object { $_.StartsWith("$dir\", [StringComparison]::OrdinalIgnoreCase) }).Count -gt 0) { continue }
+                $outer = @($kept | Where-Object { $dir.StartsWith("$($_.Dir)\", [StringComparison]::OrdinalIgnoreCase) }) | Select-Object -First 1
+                if ($outer) { $outer.Inside.Add("$($e.name)"); continue }
+                $kept.Add([PSCustomObject]@{ Entry = $e; Dir = $dir; Writers = $w; Inside = (New-Object System.Collections.Generic.List[string]) })
+            }
+            $progSeen = @{}
+            foreach ($k in $kept) {
+                $e = $k.Entry; $dir = $k.Dir; $w = $k.Writers
+                $detail = "$dir`: $(& $whoText $w) may create files in the install folder. Windows looks for a program's DLLs in its own folder first: a DLL planted here runs with the rights of whoever starts the program, an administrator included."
+                if ($k.Inside.Count -gt 0) { $detail += " Also installed inside it: $(@($k.Inside | Sort-Object -Unique) -join ', ')." }
+                if ($dir -match '(?i)^[a-z]:\\programdata\\') { $detail += ' The folder is under ProgramData, which lets users create files by default.' }
+                elseif ($dir -match '(?i)^[a-z]:\\[^\\]+$') { $detail += ' The folder is at the root of the drive, where a new folder inherits the right of Authenticated Users to change files.' }
+                # Two installs with the same name in different folders stay two findings.
+                $obj = "program: $($e.name)"
+                if ($progSeen.ContainsKey($obj)) { $obj = "program: $($e.name) ($dir)" }
+                $progSeen[$obj] = $true
+                Add-Finding -Type 'program_dir_writable' -Object $obj -Detail ($detail + (& $adminNote $w))
+            }
         }
     }
     if (& $can 'spooler_on_dc') {
@@ -4005,6 +4077,29 @@ function Import-Exceptions {
     if (-not $Path) { return @() }
     if (-not (Test-Path -LiteralPath $Path)) { throw "Exceptions file not found: $Path" }
     return @([System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $Path).Path) | ConvertFrom-Json)
+}
+
+function Import-HostBadgerPolicy {
+    # -PolicyFile: the organization's own choices on top of the baseline. This version only turns
+    # checks off: { "name": "...", "disabledChecks": [ "check_type" | "stig_*" | { "check": "...",
+    # "reason": "..." } ] }. A name may use * and ?; one that matches no check stops the run, because
+    # a typo would leave the check on without anyone noticing. Returns $null without a file, else
+    # Name and Disabled (check type -> reason, in catalog order).
+    param([string]$Path)
+    if (-not $Path) { return $null }
+    if (-not (Test-Path -LiteralPath $Path)) { throw "Policy file not found: $Path" }
+    $doc = ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $Path).Path))
+    $disabled = [ordered]@{}
+    # Windows PowerShell 5.1 hands a JSON array back as one object: foreach takes it apart.
+    foreach ($item in @(foreach ($x in $doc.disabledChecks) { $x })) {
+        if ($null -eq $item) { continue }
+        $name = if ($item -is [string]) { $item } else { "$($item.check)" }
+        $reason = if ($item -is [string]) { '' } else { "$($item.reason)".Trim() }
+        $hits = @($script:CheckCatalog.Keys | Where-Object { $_ -like $name.Trim() })
+        if ($hits.Count -eq 0) { throw "Policy file $Path`: '$name' matches no check (see COVERAGE.md for the names)." }
+        foreach ($h in $hits) { if (-not $disabled.Contains($h)) { $disabled[$h] = $reason } }
+    }
+    return [PSCustomObject]@{ Name = $(if ("$($doc.name)".Trim()) { "$($doc.name)".Trim() } else { Split-Path -Leaf $Path }); Disabled = $disabled }
 }
 
 function Split-FindingsByException {

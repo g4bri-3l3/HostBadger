@@ -113,6 +113,8 @@ function Export-FindingsJsonl {
         foreach ($s in 'Critical', 'High', 'Medium', 'Low') { $o[$s.ToLower()] = @($hf | Where-Object { $_.Severity -eq $s }).Count }
         $o['not_evaluated'] = @($h.NotEvaluated).Count
         $o['not_evaluated_checks'] = [string[]]@($h.NotEvaluated | ForEach-Object { $_.Type })
+        # The checks the organization's policy (-PolicyFile) turned off on this host.
+        $o['policy_disabled_checks'] = [string[]]@($h.PolicyOff | Where-Object { $_ })
         $o['collected_as_system'] = $h.AsSystem
         # The EDR agents found among the services, as name:state (empty list if none, null if the services were not collected).
         $o['edr'] = $(if ($h.EdrKnown) { [string[]]@(@($h.Edr) | ForEach-Object { "$($_.Name):$($_.State)" }) } else { $null })
@@ -126,6 +128,58 @@ function Export-FindingsJsonl {
         [void]$sb.AppendLine(($o | ConvertTo-Json -Compress -Depth 3))
     }
     [System.IO.File]::WriteAllText($Path, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
+}
+
+# ---------------------------------------------------------------- tickets
+# One ticket per check, not per finding: the check, the hosts it fired on and, per host, the first
+# objects. Jira: the columns its CSV importer maps by itself (Summary, Issue Type, Priority,
+# Description, and Labels twice: "hostbadger" and "hostbadger-<check>", which finds the ticket again on
+# the next run). ServiceNow: incident fields for an import set, with correlation_id
+# "hostbadger-<check>" so a transform map can update the open ticket instead of opening another. Only
+# the findings still open: accepted risks and checks the policy turned off are not here.
+function Export-FindingsTickets {
+    param($Findings, [string]$Path, [ValidateSet('Jira', 'ServiceNow')][string]$Format = 'Jira', [string]$ToolVersion)
+    $rank = @{ Critical = 4; High = 3; Medium = 2; Low = 1 }
+    $q = { param($v) '"' + ("$v" -replace '"', '""') + '"' }
+    $sb = New-Object System.Text.StringBuilder
+    if ($Format -eq 'Jira') { [void]$sb.AppendLine('Summary,Issue Type,Priority,Description,Labels,Labels') }
+    else { [void]$sb.AppendLine('short_description,description,impact,urgency,correlation_id,correlation_display') }
+    $groups = @(@($Findings | Where-Object { $_ }) | Group-Object Type | ForEach-Object {
+            $top = ($_.Group | ForEach-Object { $rank["$($_.Severity)"] } | Measure-Object -Maximum).Maximum
+            [PSCustomObject]@{ Type = $_.Name; Rank = [int]$top; Items = @($_.Group) }
+        })
+    foreach ($g in ($groups | Sort-Object @{ Expression = 'Rank'; Descending = $true }, Type)) {
+        $meta = $script:CheckCatalog[$g.Type]
+        $worst = @($rank.Keys | Where-Object { $rank[$_] -eq $g.Rank })[0]
+        $byHost = @($g.Items | Group-Object Host | Sort-Object Name)
+        $lines = New-Object System.Collections.Generic.List[string]
+        $lines.Add("$($meta.Description)")
+        $lines.Add('')
+        $lines.Add("Hosts ($($byHost.Count)), worst severity $($worst):")
+        foreach ($hg in @($byHost | Select-Object -First 100)) {
+            $objs = @($hg.Group | ForEach-Object { "$($_.Object)" })
+            $lines.Add("- $($hg.Name): $(@($objs | Select-Object -First 5) -join '; ')$(if ($objs.Count -gt 5) { " (and $($objs.Count - 5) more)" })")
+        }
+        if ($byHost.Count -gt 100) { $lines.Add("- and $($byHost.Count - 100) more host(s): see the HostBadger report") }
+        $lines.Add('')
+        $lines.Add("How to fix: $($meta.Remediation)")
+        if ($meta.Cis) { $lines.Add("CIS: $($meta.Cis)") }
+        if ($meta.Mitre) { $lines.Add("MITRE ATT&CK: $($meta.Mitre)") }
+        $lines.Add("HostBadger $ToolVersion check $($g.Type).")
+        $summary = "HostBadger: $($meta.Title) ($($byHost.Count) host(s))"
+        $desc = $lines -join "`n"
+        if ($Format -eq 'Jira') {
+            $prio = @{ Critical = 'Highest'; High = 'High'; Medium = 'Medium'; Low = 'Low' }[$worst]
+            $fields = @($summary, 'Task', $prio, $desc, 'hostbadger', "hostbadger-$($g.Type)")
+        }
+        else {
+            $iu = @{ Critical = @(1, 1); High = @(1, 2); Medium = @(2, 2); Low = @(3, 3) }[$worst]
+            $fields = @($summary, $desc, $iu[0], $iu[1], "hostbadger-$($g.Type)", 'HostBadger')
+        }
+        [void]$sb.AppendLine((@($fields | ForEach-Object { & $q $_ }) -join ','))
+    }
+    [System.IO.File]::WriteAllText($Path, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
+    return $groups.Count
 }
 
 function Get-SevPill {
@@ -192,6 +246,7 @@ function Get-ComplianceStats {
     $cisApplicable = 0; $cisFail = 0
     foreach ($hostItem in @($Hosts)) {
         $ne = @{}; foreach ($n in @($hostItem.NotEvaluated | Where-Object { $_ })) { $ne["$($n.Type)"] = $true }
+        foreach ($t in @($hostItem.PolicyOff | Where-Object { $_ })) { $ne["$t"] = $true }
         $fired = $typesByHost["$($hostItem.Name)"]
         foreach ($t in $script:CheckCatalog.Keys) {
             $m = $script:CheckCatalog[$t]
@@ -740,6 +795,16 @@ function filterBadgerTable(input) {
             $hostsTxt = (@($g.Group | ForEach-Object { $_.Host } | Select-Object -Unique) -join ', ')
             $reasons = (@($g.Group | ForEach-Object { $_.Reason } | Select-Object -Unique) -join ' / ')
             & $w "<li><code>$($g.Name)</code> $(& $H $script:CheckCatalog[$g.Name].Title) &middot; $(@($g.Group).Count) host(s): $(& $H $hostsTxt). $(& $H $reasons)</li>"
+        }
+        & $w '</ul></blockquote>'
+    }
+    # Checks the organization's policy turned off (-PolicyFile): not run, not scored, and said so.
+    $policyOffTypes = @($Hosts | ForEach-Object { $_.PolicyOff } | Where-Object { $_ } | Select-Object -Unique)
+    if ($Config -and $Config.DisabledChecks -and $policyOffTypes.Count -gt 0) {
+        & $w "<blockquote><b>Turned off by the policy &ldquo;$(& $H $Config.PolicyName)&rdquo;.</b> These checks were not run and do not count in the score:<ul>"
+        foreach ($t in @($Config.DisabledChecks.Keys | Where-Object { $policyOffTypes -contains $_ })) {
+            $why = "$($Config.DisabledChecks[$t])"
+            & $w "<li><code>$t</code> $(& $H $script:CheckCatalog[$t].Title)$(if ($why) { " &middot; $(& $H $why)" })</li>"
         }
         & $w '</ul></blockquote>'
     }

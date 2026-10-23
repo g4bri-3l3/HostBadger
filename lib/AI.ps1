@@ -106,6 +106,16 @@ function New-HostPseudonymizer {
             foreach ($a in @($t.actions | Where-Object { $_ })) { & $add $a.execute 'PATH'; & $add $a.executable 'PATH' }
         }
         foreach ($r in @($s.autoruns | Where-Object { $_ })) { & $add $r.command 'PATH'; & $add $r.executable 'PATH' }
+        # Writable PATH and program folders: the folders, and the programs (an in-house one names its company).
+        if ($s.writablePaths) {
+            # Only the ones someone may write (the others never reach a finding): tokenizing C:\Windows\system32
+            # would hide stock tools, and a drive root every path.
+            foreach ($e in @($s.writablePaths.systemPath | Where-Object { $_ -and @($_.writableBy | Where-Object { $_ }).Count -gt 0 })) {
+                & $add $e.dir 'PATH'
+                if ("$($e.parent)".Length -gt 3) { & $add $e.parent 'PATH' }
+            }
+            foreach ($e in @($s.writablePaths.programDirs | Where-Object { $_ })) { & $add $e.dir 'PATH'; & $add $e.name 'SOFTWARE' }
+        }
         # A driver loaded from a user folder names the user in its path.
         if ($s.drivers) { foreach ($dv in @($s.drivers.list | Where-Object { $_ })) { & $add $dv.path 'PATH' } }
         foreach ($p in @($s.defender.exclusionPaths | Where-Object { $_ })) { & $add $p 'PATH' }

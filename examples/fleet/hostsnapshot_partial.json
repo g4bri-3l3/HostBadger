@@ -3481,6 +3481,23 @@
       "writableBy": []
     }
   ],
+  "writablePaths": {
+    "systemPath": [
+      {
+        "dir": "C:\\Windows\\system32",
+        "exists": true,
+        "parent": "",
+        "writableBy": []
+      },
+      {
+        "dir": "C:\\Windows",
+        "exists": true,
+        "parent": "",
+        "writableBy": []
+      }
+    ],
+    "programDirs": []
+  },
   "credentialExposure": {
     "unattendFiles": [
       {
