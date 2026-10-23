@@ -75,7 +75,7 @@ function Show-Banner {
         ''
         '    _.--""--._'
         '  .''  |    |  ''.'
-        ' /    |    |    \      HostBadger v1.8'
+        ' /    |    |    \      HostBadger v2.0'
         '|  (o)|    |(o)  |     Windows host hardening'
         '|     |    |     |     collect, analyze, optional AI summary'
         ' \    ''.__.''    /'
@@ -267,7 +267,7 @@ $script:CatalogDefs = [ordered]@{
         Prompt = 'Download program versions from community.chocolatey.org? (y/N)' }
     Cve     = @{ Label = 'CVEs and EPSS'; Suffix = 'cve'; Online = 'CveOnline'; File = 'CveFile'; Site = 'services.nvd.nist.gov, epss.empiricalsecurity.com'; Off = 'no'; OffPrompt = 'skip it'
         Prompt = 'Download CVEs from NVD and EPSS scores from FIRST? (y/N)' }
-    Ext     = @{ Label = 'Removed browser extensions'; Suffix = 'extensions'; Online = 'ExtensionsOnline'; File = 'ExtensionsFile'; Site = 'raw.githubusercontent.com'; Off = 'the copy HostBadger ships'; OffPrompt = 'the copy HostBadger ships'
+    Ext     = @{ Label = 'Malicious browser extensions'; Suffix = 'extensions'; Online = 'ExtensionsOnline'; File = 'ExtensionsFile'; Site = 'raw.githubusercontent.com'; Off = 'the copy HostBadger ships'; OffPrompt = 'the copy HostBadger ships'
         Prompt = 'Download the current list of browser extensions removed from the stores (malext.io)? (y/N)' }
 }
 
@@ -467,7 +467,7 @@ function Edit-GlobalSettings {
         $items.Add(@('Jsonl', 'JSON Lines', "$(& $yn $s.Jsonl)$(if ($s.Jsonl) { ', next to the report' })", ''))
         $items.Add(@('Remediation', 'Remediation scripts', "$(& $yn $s.Remediation)$(if ($s.Remediation) { ', next to the report' })", ''))
         $items.Add(@('RemediationProfile', 'Remediation profile', $(if ("$($s.RemediationProfile)" -in $script:ProfileNames) { "$(if ($s.RemediationProfile -eq 'DebloatTelemetry') { 'Debloat and telemetry only' } else { $s.RemediationProfile }) (scripts and menu 6)" } else { 'none: only the safe fixes of the findings' }), ''))
-        $items.Add(@('RemediationDebloat', 'Remove preinstalled apps', "$(& $yn $s.RemediationDebloat) (in the scripts; menu 6 asks per group)", ''))
+        $items.Add(@('RemediationDebloat', 'Debloat (apps, unused services and components)', "$(& $yn $s.RemediationDebloat) (in the scripts; menu 6 asks per group)", ''))
         $items.Add(@('ExceptionsFile', 'Exceptions file', (& $orElse $s.ExceptionsFile 'no'), ''))
         $items.Add(@('PolicyFile', 'Policy file', (& $orElse $s.PolicyFile 'no'), ''))
         $items.Add(@('AllowedAdmins', 'Allowed administrators', (& $orElse $s.AllowedAdmins 'none'), ''))
@@ -963,7 +963,7 @@ $script:ProfileNames = @('Essential', 'Recommended', 'Strict', 'DebloatTelemetry
 function Read-RemediationProfile {
     param([string]$Current)
     $now = if ($Current -in $script:ProfileNames) { $Current } else { 'none' }
-    Write-Host 'Remediation profile, on top of the safe fixes of the findings: Essential (CIS Level 1 and Essential Eight ML1 settings safe on any machine), Recommended (+ the rest of CIS Level 1, Essential Eight ML2, attack surface reduction rules in block mode), Strict (+ CIS Level 2, Essential Eight ML3, opinionated hardening and the removal of preinstalled apps; some of it is NOT REVERSIBLE), Debloat and telemetry only (the privacy and telemetry settings of every profile and the removal of preinstalled apps, no hardening; the apps are NOT REVERSIBLE).' -ForegroundColor DarkGray
+    Write-Host 'Remediation profile, on top of the safe fixes of the findings: Essential (CIS Level 1 and Essential Eight ML1 settings safe on any machine), Recommended (+ the rest of CIS Level 1, Essential Eight ML2, attack surface reduction rules in block mode), Strict (+ CIS Level 2, Essential Eight ML3, opinionated hardening and the removal of preinstalled apps; some of it is NOT REVERSIBLE), Debloat and telemetry only (the privacy and telemetry settings of every profile, the removal of preinstalled apps and unused consumer services and components, no hardening; the apps are NOT REVERSIBLE).' -ForegroundColor DarkGray
     while ($true) {
         $v = "$(Read-Line "Profile: [N]one, [E]ssential, [R]ecommended, [S]trict, [D]ebloat and telemetry only (Enter = $now)")".Trim().ToUpper()
         switch ($v) {

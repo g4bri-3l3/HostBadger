@@ -41,14 +41,20 @@
         points (HostBadger.ps1 and Start-HostBadger.ps1);
       - the commands of the guided menu's "Remediate this machine" (System
         Restore point, removing preinstalled Store apps) anywhere but
-        Start-HostBadger.ps1. That menu option is the only part of HostBadger
-        that changes the machine: it runs the fix script HostBadger generated
-        for this host, after showing it and asking for YES, and that script
-        records every previous value in a rollback file. The collector and the
-        analyzer stay read-only;
-      - Start-Process anywhere but Start-HostBadger.ps1, and there only to
-        restart the menu itself as administrator (-Verb RunAs, after asking;
-        Windows confirms with UAC).
+        Start-HostBadger.ps1. That menu option and "Fix what the analysis
+        finds" in the window (Start-HostBadgerGui.ps1, this machine only) are
+        the only parts of HostBadger that change the machine: they run the fix
+        script HostBadger generated for this host, after showing it and asking
+        (YES in the menu, a warning in the window), and that script makes the
+        restore point and records every previous value in a rollback file. The
+        collector and the analyzer stay read-only;
+      - Start-Process anywhere but Start-HostBadger.ps1 and the window
+        (Start-HostBadgerGui.ps1), and there only to restart itself as
+        administrator (-Verb RunAs, after asking; Windows confirms with UAC);
+      - git anywhere but the window, and there anything but checking and
+        updating HostBadger's own git clone when asked: fetch from its
+        origin, compare, pull --ff-only (never a merge, never with local
+        changes).
 
     It also prints the SHA-256 of every script, so you can compare them with a
     release.
@@ -78,6 +84,7 @@ $allowed = [ordered]@{
     'Guided menu only, "Remediate this machine" after YES (Start-HostBadger.ps1): restore point (System Protection turned on when it is off and the user agrees), preinstalled apps, restart after YES' = @('Checkpoint-Computer', 'Enable-ComputerRestore', 'Restart-Computer', 'Get-AppxPackage', 'Get-AppxProvisionedPackage', 'Remove-AppxPackage', 'Remove-AppxProvisionedPackage')
     'Guided menu only: open the finished report with the default program for .html, after asking' = @('Invoke-Item')
     'Guided menu only: restart itself as administrator after asking (Windows confirms with UAC), back in the same folder' = @('Start-Process', 'Set-Location')
+    'Window only (Start-HostBadgerGui.ps1): update a git clone of HostBadger after asking (git fetch, compare, pull --ff-only from its own origin)' = @('git')
     'Entry points only (HostBadger.ps1, Start-HostBadger.ps1): the run log, a transcript of what the run prints, in the output folder' = @('Start-Transcript', 'Stop-Transcript')
     'Data handling' = @('ConvertTo-Json', 'ConvertFrom-Json', 'ConvertFrom-Csv', 'Select-Object', 'Where-Object', 'ForEach-Object', 'Sort-Object', 'Group-Object', 'Measure-Object', 'New-Object', 'Add-Member')
 }
@@ -88,7 +95,10 @@ $changeVerbs = '^(Set|New|Remove|Add|Enable|Disable|Clear|Start|Stop|Restart|Sus
 $ownFileCommands = @('new-item', 'remove-item', 'set-content', 'new-object', 'add-member', 'add-type')
 # Commands that exist only for the optional AI step, and the one file each of them may appear in.
 $restrictedCommands = @{ 'start-sleep' = @('lib/AI.ps1'); 'read-host' = @('HostBadger.ps1', 'Start-HostBadger.ps1') }
-foreach ($c in 'checkpoint-computer', 'enable-computerrestore', 'restart-computer', 'get-appxpackage', 'get-appxprovisionedpackage', 'remove-appxpackage', 'remove-appxprovisionedpackage', 'invoke-item', 'start-process', 'set-location') { $restrictedCommands[$c] = @('Start-HostBadger.ps1') }
+foreach ($c in 'checkpoint-computer', 'enable-computerrestore', 'restart-computer', 'get-appxpackage', 'get-appxprovisionedpackage', 'remove-appxpackage', 'remove-appxprovisionedpackage', 'set-location') { $restrictedCommands[$c] = @('Start-HostBadger.ps1') }
+# The window opens the report and restarts itself elevated like the menu; only it updates HostBadger.
+foreach ($c in 'invoke-item', 'start-process') { $restrictedCommands[$c] = @('Start-HostBadger.ps1', 'Start-HostBadgerGui.ps1') }
+$restrictedCommands['git'] = @('Start-HostBadgerGui.ps1')
 foreach ($c in 'start-transcript', 'stop-transcript') { $restrictedCommands[$c] = @('HostBadger.ps1', 'Start-HostBadger.ps1') }
 $bannedCommands = @('Invoke-Expression', 'iex','Invoke-WebRequest', 'Invoke-RestMethod', 'iwr', 'irm', 'curl', 'wget', 'Start-Job',
     'Invoke-CimMethod', 'Invoke-WmiMethod', 'Set-ItemProperty', 'New-ItemProperty', 'Remove-ItemProperty', 'Set-MpPreference', 'Add-MpPreference',
@@ -101,7 +111,8 @@ $bannedText = [ordered]@{
     'Hidden window'           = '(?i)-WindowStyle\s+Hidden'
     'Registry write (.NET)'   = '(?i)\.(SetValue|DeleteValue|DeleteSubKey\w*|CreateSubKey)\('
 }
-$allowedHosts = @('attack.mitre.org')
+# schemas.microsoft.com: the XAML namespace names of the window, identifiers that are never contacted.
+$allowedHosts = @('attack.mitre.org', 'schemas.microsoft.com')
 # lib\AI.ps1 is the only code that may reach the network, and only these addresses: Gemini (-SendToAI),
 # the CISA KEV catalog (-KevOnline), the LOLDrivers catalog (-DriversOnline) and the endoflife.date
 # software lifecycle data (-EolOnline), the Chocolatey package feed (-ChocoOnline) and the NVD CVE API and
@@ -183,6 +194,12 @@ foreach ($f in $files) {
             $argText = ($c.CommandElements | Select-Object -Skip 1 | ForEach-Object { $_.Extent.Text }) -join ' '
             if ($argText -notmatch '^sdshow\b') { $problems.Add("${rel}:${line}: sc.exe $argText (only sdshow reads a service's permissions)") }
         }
+        if ($lc -eq 'git') {
+            # Only these: is git there, fetch from the clone's own origin, compare, read the version on
+            # the branch it follows, pull without merging.
+            $argText = ($c.CommandElements | Select-Object -Skip 1 | ForEach-Object { $_.Extent.Text }) -join ' '
+            if ($argText -notmatch "^(--version|-C \`$Root (fetch --quiet origin|rev-parse --abbrev-ref HEAD|rev-list --count 'HEAD\.\.origin/main'|status --porcelain --untracked-files=no|show 'origin/main:HostBadger\.ps1'|pull --ff-only origin main))$") { $problems.Add("${rel}:${line}: git $argText (only fetch, compare and pull --ff-only of HostBadger's own clone)") }
+        }
         if ($lc -eq 'start-process') {
             # Only the launcher restarting itself elevated: its own script, -Verb RunAs (Windows asks for
             # confirmation), or Windows 11 sudo from System32 in this window (Windows asks the same way).
@@ -222,5 +239,5 @@ if ($problems.Count) {
     foreach ($p in $problems) { Write-Host "  $p" -ForegroundColor Red }
     exit 1
 }
-Write-Host 'PASSED: the collector and the analyzer use read-only commands only, no hidden code; network only in lib/AI.ps1 (Gemini and the opt-in catalogs). The guided menu changes this machine only in "Remediate this machine", after YES, with a rollback file.' -ForegroundColor Green
+Write-Host 'PASSED: the collector and the analyzer use read-only commands only, no hidden code; network only in lib/AI.ps1 (Gemini and the opt-in catalogs) and, when asked, git updating HostBadger''s own clone from the window. The guided menu and the window change this machine only through its own fix script ("Remediate this machine" after YES, "Fix what the analysis finds" after a warning), with a rollback file.' -ForegroundColor Green
 exit 0

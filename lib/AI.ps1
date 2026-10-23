@@ -487,6 +487,9 @@ $script:ChocoApiUrl = 'https://community.chocolatey.org/api/v2/'
 $script:NvdApiUrl = 'https://services.nvd.nist.gov/rest/json/cves/2.0'
 $script:EpssUrl = 'https://epss.empiricalsecurity.com/epss_scores-current.csv.gz'
 $script:ExtensionSentryUrl = 'https://raw.githubusercontent.com/toborrm9/malicious_extension_sentry/main/malicious_extensions_detailed.csv'
+# The analyzer on the main branch of the HostBadger repository: "Check for updates" in the window of a
+# copy that is not a git clone reads its version line (the test hook HOSTBADGER_UPDATE_URL replaces it).
+$script:HostBadgerMainUrl = 'https://raw.githubusercontent.com/g4bri-3l3/HostBadger/main/HostBadger.ps1'
 
 # -Headers: request headers (the NVD API key). -Binary: the body as bytes (the EPSS file is gzip).
 function Get-CatalogText {
@@ -526,6 +529,16 @@ function Get-LolDriversOnline {
 
 # malicious_extension_sentry (malext.io, CC BY 4.0): the CSV of extensions removed from the stores. The
 # caller converts it (ConvertFrom-ExtensionSentryCsv in lib\Checks.ps1).
+function Get-HostBadgerLatestVersion {
+    # The version on the main branch ($script:HostBadgerVersion in its HostBadger.ps1), '' when it
+    # cannot be read. One GET; nothing about this machine is sent.
+    param([int]$TimeoutSeconds = 30)
+    $uri = if ($env:HOSTBADGER_UPDATE_URL) { $env:HOSTBADGER_UPDATE_URL } else { $script:HostBadgerMainUrl }
+    $text = Get-CatalogText -Uri $uri -Label 'HostBadger version' -TimeoutSeconds $TimeoutSeconds
+    if ("$text" -match "\`$script:HostBadgerVersion = '(\d+(\.\d+)+)'") { return $Matches[1] }
+    return ''
+}
+
 function Get-ExtensionCatalogOnline {
     param([int]$TimeoutSeconds = 120)
     $uri = if ($env:HOSTBADGER_EXTENSIONS_URL) { $env:HOSTBADGER_EXTENSIONS_URL } else { $script:ExtensionSentryUrl }

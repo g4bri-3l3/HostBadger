@@ -230,19 +230,21 @@ function Get-RemediationProfileData {
 # to the host's role, then (Strict, or -Debloat on its own) one removal per group of preinstalled apps
 # of $script:BloatwareApps. Same data as Get-RemediationActions, plus Tier and NoUndo.
 function Get-ProfileActions {
-    # Privacy: the privacy and telemetry settings of every tier, with or without a tier.
+    # Privacy: the privacy and telemetry settings of every tier, with or without a tier. Debloat: the
+    # preinstalled apps plus the items marked debloat (unused consumer services and components).
     param([string]$ProfileName, [string]$Role, [switch]$Debloat, [switch]$Privacy)
     $out = New-Object System.Collections.Generic.List[object]
     $rank = [array]::IndexOf($script:RemediationTiers, (Get-TierName $ProfileName))
-    if ($rank -ge 0 -or $Privacy) {
+    if ($rank -ge 0 -or $Privacy -or $Debloat) {
         foreach ($i in (Get-RemediationProfileData).Items) {
             $inTier = $rank -ge 0 -and [array]::IndexOf($script:RemediationTiers, (Get-TierName $i.tier)) -le $rank
-            if (-not $inTier -and -not ($Privacy -and "$($i.category)" -eq 'privacy')) { continue }
+            if (-not $inTier -and -not ($Privacy -and "$($i.category)" -eq 'privacy') -and -not ($Debloat -and $i.debloat)) { continue }
             if (@($i.roles) -notcontains $Role) { continue }
             $a = @{ Kind = "$($i.kind)"; Id = "$($i.tier)/$($i.id)"; Why = "$($i.title) - $($i.ref)"; Tier = "$($i.tier)"; NoUndo = (-not $i.reversible) }
             switch ("$($i.kind)") {
                 'reg' { $a.Path = "$($i.path)"; $a.Name = "$($i.name)"; $a.Value = $i.value; $a.Type = "$($i.type)"; $a.Restart = [bool]$i.restart; $a.AtMost = [bool]$i.atMost }
                 'fwrule' { $a.Name = "$($i.name)"; $a.Program = @($i.program | ForEach-Object { "$_" }) }
+                'task' { $a.Name = "$($i.name)"; $a.TaskPath = "$($i.taskPath)" }
                 default { $a.Name = "$($i.name)" }
             }
             $out.Add($a)
@@ -267,6 +269,7 @@ function Get-ActionTarget {
         'mp' { return "mp|$($A.Setting)".ToLower() }
         'fw' { return "fw|$($A.ProfileName)|$($A.Setting)".ToLower() }
         'appx' { return "appx|$($A.Pattern)" }
+        'task' { return "task|$($A.TaskPath)$($A.Name)".ToLower() }
         default { return "$($A.Kind)|$($A.Name)".ToLower() }
     }
 }
@@ -292,6 +295,8 @@ function ConvertTo-EngineLine {
         'feature' { return "Set-HbFeature -Id $id -Name $(ConvertTo-PsLiteral $A.Name) -Why $why" }
         'user' { return "Set-HbLocalUser -Id $id -Name $(ConvertTo-PsLiteral $A.Name) -Enabled `$false -Why $why" }
         'service' { return "Set-HbService -Id $id -Name $(ConvertTo-PsLiteral $A.Name) -Why $why" }
+        'task' { return "Set-HbTask -Id $id -TaskPath $(ConvertTo-PsLiteral $A.TaskPath) -Name $(ConvertTo-PsLiteral $A.Name) -Why $why" }
+        'capability' { return "Remove-HbCapability -Id $id -Name $(ConvertTo-PsLiteral $A.Name) -Why $why" }
     }
 }
 
@@ -398,6 +403,23 @@ function ConvertTo-FixSnippet {
                     '    if ($Apply -and -not (Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue)) { New-NetFirewallRule -Name $rule -DisplayName "HostBadger: block outbound $name" -Direction Outbound -Action Block -Program $p | Out-Null }',
                     '}',
                     '# Undo: Remove-NetFirewallRule -Name ''HostBadger-BlockOut-*''') -join "`n"))
+    }
+    foreach ($a in @($Actions | Where-Object { $_.Kind -eq 'task' })) {
+        $blocks.Add((@(
+                    (& $head 'Scheduled task. Windows PowerShell 5.1, elevated.'),
+                    "`$path = $(ConvertTo-PsLiteral $a.TaskPath); `$name = $(ConvertTo-PsLiteral $a.Name)",
+                    '''Task {0}{1}: {2} -> Disabled'' -f $path, $name, (Get-ScheduledTask -TaskPath $path -TaskName $name).State',
+                    'if ($Apply) { Disable-ScheduledTask -TaskPath $path -TaskName $name | Out-Null }',
+                    '# Undo: Enable-ScheduledTask -TaskPath $path -TaskName $name') -join "`n"))
+    }
+    foreach ($a in @($Actions | Where-Object { $_.Kind -eq 'capability' })) {
+        $blocks.Add((@(
+                    (& $head 'Optional Windows capability. Windows PowerShell 5.1, elevated.'),
+                    "`$name = $(ConvertTo-PsLiteral $a.Name)",
+                    '$caps = @(Get-WindowsCapability -Online | Where-Object { $_.Name -like "$name~*" -and $_.State -eq ''Installed'' })',
+                    '''Remove: {0}'' -f $(if ($caps.Count) { ($caps.Name) -join '', '' } else { ''nothing installed'' })',
+                    'if ($Apply) { foreach ($c in $caps) { Remove-WindowsCapability -Online -Name $c.Name | Out-Null } }',
+                    '# Undo: Add-WindowsCapability -Online -Name <the name printed above> (from Windows Update)') -join "`n"))
     }
     foreach ($a in @($Actions | Where-Object { $_.Kind -eq 'appx' })) {
         $blocks.Add((@(
@@ -666,6 +688,42 @@ function Set-HbFwRule {
     }
 }
 
+function Set-HbTask {
+    # Disables a scheduled task; the restore enables it again.
+    param([string]$Id, [string]$TaskPath, [string]$Name, [string]$Why)
+    try {
+        $t = Get-ScheduledTask -TaskPath $TaskPath -TaskName $Name -ErrorAction SilentlyContinue
+        if (-not $t) { Write-HbLine 'ok' "Task $TaskPath$Name not present" 'DarkGray'; $script:Skipped++; return }
+        if ("$($t.State)" -eq 'Disabled') { Write-HbLine 'ok' "Task $TaskPath$Name already disabled" 'DarkGray'; $script:Skipped++; return }
+        Write-HbLine $(if ($Apply) { 'SET' } else { 'WOULD SET' }) "Task $TaskPath$Name : $($t.State) -> Disabled   [$Id] $Why" 'Yellow'
+        if (-not $Apply) { return }
+        Save-HbBackup ([ordered]@{ kind = 'task'; id = $Id; path = $TaskPath; name = $Name })
+        Disable-ScheduledTask -TaskPath $TaskPath -TaskName $Name | Out-Null
+        $script:Changed++
+    }
+    catch { $script:Failed++; Write-HbLine 'FAILED' "Task $TaskPath$Name : $($_.Exception.Message)" 'Red' }
+}
+
+function Remove-HbCapability {
+    # An optional Windows capability (Steps Recorder...), by the name before its ~ version. The restore
+    # adds it back from Windows Update.
+    param([string]$Id, [string]$Name, [string]$Why)
+    if (-not (Test-HbAdmin)) { Write-HbLine 'UNKNOWN' "Capability $Name : Windows lets only an elevated PowerShell read it   [$Id] $Why" 'DarkYellow'; return }
+    try {
+        $caps = @(Get-WindowsCapability -Online -ErrorAction Stop | Where-Object { "$($_.Name)" -like "$Name~*" -and "$($_.State)" -eq 'Installed' })
+        if ($caps.Count -eq 0) { Write-HbLine 'ok' "Capability $Name not installed" 'DarkGray'; $script:Skipped++; return }
+        foreach ($c in $caps) {
+            Write-HbLine $(if ($Apply) { 'REMOVE' } else { 'WOULD REMOVE' }) "Capability $($c.Name) : Installed -> removed   [$Id] $Why" 'Yellow'
+            if (-not $Apply) { continue }
+            Save-HbBackup ([ordered]@{ kind = 'capability'; id = $Id; name = "$($c.Name)" })
+            Remove-WindowsCapability -Online -Name $c.Name | Out-Null
+            $script:Changed++
+            $script:NeedRestart.Add("capability $($c.Name)")
+        }
+    }
+    catch { $script:Failed++; Write-HbLine 'FAILED' "Capability $Name : $($_.Exception.Message)" 'Red' }
+}
+
 function Remove-HbAppx {
     # A group of preinstalled apps, for every user and from the provisioned list (new profiles).
     # Not reversible: the rollback file only names them; they come back from the Microsoft Store.
@@ -709,7 +767,7 @@ function New-HbRestorePoint {
     $srKey = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore' -ErrorAction SilentlyContinue
     if ($srKey -and $null -ne $srKey.RPSessionInterval -and [int]$srKey.RPSessionInterval -eq 0) {
         Write-HbLine 'NOTE' "System Protection is off on this machine, so Windows cannot make a restore point (Enable-ComputerRestore -Drive '$env:SystemDrive\' turns it on)." 'Yellow'
-        if ($console -and "$(Read-Host "Turn System Protection on for $env:SystemDrive first? (y/N)")".Trim() -match '^(?i)y(es)?$') {
+        if ($console -and -not $RestorePoint -and "$(Read-Host "Turn System Protection on for $env:SystemDrive first? (y/N)")".Trim() -match '^(?i)y(es)?$') {
             try { Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction Stop }
             catch { Write-HbLine 'NOTE' "System Protection not turned on: $($_.Exception.Message)" 'Yellow' }
         }
@@ -776,6 +834,14 @@ function Restore-HbEntry {
             'fwrule' {
                 Write-HbLine $(if ($Apply) { 'RESTORE' } else { 'WOULD' }) "Firewall rule $($E.name) -> removed" 'Yellow'
                 if ($Apply) { Remove-NetFirewallRule -Name $E.name -ErrorAction SilentlyContinue }
+            }
+            'task' {
+                Write-HbLine $(if ($Apply) { 'RESTORE' } else { 'WOULD' }) "Task $($E.path)$($E.name) -> enabled" 'Yellow'
+                if ($Apply) { Enable-ScheduledTask -TaskPath $E.path -TaskName $E.name | Out-Null }
+            }
+            'capability' {
+                Write-HbLine $(if ($Apply) { 'RESTORE' } else { 'WOULD' }) "Capability $($E.name) -> installed again (from Windows Update)" 'Yellow'
+                if ($Apply) { Add-WindowsCapability -Online -Name $E.name | Out-Null }
             }
             'appx' {
                 Write-HbLine 'SKIPPED' "$($E.label) ($(@($E.names) -join ', ')) is not reinstalled: get it back from the Microsoft Store" 'Magenta'

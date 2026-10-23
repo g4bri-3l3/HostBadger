@@ -214,7 +214,9 @@ should.
 - **Remediation scripts** (`-OutRemediation`): one setting, the expected value,
   previewed by default, with a rollback file. The analyzer never runs them;
   the guided menu can apply this machine's own script after showing it and
-  asking for YES (menu 6), and put the values back (menu 7).
+  asking for YES (menu 6), and put the values back (menu 7); the window does
+  the same with "Fix what the analysis finds" on this machine, after a preview
+  and a warning.
 - **Remediation profiles** (`-RemediationProfile Essential | Recommended |
   Strict`): a ready-made hardening level on top of the fixes of the findings,
   each setting quoting its CIS rule or Essential Eight requirement, from
@@ -228,6 +230,9 @@ should.
 - **Guided menu** (`Start-HostBadger.ps1`) for collecting, analyzing, the AI
   step and the safety review, with **global settings** (menu 8) that save the
   answers a run would ask every time.
+- **Window** (`Start-HostBadgerGui.ps1`): the same steps as a form in the
+  style of the report, with links to everything a run wrote and a check for a
+  newer HostBadger on GitHub (and `git pull --ff-only` in a git clone).
 - **Logs**: every analysis writes `<report>.log` next to the report (the
   settings of the run, then everything it printed), and every menu session
   `output\hostbadger-menu_<time>.log` (the questions, the answers typed and
@@ -264,6 +269,7 @@ own pages before relying on it, especially for licensing and editions.
 | `Collect-HostSnapshot.ps1` | each Windows host | SYSTEM or a local administrator (a standard user works, with gaps) | `hostsnapshot_<host>_<time>.zip` |
 | `HostBadger.ps1` | anywhere | nothing (a Gemini key only for the optional AI step) | HTML, CSV and JSONL report for one host or a fleet |
 | `Start-HostBadger.ps1` | anywhere | nothing | a menu that runs the collector and the analyzer for you |
+| `Start-HostBadgerGui.ps1` | anywhere | nothing | the same steps in a window, plus a check for a newer HostBadger |
 | `Test-HostBadgerSafety.ps1` | anywhere | nothing | proof, read from the code, that the collector only reads |
 
 It runs on Windows PowerShell 5.1 or PowerShell 7, and there is nothing to
@@ -309,6 +315,74 @@ once whether to use them; with yes those questions are skipped, and the
 analysis still lists every answer before it runs, so one can be changed for
 that run. Passwords and the Gemini key are never saved; the CSV to compare
 with is asked every time.
+
+### The window
+
+`.\Start-HostBadgerGui.ps1` does the same as the menu in a window (WPF, part
+of Windows; nothing to install). The form is on the left, on one page:
+
+- **What to analyze**: *this machine* (a read-only snapshot is collected,
+  then analyzed: folder, file ACLs, missing updates naming the WSUS server or
+  Microsoft Update it contacts, encryption) or *snapshots already collected*
+  (it proposes the newest snapshot of the snapshot folder; File... or
+  Folder... to choose others, and a folder is analyzed host by host, the
+  newest snapshot of each). One button runs it: **Collect and analyze**, or
+  **Analyze**.
+- **Report**: where to save the new report, STIG and CIS, JSON Lines, one report per host (for a folder
+  with several hosts), NIS2 ACN measures.
+- **Catalogs**: each offers the newest kept copy when there is one, the copy
+  shipped with HostBadger (LOLDrivers, browser extensions, the lifecycle
+  table: used offline), a download now, or not used for the catalogs
+  HostBadger does not ship.
+- **Fix**: **Fix what the analysis finds** switches the section on. One level
+  (only the safe fixes of the findings, Essential, Recommended, Strict, or
+  none of them), each with what it changes, plus two independent options:
+  **Debloat** (the preinstalled apps and the unused consumer services and
+  components) and **Disable telemetry** (the privacy and telemetry settings of
+  every level). Strict includes both. On *this machine* the button becomes
+  **Collect, analyze and fix**: after the analysis the fix script is
+  previewed in the log, a warning gives the number of changes and of those
+  NOT REVERSIBLE, and only Yes applies them (administrator; System Restore
+  point first in Windows PowerShell 5.1, rollback file next to the script,
+  linked in Outputs, with the command that undoes it). For *snapshots* the
+  scripts are only written, one per host.
+- **Your organization**: allowed administrators, expected EDR, approved
+  remote tools and extensions, exceptions and policy files, an earlier CSV to
+  compare with.
+
+The header has Settings, the **Safety review** and Check for updates.
+
+On the right, **Outputs** links the last report (and the per-host ones), its
+run log, CSV, JSON Lines, fix scripts, AI prompt and answer, the report
+folder, the last snapshot and the settings file; at the start it shows the
+newest report of the report folder, which "Open the last report" opens.
+Below it is the log of the
+running step. After an analysis, **AI: dry run** writes the prompt and **AI:
+send to Gemini** sends it, both without analyzing again (the analysis stays in
+the window's memory, never on disk). The line under them names the report the
+summary goes into; **Other report...** picks an earlier one. For a report of
+an earlier session the snapshot of the form is analyzed again in the same run
+and that report rewritten with the AI section (the summary lives in the HTML,
+and the same snapshot gives the same findings).
+
+**Settings** holds what is the same at every run, in the same
+`output\hostbadger-settings.json` as menu 8: snapshot and report folders, the
+Gemini model and the number of attempts, whether the DISA STIG findings go to
+Gemini, what each catalog proposes (kept copy, kept copy if under a week old
+else a download, a download every run, never), and the encryption of a new
+snapshot. The Gemini and NVD API keys are kept for the window, or, if you tick
+Remember, as the `GEMINI_API_KEY` / `NVD_API_KEY` environment variables of
+your Windows account; a key is never written in the settings file. Each run
+also saves the choices of the form there, so the window opens as you left it
+(and the guided menu, with its global settings, uses the same choices).
+
+**Check for updates** asks GitHub for the newest HostBadger. In a git clone
+it runs `git fetch origin` and compares with `origin/main`; **Update** then
+runs `git pull --ff-only origin main`, offered only on the `main` branch with
+no local changes, after you confirm. Outside a git clone it reads the version
+of `HostBadger.ps1` on the main branch (one GET to raw.githubusercontent.com)
+and tells you if a newer one is out. Nothing else in the window uses the
+network unless you ask for a download or the AI step.
 
 ## Quick start
 
@@ -735,7 +809,7 @@ standard user with Defender in passive mode.
     [-AllowedRemoteTools TeamViewer,ScreenConnect]   # approved remote access tools: the others are Medium
     [-AllowedExtensions 'cjpalhdlnbpafiamejdnhcphjbkeiagm','Bitwarden*']   # approved browser extensions (ids or names): the others are Medium
     [-OutRemediation .\fixes]                    # one remediate_<host>.ps1 per host, with a rollback file
-    [-RemediationProfile Recommended] [-RemediationDebloat] [-RemediationPrivacy]   # add a hardening profile (Essential, Recommended, Strict), the removal of preinstalled apps and/or the privacy and telemetry settings to those scripts
+    [-RemediationProfile Recommended] [-RemediationDebloat] [-RemediationPrivacy]   # add a hardening profile (Essential, Recommended, Strict), debloat (preinstalled apps, unused consumer services and components) and/or the privacy and telemetry settings to those scripts
     [-PerHost]                                   # also one HTML report per host: <report>_<HOST>.html
     [-SkipStig]                                  # leave out the DISA STIG checks (about 1,400 registry rules)
     [-KevFile known_exploited_vulnerabilities.json] | [-KevOnline]   # match installed software to the CISA KEV catalog (-KevOnline downloads it from www.cisa.gov)
@@ -890,15 +964,23 @@ settings you choose as a whole, added to the same per-host script (and to menu
 |---|---|
 | **Essential** | CIS Level 1 and Essential Eight Maturity Level One settings that are safe on any machine: consumer experiences and Remote Assistance off, required diagnostic data only, Xbox, SSDP, UPnP and other unused services disabled, Internet Explorer 11 removed |
 | **Recommended** | Essential, plus the rest of CIS Level 1 that fits a managed machine and Essential Eight Maturity Level Two: the 13 CIS attack surface reduction rules in block mode, Cortana and widgets off, SSH server, hotspot, IIS and FTP services disabled on workstations |
-| **Strict** | Recommended, plus CIS Level 2, Essential Eight Maturity Level Three (LSA protection, .NET 3.5 and PowerShell 2.0 removed) and opinionated hardening: three more ASR rules, outbound firewall rules for the download tools (certutil, mshta, wscript, cscript, regsvr32, wmic, bitsadmin, hh), script files opened as text, Windows Script Host off, and the removal of preinstalled apps |
+| **Strict** | Recommended, plus CIS Level 2, Essential Eight Maturity Level Three (LSA protection, .NET 3.5 and PowerShell 2.0 removed) and opinionated hardening: three more ASR rules, outbound firewall rules for the download tools (certutil, mshta, wscript, cscript, regsvr32, wmic, bitsadmin, hh), script files opened as text, Windows Script Host off, the telemetry services and scheduled tasks, Windows Fax and Scan, Work Folders, Steps Recorder and Math Recognizer removed (optional Windows capabilities: the rollback adds them back from Windows Update), and the removal of preinstalled apps (games, Bing apps, Copilot, the new Outlook, personal Teams, Phone Link, Quick Assist, third-party trials, Dell and Samsung extras) |
 
 Each line of the script names the setting, the tier and the rule it comes from
 (`data\remediation-profiles.json`; CIS rule numbers and values from the
 MIT-licensed ansible-lockdown Windows-11-CIS role). Settings are filtered by the
 host's role, and the script still reads every value first and skips what is
-already set or not installed. `-RemediationDebloat` adds only the removal of the
-preinstalled apps, with or without a profile; `-RemediationPrivacy` adds the
-privacy and telemetry settings of every tier. The two together, with no
+already set or not installed. `-RemediationDebloat` adds the debloat, with or
+without a profile: the removal of the preinstalled apps and the unused consumer
+services and components (Xbox services, Windows Media Player sharing, Maps,
+Retail Demo, Windows Insider, PushToInstall, Windows Fax and Scan, Work
+Folders, Steps Recorder, Math Recognizer; `debloat: true` in the catalog); `-RemediationPrivacy` adds the
+privacy and telemetry settings of every tier (diagnostic data, speech and
+input personalization, feedback, error reporting, activity upload, cloud
+search and search highlights, news and interests, the DiagTrack service, and
+the Customer Experience Improvement Program, Compatibility Appraiser,
+Feedback and Family Safety scheduled tasks, which the rollback enables
+again). The two together, with no
 profile, plus `-RemediationOnlyProfile` (which leaves the safe fixes of the
 findings out), are "debloat and telemetry only" (choice D in menu 6): no
 hardening setting at all. A setting where a lower value is stricter

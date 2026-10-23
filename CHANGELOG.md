@@ -6,6 +6,72 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
+## [2.0] - 2026-10-23
+### Added
+- `Start-HostBadgerGui.ps1`: HostBadger in a window, in the style of the
+  report, with a badger icon on the taskbar. One page: this machine (collected, then analyzed, with one button)
+  or snapshots already collected (the newest is proposed; a folder for a
+  fleet), the safety review, then the AI dry run or the send to Gemini
+  without analyzing again. The log runs on the right, under links to what the
+  last run wrote (report, per-host reports, run log, CSV, JSON Lines, fix
+  scripts, AI prompt, snapshot, settings file). Catalogs propose the newest
+  kept copy, else the copy HostBadger ships. "Fix what the analysis finds"
+  switches the fix section on: a level (only the findings, Essential,
+  Recommended, Strict, or nothing but the two options) plus two independent
+  options, "Debloat" and "Disable telemetry". On this machine the fix script
+  is then previewed and, after a warning with the number of changes (and of
+  those NOT REVERSIBLE), applied as administrator with a System Restore point
+  and a rollback file; snapshots of other hosts only get their scripts.
+  Settings (the global settings of menu 8): folders, Gemini model and
+  attempts, catalog modes, encryption, and the Gemini and NVD keys, kept for
+  the window or, when asked, as environment variables of the Windows account
+  (never in the settings file). Each run saves the choices of the form in
+  the same file, so the window opens as it was left. "Check for updates"
+  compares a git clone with `origin/main` and offers
+  `git pull --ff-only origin main`; outside a clone it reads the version on
+  GitHub. The AI buttons work on the last report or on an earlier one
+  ("Other report..."): for a report of an earlier session the snapshot is
+  analyzed again in the same run and that report rewritten with the AI
+  section.
+- Remediation profiles, more privacy and telemetry settings (121 items):
+  online speech recognition, feedback notifications and diagnostic log
+  collection (Essential, CIS L1); Delivery Optimization limited to the local
+  network (Recommended, CIS 18.10.16.1, at most); online tips, File Explorer
+  cloud recommendations, message sync, news and interests, Push To Install,
+  cloud search, search highlights, Windows Ink suggested apps, handwriting
+  error reports, Windows Error Reporting and activity upload (Strict, CIS L2);
+  the DiagTrack service, the Retail Demo and Windows Insider services, Windows
+  Fax and Scan and the Work Folders client (Strict).
+- `-RemediationDebloat` (and "Debloat" in the window and the guided menu) now
+  also disables or removes the unused consumer services and components, not
+  only the apps: Xbox services, Windows Media Player sharing, Maps, Retail
+  Demo, Windows Insider, PushToInstall, Windows Fax and Scan, Work Folders,
+  Steps Recorder and Math Recognizer (`debloat: true` in
+  `data\remediation-profiles.json`). Bluetooth, location and WSL stay in
+  Strict only: they are a choice.
+- Two new kinds of profile item: `task` (a scheduled task disabled, enabled
+  again by the rollback: the Customer Experience Improvement Program, disk
+  diagnostic, Compatibility Appraiser, ProgramDataUpdater, Feedback and Family
+  Safety tasks) and `capability` (an optional Windows capability removed, added
+  back from Windows Update by the rollback: Steps Recorder, Math Recognizer).
+- More preinstalled apps known to `bloatware_installed` and to the debloat
+  step: Quick Assist (abused in tech-support scams), Copilot, the new Outlook,
+  personal Teams (not the work client), Phone Link, Power Automate, Get Help,
+  People, Maps, To Do, the 3D apps, more Bing apps, Microsoft extras (Sway,
+  Power BI, Network Speed Test, Messaging, Wallet, Mobile Plans), Minecraft
+  and other preinstalled games, common third-party apps (Adobe Photoshop
+  Express, Amazon, Duolingo, Flipboard, LinkedIn, Shazam, WinZip, PicsArt),
+  and the Dell and Samsung extras (never their update or settings tools).
+
+### Changed
+- The browser extensions catalog is called "Malicious browser extensions" in
+  the guided menu.
+
+### Fixed
+- `-PerHost` with a single host wrote a second report identical to the main
+  one. It now writes the per-host reports only when there are two hosts or
+  more.
+
 ## [1.8] - 2026-10-23
 ### Added
 - Remediation profiles. `-RemediationProfile Essential | Recommended |

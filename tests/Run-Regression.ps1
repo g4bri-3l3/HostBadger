@@ -441,14 +441,15 @@ foreach ($rf in $remFiles) {
 # setting that a finding already fixes once.
 $rpData = Get-RemediationProfileData
 $rpIds = @($rpData.Items | ForEach-Object { "$($_.id)" })
-Assert-True ($rpIds.Count -gt 0 -and @($rpIds | Sort-Object -Unique).Count -eq $rpIds.Count -and @($rpData.Items | Where-Object { "$($_.tier)" -notin 'essential', 'recommended', 'strict' -or "$($_.kind)" -notin 'reg', 'service', 'feature', 'fwrule' -or "$($_.ref)" -notmatch '^(CIS \d|Essential Eight ML\d|HostBadger strict)' -or ("$($_.kind)" -eq 'reg' -and "$($_.path)" -notmatch '^HKLM:\\') }).Count -eq 0) 'remediation profiles: unique ids, known tiers and kinds, every item quotes its rule, registry under HKLM only'
+Assert-True ($rpIds.Count -gt 0 -and @($rpIds | Sort-Object -Unique).Count -eq $rpIds.Count -and @($rpData.Items | Where-Object { "$($_.tier)" -notin 'essential', 'recommended', 'strict' -or "$($_.kind)" -notin 'reg', 'service', 'feature', 'fwrule', 'task', 'capability' -or "$($_.ref)" -notmatch '^(CIS \d|Essential Eight ML\d|HostBadger strict)' -or ("$($_.kind)" -eq 'reg' -and "$($_.path)" -notmatch '^HKLM:\\') }).Count -eq 0) 'remediation profiles: unique ids, known tiers and kinds, every item quotes its rule, registry under HKLM only'
 $rpE = @(Get-ProfileActions -ProfileName 'Essential' -Role 'workstation' | ForEach-Object { $_.Id })
 $rpR = @(Get-ProfileActions -ProfileName 'Recommended' -Role 'workstation' | ForEach-Object { $_.Id })
 $rpS = @(Get-ProfileActions -ProfileName 'Strict' -Role 'workstation')
 Assert-True ($rpE.Count -lt $rpR.Count -and $rpR.Count -lt $rpS.Count -and @($rpE | Where-Object { $rpR -notcontains $_ }).Count -eq 0 -and @($rpR | Where-Object { @($rpS | ForEach-Object { $_.Id }) -notcontains $_ }).Count -eq 0) 'remediation profiles: Essential is in Recommended, Recommended in Strict'
 Assert-True (@($rpS | Where-Object { $_.Kind -eq 'appx' }).Count -gt 0 -and @(Get-ProfileActions -ProfileName 'Strict' -Role 'server' | Where-Object { $_.Kind -eq 'appx' -or $_.Id -eq 'essential/svc-xbox-auth' }).Count -eq 0 -and @(Get-ProfileActions -ProfileName 'Recommended' -Role 'workstation' | Where-Object { $_.Kind -eq 'appx' -or $_.NoUndo }).Count -eq 0) 'remediation profiles: apps and workstation-only items stay off servers; nothing irreversible below Strict'
 $rpDebloat = @(Get-ProfileActions -ProfileName '' -Role 'workstation' -Debloat)
-Assert-True ($rpDebloat.Count -eq @($script:BloatwareApps | Where-Object { $_.Appx }).Count -and @($rpDebloat | Where-Object { $_.Kind -ne 'appx' }).Count -eq 0) 'remediation profiles: -Debloat on its own adds only the app removals'
+$rpDebItems = @($rpData.Items | Where-Object { $_.debloat -and @($_.roles) -contains 'workstation' })
+Assert-True ($rpDebItems.Count -gt 0 -and @($rpDebItems | Where-Object { "$($_.category)" -eq 'privacy' -or "$($_.category)" -eq 'hardening' }).Count -eq 0 -and $rpDebloat.Count -eq @($script:BloatwareApps | Where-Object { $_.Appx }).Count + $rpDebItems.Count -and @($rpDebloat | Where-Object { $_.Kind -ne 'appx' -and $_.Id -notmatch '/(svc-|fax-|workfolders-|cap-)' }).Count -eq 0) 'remediation profiles: -Debloat on its own adds the app removals and the unused consumer services and components, nothing else'
 $rpPriv = @(Get-ProfileActions -ProfileName '' -Role 'workstation' -Privacy)
 $rpPrivAll = @($rpData.Items | Where-Object { "$($_.category)" -eq 'privacy' -and @($_.roles) -contains 'workstation' })
 Assert-True ($rpPriv.Count -gt 0 -and $rpPriv.Count -eq $rpPrivAll.Count -and @(Get-ProfileActions -ProfileName 'Essential' -Role 'workstation' -Privacy).Count -eq $rpE.Count + @($rpPrivAll | Where-Object { "$($_.tier)" -ne 'essential' }).Count) 'remediation profiles: -Privacy adds the privacy settings of every tier and nothing else'
@@ -471,7 +472,7 @@ Remove-Item Function:\Read-Line
 $rpScript = New-RemediationScript -HostName 'WKS-ACCT-017' -Role 'workstation' -Findings $all -Config $config -CollectedUtc '2026-10-01 08:00' -ToolVersion 'test' -ProfileName 'Strict'
 $rpText = $rpScript.Text
 $perr = $null; [void][System.Management.Automation.Language.Parser]::ParseInput($rpText, [ref]$null, [ref]$perr)
-Assert-True (@($perr).Count -eq 0 -and $rpText -match 'if \(-not \$Apply\) \{ return \}' -and $rpText -match "(?m)^Set-HbRegistry .*'RunAsPPL'.* -NoUndo\r?$" -and $rpText -match '(?m)^Remove-HbAppx ' -and $rpText -match '(?m)^Set-HbFwRule .*wmic\.exe' -and @([regex]::Matches($rpText, "(?m)^Set-HbRegistry .*? -Path '([^']+)'") | Where-Object { $_.Groups[1].Value -notmatch '^HKLM:\\' }).Count -eq 0) 'remediation profiles: the Strict script parses, previews, marks what cannot be undone, blocks the download tools, removes apps, registry under HKLM only'
+Assert-True (@($perr).Count -eq 0 -and $rpText -match 'if \(-not \$Apply\) \{ return \}' -and $rpText -match "(?m)^Set-HbRegistry .*'RunAsPPL'.* -NoUndo\r?$" -and $rpText -match '(?m)^Remove-HbAppx ' -and $rpText -match "(?m)^Set-HbTask -Id 'strict/task-ceip-consolidator' " -and $rpText -match "(?m)^Remove-HbCapability -Id 'strict/cap-steps-recorder' -Name 'App.StepsRecorder'" -and $rpText -match '(?m)^Set-HbFwRule .*wmic\.exe' -and @([regex]::Matches($rpText, "(?m)^Set-HbRegistry .*? -Path '([^']+)'") | Where-Object { $_.Groups[1].Value -notmatch '^HKLM:\\' }).Count -eq 0) 'remediation profiles: the Strict script parses, previews, marks what cannot be undone, blocks the download tools, removes apps, registry under HKLM only'
 Assert-True ($rpScript.ActionCount -eq $remWeak.ActionCount + $rpScript.ProfileActions -and @([regex]::Matches($rpText, "(?m)^Set-HbRegistry .*-Path 'HKLM:\\SOFTWARE\\Classes\\\.js' ")).Count -eq 1 -and $rpText -match 'come from the Strict remediation profile') 'remediation profiles: a setting a finding already fixes is written once, and the header counts the profile'
 Assert-True (@(New-RemediationScript -HostName 'SRV-APP-02' -Role 'server' -Findings $all -Config $config -CollectedUtc 'x' -ToolVersion 'test' -ProfileName 'Essential').ActionCount -gt 0) 'remediation profiles: a host without a fixable finding still gets the profile'
 $rpOut = Join-Path $work 'rp'
@@ -1442,8 +1443,38 @@ Assert-Equal (& $verOf 'Collect-HostSnapshot.ps1' 'CollectorVersion') (& $verOf 
 $gitAttr = Join-Path $root '.gitattributes'
 Assert-True ((Test-Path -LiteralPath $gitAttr) -and ([System.IO.File]::ReadAllText($gitAttr) -match '(?m)^\* text=auto eol=crlf\s*$')) '.gitattributes pins the line endings'
 
+# ------------------------------------------------------------------ the window
+# It builds on both PowerShell editions (-NoShow: built, not shown), offers the catalogs of the guided
+# menu with the same parameters, and "Check for updates" outside a git clone reads the version on the
+# main branch with one GET (test hook HOSTBADGER_UPDATE_URL).
+$guiOut = (& (Join-Path $root 'Start-HostBadgerGui.ps1') -NoShow *>&1 | ForEach-Object { "$_" }) -join "`n"
+Assert-True ($guiOut -match 'GUI ready: \d+ controls, 6 catalogs, version \d+\.\d+; settings: \d+ controls, 6 catalogs, 5 fix levels') "window: builds without errors ($($guiOut -replace '\s+', ' '))"
+$lnAst2 = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'Start-HostBadger.ps1'), [ref]$null, [ref]$null)
+$catAssign = $lnAst2.Find({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$script:CatalogDefs' }, $true)
+$menuCats = & ([scriptblock]::Create($catAssign.Right.Extent.Text))
+$guiText = [System.IO.File]::ReadAllText((Join-Path $root 'Start-HostBadgerGui.ps1'))
+Assert-Equal (@($menuCats.Keys | Where-Object { $guiText -notmatch "(?m)^\s*$_\s+= @\{ Label = '[^']+'; Suffix = '$($menuCats[$_].Suffix)'; Online = '$($menuCats[$_].Online)'; File = '$($menuCats[$_].File)'" }) -join ',') '' 'window: the same catalogs as the guided menu, with the same parameters'
+foreach ($try in 1..8) { $upPort = Get-Random -Minimum 20000 -Maximum 60000; $upListener = New-Object System.Net.HttpListener; $upListener.Prefixes.Add("http://127.0.0.1:$upPort/"); try { $upListener.Start(); break } catch { $upListener.Close() } }
+$upPs = [powershell]::Create(); $upCap = [hashtable]::Synchronized(@{ Url = ''; Method = '' })
+$upPs.Runspace.SessionStateProxy.SetVariable('l', $upListener); $upPs.Runspace.SessionStateProxy.SetVariable('cap', $upCap)
+[void]$upPs.AddScript({ $ctx = $l.GetContext(); $cap.Url = $ctx.Request.Url.AbsolutePath; $cap.Method = $ctx.Request.HttpMethod; $buf = [System.Text.Encoding]::UTF8.GetBytes("param()`n`$script:HostBadgerVersion = '9.12'`n"); $ctx.Response.OutputStream.Write($buf, 0, $buf.Length); $ctx.Response.Close() })
+$upAsync = $upPs.BeginInvoke()
+$env:HOSTBADGER_UPDATE_URL = "http://127.0.0.1:$upPort/g4bri-3l3/HostBadger/main/HostBadger.ps1"
+try { $upVer = Get-HostBadgerLatestVersion 6>$null; [void]$upAsync.AsyncWaitHandle.WaitOne(5000) }
+finally { Remove-Item Env:\HOSTBADGER_UPDATE_URL -ErrorAction SilentlyContinue; try { $upListener.Stop() } catch { }; $upPs.Dispose() }
+Assert-True ($upVer -eq '9.12' -and $upCap.Method -eq 'GET' -and $upCap.Url -eq '/g4bri-3l3/HostBadger/main/HostBadger.ps1') 'window: the version on GitHub is read with a single GET of HostBadger.ps1'
+Assert-True ($script:HostBadgerMainUrl -eq 'https://raw.githubusercontent.com/g4bri-3l3/HostBadger/main/HostBadger.ps1') 'window: the update check asks the HostBadger repository'
+
+# One report per host only with several hosts: with one it would be a copy of the report.
+$phDir = Join-Path $work 'perhost'
+New-Item -ItemType Directory -Path $phDir -Force | Out-Null
+& (Join-Path $root 'HostBadger.ps1') -Snapshot (Join-Path $root 'examples\fleet\hostsnapshot_dc.json') -OutHtml (Join-Path $phDir 'one.html') -PerHost -NoLog *>&1 | Out-Null
+& (Join-Path $root 'HostBadger.ps1') -Snapshot (Join-Path $root 'examples\fleet') -OutHtml (Join-Path $phDir 'fleet.html') -PerHost -NoLog *>&1 | Out-Null
+Assert-True ((Test-Path (Join-Path $phDir 'one.html')) -and @(Get-ChildItem -LiteralPath $phDir -Filter 'one_*.html').Count -eq 0) '-PerHost with one host: only the report'
+Assert-Equal @(Get-ChildItem -LiteralPath $phDir -Filter 'fleet_*.html').Count 5 '-PerHost with a fleet: one report per host'
+
 # ------------------------------------------------------------------ safety review
-$safety = Join-Path $root 'Test-HostBadgerSafety.ps1'
+$safety =Join-Path $root 'Test-HostBadgerSafety.ps1'
 & $safety -Quiet *>&1 | Out-Null
 Assert-Equal $LASTEXITCODE 0 'safety review passes on the shipped code'
 $tampered = Join-Path $work 'tampered'
@@ -1483,6 +1514,18 @@ Copy-Item (Join-Path $root 'lib') $tampered2 -Recurse
 Add-Content -LiteralPath (Join-Path $tampered2 'Collect-HostSnapshot.ps1') -Value "`n`$c = New-Object System.Net.Http.HttpClient`n`$null = `$c.GetAsync('https://generativelanguage.googleapis.com/x')"
 & (Join-Path $tampered2 'Test-HostBadgerSafety.ps1') -Quiet *>&1 | Out-Null
 Assert-Equal $LASTEXITCODE 1 'safety review fails on network code in the collector'
+# git only in the window, and only fetch / compare / pull --ff-only of HostBadger's own clone.
+Copy-Item (Join-Path $root 'Start-HostBadgerGui.ps1') $tampered2 -Force
+Copy-Item (Join-Path $root 'Collect-HostSnapshot.ps1') $tampered2 -Force
+& (Join-Path $tampered2 'Test-HostBadgerSafety.ps1') -Quiet *>&1 | Out-Null
+$gitClean = $LASTEXITCODE
+Add-Content -LiteralPath (Join-Path $tampered2 'Start-HostBadgerGui.ps1') -Value "`n`$Root = 'x'`ngit -C `$Root push origin main"
+& (Join-Path $tampered2 'Test-HostBadgerSafety.ps1') -Quiet *>&1 | Out-Null
+$gitPush = $LASTEXITCODE
+Copy-Item (Join-Path $root 'Start-HostBadgerGui.ps1') $tampered2 -Force
+Add-Content -LiteralPath (Join-Path $tampered2 'Collect-HostSnapshot.ps1') -Value "`ngit --version"
+& (Join-Path $tampered2 'Test-HostBadgerSafety.ps1') -Quiet *>&1 | Out-Null
+Assert-True ($gitClean -eq 0 -and $gitPush -eq 1 -and $LASTEXITCODE -eq 1) 'safety review: git only in the window, and only to check and pull HostBadger''s own clone'
 Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 $rootNew = @(Get-ChildItem -LiteralPath $root -File | Where-Object { $rootFilesBefore -notcontains $_.Name } | ForEach-Object { $_.Name })
 Assert-Equal ($rootNew -join ', ') '' 'the tests leave no file in the project folder'

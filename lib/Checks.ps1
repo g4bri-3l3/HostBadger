@@ -3317,7 +3317,20 @@ $script:BloatwareApps = @(
     @{ Label = 'King games (Candy Crush...)'; Appx = '^king\.com\.' }
     @{ Label = 'Microsoft Solitaire Collection'; Appx = '^Microsoft\.MicrosoftSolitaireCollection$' }
     @{ Label = 'Xbox apps'; Appx = '^Microsoft\.(XboxApp|XboxGamingOverlay|XboxGameOverlay|XboxSpeechToTextOverlay|Xbox\.TCUI|GamingApp)$' }
-    @{ Label = 'Bing News, Weather, Sports, Finance'; Appx = '^Microsoft\.(BingNews|BingWeather|BingSports|BingFinance)$' }
+    @{ Label = 'Bing News, Weather, Sports, Finance, Search, Translator, Travel, Food, Health'; Appx = '^Microsoft\.(BingNews|BingWeather|BingSports|BingFinance|BingSearch|BingTranslator|BingTravel|BingFoodAndDrink|BingHealthAndFitness)$' }
+    @{ Label = 'Quick Assist (remote control, abused in tech-support scams)'; Appx = '^MicrosoftCorporationII\.QuickAssist$' }
+    @{ Label = 'Copilot'; Appx = '^Microsoft\.Copilot$|^MicrosoftWindows\.Client\.CoPilot$' }
+    @{ Label = 'Outlook (new)'; Appx = '^Microsoft\.OutlookForWindows$' }
+    @{ Label = 'Teams (personal)'; Appx = '^MicrosoftTeams$' }
+    @{ Label = 'Phone Link'; Appx = '^Microsoft\.YourPhone$' }
+    @{ Label = 'Power Automate'; Appx = '^Microsoft\.PowerAutomateDesktop$' }
+    @{ Label = 'Get Help, People, Maps, To Do'; Appx = '^Microsoft\.(GetHelp|People|WindowsMaps|Todos)$' }
+    @{ Label = '3D Builder, 3D Viewer, Paint 3D, Print 3D'; Appx = '^Microsoft\.(3DBuilder|Microsoft3DViewer|MSPaint|Print3D)$' }
+    @{ Label = 'Microsoft extras (Sway, Power BI, Network Speed Test, Messaging, Wallet, Mobile Plans)'; Appx = '^Microsoft\.(Office\.Sway|OneConnect|MicrosoftPowerBIForWindows|NetworkSpeedTest|Messaging|Wallet)$' }
+    @{ Label = 'Minecraft and other preinstalled games'; Appx = '^Microsoft\.MinecraftUWP$|^Microsoft\.MicrosoftMahjong$|^A278AB0D\.|^GAMELOFTSA\.|^DolbyLaboratories\.DolbyAccess$|^Playtika\.' }
+    @{ Label = 'Third-party apps (Adobe Photoshop Express, Amazon, Duolingo, Flipboard, LinkedIn, Shazam, WinZip, PicsArt)'; Appx = '^AdobeSystemsIncorporated\.AdobePhotoshopExpress$|^Amazon\.com\.Amazon$|^D5EA27B7\.Duolingo|^Flipboard\.Flipboard$|^7EE7776C\.LinkedInforWindows$|^ShazamEntertainmentLtd\.Shazam$|^WinZipComputing\.WinZipUniversal$|^2FE3CB00\.PicsArt' }
+    @{ Label = 'Dell apps (MyDell, Digital Delivery, Customer Connect, Help & Support)'; Appx = '^DellInc\.(MyDell|DellDigitalDelivery|DellCustomerConnect|DellHelpSupport|DellProductRegistration)$|^DB6EA5DB\.' }
+    @{ Label = 'Samsung apps (Notes, Flow, Gallery, Free...)'; Appx = '^SAMSUNGELECTRONICSCO\.LTD\.(SamsungNotes|SamsungFlow|SamsungGallery|SamsungFree|SamsungMembers|SamsungPrinterExperience|SamsungCloud|SmartThings)' }
     @{ Label = 'Groove Music, Movies & TV'; Appx = '^Microsoft\.(ZuneMusic|ZuneVideo)$' }
     @{ Label = 'Mixed Reality Portal'; Appx = '^Microsoft\.MixedReality\.Portal$' }
     @{ Label = 'Skype (Store app)'; Appx = '^Microsoft\.SkypeApp$' }

@@ -115,7 +115,7 @@
     Password of the .pfx (asked for when needed).
 .PARAMETER PerHost
     Also write one HTML report per host next to the fleet report
-    (<OutHtml name>_<HOST>.html).
+    (<OutHtml name>_<HOST>.html), when there are two hosts or more.
 .PARAMETER OutCsv
     Findings CSV. Default: next to the HTML report.
 .PARAMETER OutLog
@@ -182,10 +182,13 @@
     role; each one quotes its rule. Some Strict changes cannot be undone by the
     rollback file: the script marks them NOT REVERSIBLE.
 .PARAMETER RemediationDebloat
-    Optional, with -OutRemediation: add the removal of the preinstalled apps
-    (games, consumer apps, trials) to the workstation scripts, with or without a
-    profile (Strict already includes it). Not reversible: the apps come back only
-    from the Microsoft Store.
+    Optional, with -OutRemediation: debloat. Adds the removal of the
+    preinstalled apps (games, consumer apps, trials; workstations) and the unused
+    consumer services and components (Xbox services, Retail Demo, Windows
+    Insider, Windows Fax and Scan, Work Folders, Steps Recorder...: the items
+    marked debloat in data\remediation-profiles.json) to the scripts, with or
+    without a profile (Strict already includes it). The apps are not
+    reversible: they come back only from the Microsoft Store.
 .PARAMETER RemediationPrivacy
     Optional, with -OutRemediation: add the privacy and telemetry settings of
     every profile tier (dataemediation-profiles.json, category privacy) to the
@@ -305,7 +308,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:HostBadgerVersion = '1.8'
+$script:HostBadgerVersion = '2.0'
 . (Join-Path $PSScriptRoot 'lib\Common.ps1')
 . (Join-Path $PSScriptRoot 'lib\Checks.ps1')
 . (Join-Path $PSScriptRoot 'lib\AI.ps1')
@@ -315,7 +318,7 @@ $script:HostBadgerVersion = '1.8'
 Write-Host @'
      _.--""--._
    .'  |    |  '.
-  /    |    |    \      HostBadger v1.8
+  /    |    |    \      HostBadger v2.0
  |  (o)|    |(o)  |     Windows host hardening
  |     |    |     |     read-only snapshots, offline analysis
   \    '.__.'    /
@@ -390,7 +393,8 @@ $aiStep = {
 # menu asks about the AI summary once the report is out, without analyzing again). Never on disk.
 if ($AiContinue) {
     $st = $global:HostBadgerAiPending
-    $global:HostBadgerAiPending = $null
+    # A dry run leaves the analysis for a send (the window offers both); a send uses it up.
+    if (-not $AiDryRun -or $SendToAI) { $global:HostBadgerAiPending = $null }
     if (-not $st) { Write-Host 'No analysis kept for the AI step in this session: run the analysis again with -SendToAI or -AiDryRun.' -ForegroundColor Yellow; return }
     $active = $st.Active; $hosts = $st.Hosts; $latest = $st.Latest; $comparison = $st.Comparison; $split = $st.Split; $config = $st.Config
     $remInfo = $st.Remediation; $elapsedText = $st.ElapsedText; $htmlFull = $st.HtmlFull; $OutHtml = $st.OutHtml
@@ -769,9 +773,9 @@ try {
     $htmlFull = [System.IO.Path]::GetFullPath($OutHtml)
     [System.IO.File]::WriteAllText($htmlFull, $html, (New-Object System.Text.UTF8Encoding($false)))
 
-    # One report per host, next to the fleet report: <name>_<HOST>.html
+    # One report per host, next to the fleet report: <name>_<HOST>.html (with one host it would be a copy).
     $perHostFiles = @()
-    if ($PerHost) {
+    if ($PerHost -and $hosts.Count -gt 1) {
         $base = $htmlFull -replace '\.html?$', ''
         foreach ($h in $hosts) {
             $hn = $h.Name
