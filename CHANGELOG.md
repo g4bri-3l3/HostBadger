@@ -62,15 +62,78 @@ new major if the snapshot or the JSON Lines format ever breaks.
   and other preinstalled games, common third-party apps (Adobe Photoshop
   Express, Amazon, Duolingo, Flipboard, LinkedIn, Shazam, WinZip, PicsArt),
   and the Dell and Samsung extras (never their update or settings tools).
+- The window has two tabs, Analyze and **Results**. Results shows the
+  findings of the last report (or of an earlier one) from the CSV next to it:
+  the categories with their counts and the colour of their worst finding, a
+  table sorted by severity, and the details of the finding chosen (what was
+  found, the value on the host and the one expected, why it matters, how an
+  attacker uses it, how to fix it, CIS rule, MITRE ATT&CK, the fix script of
+  the host). Filters: host, search (Ctrl+F), severity, CIS-based and DISA
+  STIG. It opens by itself after an analysis, on an **Overview**: a score
+  badge (the lowest host, or the one chosen), the hosts with score and grade,
+  findings by severity and checks not evaluated, the details of one host (OS,
+  EDR, programs, missing-updates source, why each check was not evaluated),
+  CIS-based and STIG pass rates, Essential Eight maturity, NIS2 ACN measures,
+  the comparison with an earlier run, accepted exceptions, fix scripts and the
+  AI summary.
+- The HTML report carries those figures as a JSON block
+  (`<script type="application/json" id="hostbadger-summary">`, never run by
+  the browser), so the window reads them from any report written from now on.
+- Window: **Fix this machine** is its own button, next to Analyze, usable
+  whatever source is chosen; Analyze never changes anything, and "Write the
+  fix scripts with each analysis" writes one script per host for the other
+  hosts. Without administrator rights it offers to restart as administrator.
+- Three checks (170): `printer_drivers_by_users` (CIS 2.3.4.1, AddPrinterDrivers
+  = 0) and `network_credentials_stored` (CIS 2.3.10.4, DisableDomainCreds = 0),
+  both judged only when the value is set and both with a fix script, and
+  `controlled_folder_access_off` (Defender Controlled Folder Access off or
+  auditing, workstations, Low; not judged when Defender is passive). The
+  collector reads AddPrinterDrivers, DisableDomainCreds and
+  EnableControlledFolderAccess.
+- Remediation profiles (146 items): Recommended stops saving network passwords (CIS
+  2.3.10.4); Strict adds only administrators installing printer drivers (CIS
+  2.3.4.1), Controlled Folder Access, no DLLs loaded from a network current
+  folder (CWDIllegalInDllSearch = 2), strong cryptography for .NET Framework 4,
+  no 8.3 short names, outbound blocks for cmstp, msiexec, rundll32 and
+  powershell_ise, .wsc, .scr, .chm, .iqy and .slk files opened as text, Chrome
+  site isolation, no going past certificate errors in Edge, and in privacy the
+  activity history, settings sync, web results in Windows Search and the
+  Firefox default browser agent turned off. Debloat lists HP's promotional
+  apps (JumpStart, WorkWell, QuickDrop).
+- Window and report summary: DISA STIG compliance by product (per host in
+  the summary JSON, `stig`), shown in the overview for one host or all.
 
 ### Changed
 - The browser extensions catalog is called "Malicious browser extensions" in
   the guided menu.
+- The window adds what a run prints to the log once per refresh instead of
+  line by line (an analysis with the STIG rules prints thousands of lines),
+  fits the work area of a small screen, and wraps the encryption choices and
+  the missing-updates label instead of cutting them at the edge of the card.
 
 ### Fixed
 - `-PerHost` with a single host wrote a second report identical to the main
   one. It now writes the per-host reports only when there are two hosts or
   more.
+- Window: a snapshot encrypted with a certificate was refused with "type their
+  password first"; only a password-encrypted one needs a password now. The AI
+  buttons on an earlier report asked nothing for a password-encrypted
+  snapshot, and the analysis failed on the password prompt the window cannot
+  show.
+- Window: a report name typed without `.html` made the JSON Lines file the
+  same file as the report; `.html` is added.
+- Window: closing it while a step ran stopped the step without a word, the
+  fixes halfway included; it now asks first.
+- Window: "Show the DISA STIG findings" stayed editable at the start when the
+  STIG rules were off in the saved settings.
+- Window: Restart as administrator opened the new window in System32
+  (`-Verb RunAs` ignores the working folder), where it found neither the
+  settings nor the kept catalogs: the catalogs fell back to "Not used". The
+  folder now goes as `-StartIn`, as in the guided menu, and the choices of
+  the form are saved before the restart.
+- Window: "One report per host" was greyed out unless a folder was chosen.
+  It is always available: the analysis writes the per-host reports only when
+  there are two hosts or more.
 
 ## [1.8] - 2026-10-23
 ### Added

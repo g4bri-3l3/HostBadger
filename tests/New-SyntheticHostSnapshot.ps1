@@ -171,7 +171,7 @@ $s = [ordered]@{
         os = [ordered]@{ caption = 'Microsoft Windows Server 2022 Standard'; version = '10.0.20348'; build = 20348; ubr = 4171; displayVersion = '21H2'; editionId = 'ServerStandard'; productType = 3; architecture = '64-bit'; installDateUtc = '2024-02-01T10:00:00Z'; lastBootUtc = '2026-09-20T03:00:00Z' }
     }
     patches              = [ordered]@{ hotfixes = @([ordered]@{ id = 'KB5065306'; description = 'Security Update'; installedOnUtc = '2026-09-10T00:00:00Z' }); lastUpdateInstalledUtc = '2026-09-10T03:12:00Z'; rebootPending = [ordered]@{ cbs = $false; windowsUpdate = $false } }
-    defender             = [ordered]@{ present = $true; amRunningMode = 'Normal'; amServiceEnabled = $true; antivirusEnabled = $true; realTimeProtectionEnabled = $true; behaviorMonitorEnabled = $true; ioavProtectionEnabled = $true; isTamperProtected = $true; signatureUpdatedUtc = '2026-09-30T22:00:00Z'; exclusionsReadable = $true; exclusionPaths = @(); exclusionExtensions = @(); exclusionProcesses = @(); asrRules = $allAsr; puaProtection = 1; networkProtection = 1; mapsReporting = 2; disableBlockAtFirstSeen = $false; disableScriptScanning = $false }
+    defender             = [ordered]@{ present = $true; amRunningMode = 'Normal'; amServiceEnabled = $true; antivirusEnabled = $true; realTimeProtectionEnabled = $true; behaviorMonitorEnabled = $true; ioavProtectionEnabled = $true; isTamperProtected = $true; signatureUpdatedUtc = '2026-09-30T22:00:00Z'; exclusionsReadable = $true; exclusionPaths = @(); exclusionExtensions = @(); exclusionProcesses = @(); asrRules = $allAsr; puaProtection = 1; networkProtection = 1; controlledFolderAccess = 1; mapsReporting = 2; disableBlockAtFirstSeen = $false; disableScriptScanning = $false }
     bitlocker            = [ordered]@{ featureInstalled = $true; volumes = @([ordered]@{ mountPoint = 'C:'; volumeType = 'OperatingSystem'; protectionStatus = 'On'; volumeStatus = 'FullyEncrypted'; encryptionMethod = 'XtsAes256'; keyProtectors = @('Tpm', 'RecoveryPassword') }) }
     boot                 = [ordered]@{ secureBootEnabled = $true; firmware = 'UEFI' }
     credentialProtection = [ordered]@{ runAsPPL = 2; lsaCfgFlags = 1; credentialGuardRunning = $true; hvciRunning = $true; vbsStatus = 2; wdigestUseLogonCredential = 0; cachedLogonsCount = '1'; lmCompatibilityLevel = 5; noLmHash = 1; restrictAnonymous = 1; restrictAnonymousSam = 1 }
@@ -225,7 +225,7 @@ $s = [ordered]@{
         lolbinOutboundBlocks = @(foreach ($l in 'certutil.exe', 'mshta.exe', 'wscript.exe', 'cscript.exe', 'regsvr32.exe', 'wmic.exe', 'bitsadmin.exe') { [ordered]@{ program = $l; store = 'gpo' } })
         removableStorage = [ordered]@{ denyAll = $null; disksDenyRead = $null; disksDenyWrite = $null; disksDenyExecute = 1 }
         eventLogs = @([ordered]@{ name = 'Application'; maxSizeBytes = 33554432 }, [ordered]@{ name = 'System'; maxSizeBytes = 33554432 })
-        mrxsmb10Start = 4; disableExceptionChainValidation = 0; safeDllSearchMode = 1
+        mrxsmb10Start = 4; disableExceptionChainValidation = 0; safeDllSearchMode = 1; addPrinterDrivers = 1; disableDomainCreds = 1
         ipStack = [ordered]@{ disableIpSourceRoutingV4 = 2; disableIpSourceRoutingV6 = 2; enableIcmpRedirect = 0 }
         # Essential Eight: WDAC enforced, .NET 3.5 off, no IE11, Remote Credential Guard required and
         # accepted, Office macros locked down by policy in the one loaded profile.
@@ -362,7 +362,7 @@ switch ($Scenario) {
             subcategories = @($allAudit | ForEach-Object { $v = if ($_[1] -in @('Logon', 'Credential Validation')) { 1 } else { 0 }; Audit $_[0] $v $_[1] }) }
         $s.defender.puaProtection = 0
         $s.defender.behaviorMonitorEnabled = $false; $s.defender.mapsReporting = 0
-        $s.defender.networkProtection = 0
+        $s.defender.networkProtection = 0; $s.defender.controlledFolderAccess = 2
         $s.credentialProtection.restrictAnonymous = 0
         $s.powershell.transcription = $null
         $sa = $s.securityPolicy.systemAccess
@@ -392,7 +392,7 @@ switch ($Scenario) {
         $hd.eventLogs = @([ordered]@{ name = 'Application'; maxSizeBytes = 20971520 }, [ordered]@{ name = 'System'; maxSizeBytes = 20971520 })
         $hd.schannel = [ordered]@{ protocols = @($schannelClean.protocols | ForEach-Object { if ($_.name -eq 'TLS 1.0' -and $_.side -eq 'Server') { [ordered]@{ name = $_.name; side = $_.side; enabled = 1 } } elseif ($_.name -eq 'SSL 3.0' -and $_.side -eq 'Client') { [ordered]@{ name = $_.name; side = $_.side; enabled = -1 } } else { $_ } }); ciphers = @($schannelClean.ciphers | ForEach-Object { if ($_.name -eq 'RC4 128/128') { [ordered]@{ name = $_.name; enabled = -1 } } else { $_ } }) }
         $hd.pointAndPrint = [ordered]@{ restrictDriverInstallToAdmins = 0; noWarningNoElevationOnInstall = 1; noWarningNoElevationOnUpdate = $null }
-        $hd.mrxsmb10Start = 2; $hd.disableExceptionChainValidation = 1; $hd.safeDllSearchMode = 0
+        $hd.mrxsmb10Start = 2; $hd.disableExceptionChainValidation = 1; $hd.safeDllSearchMode = 0; $hd.addPrinterDrivers = 0; $hd.disableDomainCreds = 0
         $hd.ipStack = [ordered]@{ disableIpSourceRoutingV4 = 0; disableIpSourceRoutingV6 = 1; enableIcmpRedirect = 1 }
         # DISA STIG: Defender, firewall and browser policies not configured (Windows 10: three of its own STIG rules, none of the Windows 11 ones), a few Office user policies missing.
         $wm = $stigMachine
@@ -560,7 +560,7 @@ switch ($Scenario) {
             [ordered]@{ section = 'localAccounts.administrators'; message = 'Access is denied' },
             [ordered]@{ section = 'securityPolicy'; message = 'secedit failed (1, administrator or SYSTEM needed): Access is denied' })
         $s.host.os = [ordered]@{ caption = 'Microsoft Windows 11 Enterprise'; version = '10.0.26100'; build = 26100; ubr = 6584; displayVersion = '24H2'; editionId = 'Enterprise'; productType = 1; architecture = '64-bit'; installDateUtc = '2025-01-10T09:00:00Z'; lastBootUtc = '2026-09-28T07:00:00Z' }
-        $s.defender = [ordered]@{ present = $true; amRunningMode = 'Passive Mode'; amServiceEnabled = $true; antivirusEnabled = $false; realTimeProtectionEnabled = $false; behaviorMonitorEnabled = $false; ioavProtectionEnabled = $false; isTamperProtected = $false; signatureUpdatedUtc = '2026-07-01T00:00:00Z'; exclusionsReadable = $false; exclusionPaths = @(); exclusionExtensions = @(); exclusionProcesses = @(); asrRules = @(); puaProtection = 0; networkProtection = 0 }
+        $s.defender = [ordered]@{ present = $true; amRunningMode = 'Passive Mode'; amServiceEnabled = $true; antivirusEnabled = $false; realTimeProtectionEnabled = $false; behaviorMonitorEnabled = $false; ioavProtectionEnabled = $false; isTamperProtected = $false; signatureUpdatedUtc = '2026-07-01T00:00:00Z'; exclusionsReadable = $false; exclusionPaths = @(); exclusionExtensions = @(); exclusionProcesses = @(); asrRules = @(); puaProtection = 0; networkProtection = 0; controlledFolderAccess = 0 }
         $s.stig = Get-StigSection $stigMachine $stigUser ([ordered]@{ edge = $true; chrome = $true; firefox = $true; office = $true }) 'win11'
         $s.bitlocker = $null
         $s.audit = $null

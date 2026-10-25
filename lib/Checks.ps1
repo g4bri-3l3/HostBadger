@@ -278,6 +278,10 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Everyone permissions apply to anonymous users'
         Description = 'EveryoneIncludesAnonymous = 1 makes the Everyone group include anonymous (not logged on) users, so any share or file open to Everyone is open to anyone on the network.'
         Remediation = 'Set "Network access: Let Everyone permissions apply to anonymous users" to Disabled.' }
+    network_credentials_stored = @{ Category = 'Credential Protection'; Severity = 'Low'; Mitre = 'T1555.004'; Cis = '2.3.10.4 (L1)'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'Network passwords may be saved in Credential Manager'
+        Description = 'DisableDomainCreds is set to 0, so Credential Manager keeps the passwords and credentials users save for network authentication (mapped drives, remote desktop, web sites using Windows authentication). An attacker running as that user, or as administrator, reads them back in clear. Judged only when the value is set.'
+        Remediation = 'Set "Network access: Do not allow storage of passwords and credentials for network authentication" to Enabled (DisableDomainCreds = 1). Saved credentials stop working: users type the password, or single sign-on covers it.' }
     blank_password_network_logon = @{ Category = 'Local Accounts'; Severity = 'Medium'; Mitre = 'T1078.003'; Cis = '2.3.1.3 (L1)'; Needs = @('hardening'); Roles = $script:AllRoles
         Title = 'Blank passwords allowed outside the console'
         Description = 'LimitBlankPasswordUse = 0 lets local accounts with an empty password log on over the network (SMB, RDP, remote tools), not just at the keyboard.'
@@ -378,6 +382,10 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Defender blocking of potentially unwanted apps off'
         Description = 'PUA protection is not in block mode, so adware, bundlers and unwanted tools are not stopped.'
         Remediation = 'Enable PUA protection (Intune, Group Policy or Set-MpPreference -PUAProtection Enabled).' }
+    controlled_folder_access_off = @{ Category = 'Antivirus'; Severity = 'Low'; Mitre = 'T1486'; Needs = @('defender', 'defender.preferences'); Roles = @('workstation')
+        Title = 'Defender Controlled Folder Access off'
+        Description = 'Controlled Folder Access is off or only auditing, so any program the user runs can encrypt or overwrite the documents, pictures and desktop folders: the ransomware protection of Microsoft Defender is not used. Not in the CIS benchmark (an opinionated setting: some legitimate programs need to be allowed first). Workstations only, Low.'
+        Remediation = 'Turn Controlled Folder Access on in audit mode, allow the programs that the audit events (Microsoft-Windows-Windows Defender/Operational, event 1124) show, then block (Intune, Group Policy or Set-MpPreference -EnableControlledFolderAccess Enabled). The Strict remediation profile turns it on.' }
     # ---------------- EDR / endpoint protection agent ----------------
     edr_agent_stopped = @{ Category = 'Antivirus'; Severity = 'High'; Mitre = 'T1562.001'; Needs = @('services'); Roles = $script:AllRoles
         Title = 'EDR agent installed but not running'
@@ -549,6 +557,10 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Point and Print allows driver installation without elevation'
         Description = 'The Point and Print policy lets standard users install printer drivers (RestrictDriverInstallationToAdministrators = 0) or suppresses the elevation prompt (NoWarningNoElevationOnInstall / NoWarningNoElevationOnUpdate = 1). That is the PrintNightmare condition: a standard user gets code running as SYSTEM through a driver.'
         Remediation = 'Set RestrictDriverInstallationToAdministrators = 1 and remove the NoWarningNoElevation values (Group Policy: Point and Print Restrictions, "Show warning and elevation prompt").' }
+    printer_drivers_by_users = @{ Category = 'Privilege Escalation'; Severity = 'Low'; Mitre = 'T1068'; Cis = '2.3.4.1 (L2)'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'Users may install printer drivers'
+        Description = 'AddPrinterDrivers is set to 0, so a standard user may add a printer driver when connecting to a shared printer: a driver runs in the print spooler as SYSTEM, the way the PrintNightmare attacks took over hosts. Judged only when the value is set; Point and Print restrictions are judged on their own.'
+        Remediation = 'Set "Devices: Prevent users from installing printer drivers" to Enabled (AddPrinterDrivers = 1).' }
 
     # ---------------- ACSC Essential Eight requirements a host shows ----------------
     app_control_not_enforced = @{ Category = 'System Hardening'; Severity = 'Medium'; Mitre = 'T1204.002'; Needs = @('hardening', 'services'); Roles = $script:AllRoles
@@ -754,6 +766,7 @@ $script:CheckAttacks = [ordered]@{
     defender_exclusion = 'Defense evasion: an attacker drops tools or payloads in the excluded folder, file type or process, and Defender does not scan them; the exclusion list itself tells an attacker where to hide.'
     defender_network_protection_off = 'Malicious connections are not blocked: users and malware reach phishing pages, exploit sites and command-and-control servers that Defender SmartScreen reputation would stop.'
     defender_protection_features_off = 'Defense evasion: with behavior monitoring, cloud protection or scanning of downloads and scripts off, new and fileless malware runs without being detected.'
+    controlled_folder_access_off = 'Ransomware encrypts the user''s files: nothing stops an unknown program from rewriting the documents, pictures and desktop folders.'
     defender_pua_off = 'Unwanted software runs: adware, bundled installers, crypto miners and remote-access tools that Defender would block as potentially unwanted are installed and run.'
     defender_realtime_off = 'Malware runs unchecked: files are not scanned when they are written or run, so any payload an attacker brings executes without detection.'
     defender_server_baseline_gaps = 'Easier evasion on servers: local users can read the Defender exclusion list to know where to hide, and quick scans skip excluded paths an attacker may use.'
@@ -765,6 +778,8 @@ $script:CheckAttacks = [ordered]@{
     edr_expected_missing = 'Blind spot: the host lacks the agent your organization relies on for detection and response, so attacker activity there goes unseen.'
     edr_not_found = 'Blind spot: nothing on the host detects or responds to attacker activity beyond basic antivirus.'
     event_logs_small = 'Lost evidence: the logs roll over quickly, so traces of an intrusion are overwritten before anyone investigates.'
+    network_credentials_stored = 'Credential theft: passwords saved for file shares, remote desktop and web sites are read back from Credential Manager by malware running as the user, then reused on other hosts.'
+    printer_drivers_by_users = 'Kernel code from a standard user: a user who may add a printer driver can load a vulnerable or malicious driver (the PrintNightmare family of attacks) and take over the host.'
     everyone_includes_anonymous = 'Anonymous access: resources open to Everyone (shares, pipes, registry keys) become reachable by unauthenticated attackers on the network.'
     explorer_motw_bypass = 'Phishing payload execution: files copied from insecure locations lose the Mark of the Web, so SmartScreen, Office Protected View and macro blocking do not apply to them.'
     firewall_default_inbound_allow = 'Remote exploitation and lateral movement: every service listening on the host is reachable from the network, including ones nobody meant to expose.'
@@ -2238,7 +2253,7 @@ function Invoke-HostChecks {
     # its checks say nothing about this host.
     $d = $Snapshot.defender
     if ($d -and $d.amRunningMode -and "$($d.amRunningMode)" -notmatch '(?i)^normal$') {
-        foreach ($t in @('defender_realtime_off', 'defender_tamper_off', 'defender_signatures_stale', 'defender_exclusion', 'asr_standard_rules_missing', 'defender_network_protection_off', 'defender_pua_off', 'stig_defender', 'asr_other_rules_not_blocking', 'defender_protection_features_off', 'defender_server_baseline_gaps')) {
+        foreach ($t in @('defender_realtime_off', 'defender_tamper_off', 'defender_signatures_stale', 'defender_exclusion', 'asr_standard_rules_missing', 'defender_network_protection_off', 'defender_pua_off', 'controlled_folder_access_off', 'stig_defender', 'asr_other_rules_not_blocking', 'defender_protection_features_off', 'defender_server_baseline_gaps')) {
             $extra[$t] = "Microsoft Defender Antivirus runs in '$($d.amRunningMode)': another antivirus is primary, check that product"
         }
     }
@@ -3127,6 +3142,10 @@ function Invoke-BaselineChecks {
             $v = & $n $pp.noWarningNoElevationOnUpdate
             if ($v -eq 1) { Add-Finding -Type 'print_point_and_print_weak' -Object 'NoWarningNoElevationOnUpdate' -Severity 'High' -Found '1' -Expected '0 or not set' -Detail 'NoWarningNoElevationOnUpdate = 1: updating a driver from a print server needs no elevation.' }
         }
+        $v = & $n $h.addPrinterDrivers
+        if ((& $can 'printer_drivers_by_users') -and $v -eq 0) { Add-Finding -Type 'printer_drivers_by_users' -Object 'AddPrinterDrivers' -Detail 'AddPrinterDrivers = 0 (CIS 2.3.4.1 expects 1).' }
+        $v = & $n $h.disableDomainCreds
+        if ((& $can 'network_credentials_stored') -and $v -eq 0) { Add-Finding -Type 'network_credentials_stored' -Object 'DisableDomainCreds' -Detail 'DisableDomainCreds = 0 (CIS 2.3.10.4 expects 1).' }
         $v = & $n $h.mrxsmb10Start
         if ((& $can 'smb1_client_driver_enabled') -and $null -ne $v -and $v -ne 4) { Add-Finding -Type 'smb1_client_driver_enabled' -Object 'mrxsmb10 driver' -Detail "Start = $v (CIS 18.4.3 expects 4, disabled)." }
         if ((& $can 'ip_stack_hardening_gaps') -and $h.ipStack) {
@@ -3232,6 +3251,11 @@ function Invoke-BaselineChecks {
     if ($d -and (& $can 'defender_pua_off') -and $null -ne $d.puaProtection -and "$($d.puaProtection)" -ne '1') {
         $word = @{ '0' = 'disabled'; '2' = 'audit only' }["$($d.puaProtection)"]
         Add-Finding -Type 'defender_pua_off' -Object 'PUA protection' -Detail "PUA protection is $(if ($word) { $word } else { "set to $($d.puaProtection)" }) (CIS 18.10.42.16 expects enabled)."
+    }
+    # 1 blocks; 3 blocks disk changes only, 2 and 4 audit. Snapshots before 2.0 have no value.
+    if ($d -and (& $can 'controlled_folder_access_off') -and $null -ne $d.controlledFolderAccess -and "$($d.controlledFolderAccess)" -ne '1') {
+        $word = @{ '0' = 'disabled'; '2' = 'audit only'; '3' = 'blocking disk changes only'; '4' = 'auditing disk changes only' }["$($d.controlledFolderAccess)"]
+        Add-Finding -Type 'controlled_folder_access_off' -Object 'Controlled Folder Access' -Found $(if ($word) { $word } else { "$($d.controlledFolderAccess)" }) -Expected 'enabled (block)' -Detail "Controlled Folder Access is $(if ($word) { $word } else { "set to $($d.controlledFolderAccess)" })."
     }
     if (& $can 'service_should_be_disabled') {
         foreach ($svc in @($S.services | Where-Object { $_ })) {
@@ -3343,6 +3367,7 @@ $script:BloatwareApps = @(
     @{ Label = 'Prime Video'; Appx = '^AmazonVideo\.PrimeVideo$' }
     @{ Label = 'Netflix'; Appx = '^4DF9E0F8\.Netflix$' }
     @{ Label = 'McAfee (trial)'; Appx = '^5A894077\.McAfeeSecurity$'; Program = '^McAfee (LiveSafe|Total Protection|Security Scan|WebAdvisor|Safe Connect)\b' }
+    @{ Label = 'HP promotional apps (JumpStart, WorkWell, QuickDrop)'; Appx = '^AD2F1837\.(HPJumpStarts|HPWorkWell|HPQuickDrop)$' }
     @{ Label = 'Norton (trial)'; Program = '^Norton (Security|360|Security Ultra|AntiVirus)\b' }
     @{ Label = 'WildTangent Games'; Program = '^WildTangent\b' }
 )

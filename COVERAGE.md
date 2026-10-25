@@ -1,6 +1,6 @@
 # HostBadger coverage
 
-Every check in `lib\Checks.ps1`, generated from the catalog (167 checks, of which 13 cover the 1475 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
+Every check in `lib\Checks.ps1`, generated from the catalog (170 checks, of which 13 cover the 1475 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
 
 The CIS column gives the rule number in the *CIS Microsoft Windows 11 Enterprise Benchmark v3.0.0* and its profile level (L1 corporate, L2 high security); the descriptions are HostBadger's own. A check is a read-only comparison of the host's setting with the rule; it is not a certification of conformity, and the benchmark covers many more settings (most of the administrative templates, for instance) than HostBadger reads. On Windows 10 and on Windows Server 2022, 2019 and 2016 the findings quote the same setting in that version's CIS benchmark instead (Windows 10 Enterprise v3.0.0, Server 2022 and 2019 v4.0.0, Server 2016 v3.0.0). Checks marked *Server* follow a rule that only the server benchmarks have.
 
@@ -20,6 +20,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `ntlm_min_session_security_weak` | Low | T1557.001 | 2.3.11.9, 2.3.11.10 (L1) | W, S, DC | yes | NTLM session security below NTLMv2 with 128-bit encryption |
 | `anonymous_shares_enum` | Low | T1135 | 2.3.10.3 (L1) | W, S, DC | yes | Anonymous enumeration of accounts and shares allowed |
 | `everyone_includes_anonymous` | Medium | T1087 | 2.3.10.5 (L1) | W, S, DC | yes | Everyone permissions apply to anonymous users |
+| `network_credentials_stored` | Low | T1555.004 | 2.3.10.4 (L1) | W, S, DC | yes | Network passwords may be saved in Credential Manager |
 | `autologon_enabled` | Medium | T1552.002 | 18.5.1 (L1) | W, S, DC | no | Automatic logon configured |
 | `lsa_weak_auth_options` | Medium | T1557 | 2.3.11.2, 2.3.11.3 (L1) | W, S, DC | yes | LocalSystem NULL session fallback or PKU2U online identities allowed |
 | `hvci_off` | Low | T1068 |  | W, S | no | Memory integrity (HVCI) not running |
@@ -44,6 +45,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `smartscreen_off` | Medium | T1204 | 18.10.75.2.1 (L1) | W, S, DC | yes | Microsoft Defender SmartScreen turned off by policy |
 | `defender_network_protection_off` | Medium | T1189 | 18.10.42.6.3.1 (L1) | W, S, DC | yes | Defender Network Protection not enabled |
 | `defender_pua_off` | Low | T1204.002 | 18.10.42.16 (L1) | W, S, DC | yes | Defender blocking of potentially unwanted apps off |
+| `controlled_folder_access_off` | Low | T1486 |  | W | no | Defender Controlled Folder Access off |
 | `edr_agent_stopped` | High | T1562.001 |  | W, S, DC | no | EDR agent installed but not running |
 | `edr_expected_missing` | High | T1562.001 |  | W, S, DC | no | Expected EDR agent not found |
 | `edr_not_found` | Low | T1562.001 |  | W, S, DC | no | No EDR or endpoint protection agent found |
@@ -145,6 +147,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `service_path_ancestor_control` | Medium | T1574.010 |  | W, S, DC | no | Service program under a folder that a non-administrator controls |
 | `service_permissions_weak` | High | T1543.003 |  | W, S, DC | no | Service permissions let non-administrators change or delete it |
 | `print_point_and_print_weak` | Medium | T1068 | 18.7.8, 18.7.10, 18.7.11 (L1) | W, S, DC | no | Point and Print allows driver installation without elevation |
+| `printer_drivers_by_users` | Low | T1068 | 2.3.4.1 (L2) | W, S, DC | yes | Users may install printer drivers |
 
 ## Persistence
 

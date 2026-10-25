@@ -36,7 +36,7 @@ foreach ($k in @(
         'powershell_scriptblock_logging_off', 'powershell_transcription_off', 'cmdline_audit_off', 'sehop_disabled', 'safe_dll_search_off',
         'ip_stack_hardening_gaps', 'rdp_policy_gaps', 'rdp_nla_disabled', 'cached_logons_high', 'guest_enabled', 'defender_realtime_off',
         'defender_pua_off', 'defender_network_protection_off', 'firewall_profile_disabled', 'firewall_default_inbound_allow', 'firewall_drop_logging_off', 'firewall_notifications_on', 'dc_netlogon_policy_weak', 'server_baseline_gaps', 'driver_blocklist_off', 'mdns_enabled',
-        'powershell_v2_enabled', 'spooler_on_dc', 'script_files_execute_on_open')) { $script:FixTypes[$k] = $true }
+        'powershell_v2_enabled', 'spooler_on_dc', 'script_files_execute_on_open', 'network_credentials_stored', 'printer_drivers_by_users')) { $script:FixTypes[$k] = $true }
 
 # The fixes for one finding, as data. Kind is reg, smb, mp, fw, feature, user or service. Two
 # renderings come from it: the lines of the per-host script (with rollback) and the plain PowerShell
@@ -78,6 +78,8 @@ function Get-RemediationActions {
         'anonymous_sam_enum' { & $reg $lsa 'RestrictAnonymousSAM' 1 }
         'anonymous_shares_enum' { & $reg $lsa 'RestrictAnonymous' 1 }
         'everyone_includes_anonymous' { & $reg $lsa 'EveryoneIncludesAnonymous' 0 }
+        'network_credentials_stored' { & $reg $lsa 'DisableDomainCreds' 1 }
+        'printer_drivers_by_users' { & $reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Print\Providers\LanMan Print Services\Servers' 'AddPrinterDrivers' 1 }
         'blank_password_network_logon' { & $reg $lsa 'LimitBlankPasswordUse' 1 }
         'force_guest_sharing_model' { & $reg $lsa 'ForceGuest' 0 }
         'smb_plaintext_password' { & $reg $wks 'EnablePlainTextPassword' 0 }

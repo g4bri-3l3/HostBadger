@@ -83,7 +83,7 @@ $allowed = [ordered]@{
     'Optional AI step only (lib\AI.ps1 waits between retries; the entry points ask questions)' = @('Start-Sleep', 'Read-Host')
     'Guided menu only, "Remediate this machine" after YES (Start-HostBadger.ps1): restore point (System Protection turned on when it is off and the user agrees), preinstalled apps, restart after YES' = @('Checkpoint-Computer', 'Enable-ComputerRestore', 'Restart-Computer', 'Get-AppxPackage', 'Get-AppxProvisionedPackage', 'Remove-AppxPackage', 'Remove-AppxProvisionedPackage')
     'Guided menu only: open the finished report with the default program for .html, after asking' = @('Invoke-Item')
-    'Guided menu only: restart itself as administrator after asking (Windows confirms with UAC), back in the same folder' = @('Start-Process', 'Set-Location')
+    'Guided menu and window only: restart itself as administrator after asking (Windows confirms with UAC), back in the same folder' = @('Start-Process', 'Set-Location')
     'Window only (Start-HostBadgerGui.ps1): update a git clone of HostBadger after asking (git fetch, compare, pull --ff-only from its own origin)' = @('git')
     'Entry points only (HostBadger.ps1, Start-HostBadger.ps1): the run log, a transcript of what the run prints, in the output folder' = @('Start-Transcript', 'Stop-Transcript')
     'Data handling' = @('ConvertTo-Json', 'ConvertFrom-Json', 'ConvertFrom-Csv', 'Select-Object', 'Where-Object', 'ForEach-Object', 'Sort-Object', 'Group-Object', 'Measure-Object', 'New-Object', 'Add-Member')
@@ -95,9 +95,9 @@ $changeVerbs = '^(Set|New|Remove|Add|Enable|Disable|Clear|Start|Stop|Restart|Sus
 $ownFileCommands = @('new-item', 'remove-item', 'set-content', 'new-object', 'add-member', 'add-type')
 # Commands that exist only for the optional AI step, and the one file each of them may appear in.
 $restrictedCommands = @{ 'start-sleep' = @('lib/AI.ps1'); 'read-host' = @('HostBadger.ps1', 'Start-HostBadger.ps1') }
-foreach ($c in 'checkpoint-computer', 'enable-computerrestore', 'restart-computer', 'get-appxpackage', 'get-appxprovisionedpackage', 'remove-appxpackage', 'remove-appxprovisionedpackage', 'set-location') { $restrictedCommands[$c] = @('Start-HostBadger.ps1') }
+foreach ($c in 'checkpoint-computer', 'enable-computerrestore', 'restart-computer', 'get-appxpackage', 'get-appxprovisionedpackage', 'remove-appxpackage', 'remove-appxprovisionedpackage') { $restrictedCommands[$c] = @('Start-HostBadger.ps1') }
 # The window opens the report and restarts itself elevated like the menu; only it updates HostBadger.
-foreach ($c in 'invoke-item', 'start-process') { $restrictedCommands[$c] = @('Start-HostBadger.ps1', 'Start-HostBadgerGui.ps1') }
+foreach ($c in 'invoke-item', 'start-process', 'set-location') { $restrictedCommands[$c] = @('Start-HostBadger.ps1', 'Start-HostBadgerGui.ps1') }
 $restrictedCommands['git'] = @('Start-HostBadgerGui.ps1')
 foreach ($c in 'start-transcript', 'stop-transcript') { $restrictedCommands[$c] = @('HostBadger.ps1', 'Start-HostBadger.ps1') }
 $bannedCommands = @('Invoke-Expression', 'iex','Invoke-WebRequest', 'Invoke-RestMethod', 'iwr', 'irm', 'curl', 'wget', 'Start-Job',

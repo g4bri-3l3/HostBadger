@@ -22,7 +22,7 @@ is weak. It works in two steps. A single PowerShell script takes a
 Lines for a SIEM. Hand it one snapshot or a folder with hundreds and you get
 the whole fleet in one report, or one report per host.
 
-- **167 checks** and about 1,600 settings: 154 hand-written checks plus 1475 DISA
+- **170 checks** and about 1,600 settings: 157 hand-written checks plus 1475 DISA
   STIG registry rules, with the CIS Windows 11 benchmark as the baseline, and
   the drivers matched against 2,198 known vulnerable or malicious driver files
   (LOLDrivers).
@@ -215,8 +215,8 @@ should.
   previewed by default, with a rollback file. The analyzer never runs them;
   the guided menu can apply this machine's own script after showing it and
   asking for YES (menu 6), and put the values back (menu 7); the window does
-  the same with "Fix what the analysis finds" on this machine, after a preview
-  and a warning.
+  the same with its **Fix this machine** button, after a preview and a
+  warning.
 - **Remediation profiles** (`-RemediationProfile Essential | Recommended |
   Strict`): a ready-made hardening level on top of the fixes of the findings,
   each setting quoting its CIS rule or Essential Eight requirement, from
@@ -231,8 +231,9 @@ should.
   step and the safety review, with **global settings** (menu 8) that save the
   answers a run would ask every time.
 - **Window** (`Start-HostBadgerGui.ps1`): the same steps as a form in the
-  style of the report, with links to everything a run wrote and a check for a
-  newer HostBadger on GitHub (and `git pull --ff-only` in a git clone).
+  style of the report, the findings of a report browsable by category in a
+  Results tab, links to everything a run wrote and a check for a newer
+  HostBadger on GitHub (and `git pull --ff-only` in a git clone).
 - **Logs**: every analysis writes `<report>.log` next to the report (the
   settings of the run, then everything it printed), and every menu session
   `output\hostbadger-menu_<time>.log` (the questions, the answers typed and
@@ -319,38 +320,47 @@ with is asked every time.
 ### The window
 
 `.\Start-HostBadgerGui.ps1` does the same as the menu in a window (WPF, part
-of Windows; nothing to install). The form is on the left, on one page:
+of Windows; nothing to install), in two tabs: **Analyze** (the form, the
+outputs and the log) and **Results** (the findings of the last report). The
+form of Analyze is on the left, on one page:
 
 - **What to analyze**: *this machine* (a read-only snapshot is collected,
   then analyzed: folder, file ACLs, missing updates naming the WSUS server or
   Microsoft Update it contacts, encryption) or *snapshots already collected*
   (it proposes the newest snapshot of the snapshot folder; File... or
   Folder... to choose others, and a folder is analyzed host by host, the
-  newest snapshot of each). One button runs it: **Collect and analyze**, or
-  **Analyze**.
-- **Report**: where to save the new report, STIG and CIS, JSON Lines, one report per host (for a folder
-  with several hosts), NIS2 ACN measures.
+  newest snapshot of each). **Collect and analyze** (or **Analyze**) runs it
+  and changes nothing.
+- **Report**: where to save the new report, STIG and CIS, JSON Lines, one
+  report per host (written only when the run has two hosts or more), NIS2 ACN
+  measures.
 - **Catalogs**: each offers the newest kept copy when there is one, the copy
   shipped with HostBadger (LOLDrivers, browser extensions, the lifecycle
   table: used offline), a download now, or not used for the catalogs
   HostBadger does not ship.
-- **Fix**: **Fix what the analysis finds** switches the section on. One level
-  (only the safe fixes of the findings, Essential, Recommended, Strict, or
-  none of them), each with what it changes, plus two independent options:
-  **Debloat** (the preinstalled apps and the unused consumer services and
-  components) and **Disable telemetry** (the privacy and telemetry settings of
-  every level). Strict includes both. On *this machine* the button becomes
-  **Collect, analyze and fix**: after the analysis the fix script is
-  previewed in the log, a warning gives the number of changes and of those
-  NOT REVERSIBLE, and only Yes applies them (administrator; System Restore
-  point first in Windows PowerShell 5.1, rollback file next to the script,
-  linked in Outputs, with the command that undoes it). For *snapshots* the
-  scripts are only written, one per host.
+- **Fix**: what the fixes change. One level (only the safe fixes of the
+  findings, Essential, Recommended, Strict, or none of them), each with what
+  it changes, plus two independent options: **Debloat** (the preinstalled
+  apps and the unused consumer services and components) and **Disable
+  telemetry** (the privacy and telemetry settings of every level). Strict
+  includes both. **Write the fix scripts with each analysis** writes one
+  script per host next to the report, nothing applied (for other hosts: run
+  each on its host). The separate **Fix this machine** button, next to
+  Analyze, collects and analyzes this machine whatever source is chosen, then
+  previews its fix script in the log; a warning gives the number of changes
+  and of those NOT REVERSIBLE, and only Yes applies them (administrator, else
+  it offers to restart as administrator; System Restore point first in
+  Windows PowerShell 5.1, rollback file next to the script, linked in
+  Outputs, with the command that undoes it).
 - **Your organization**: allowed administrators, expected EDR, approved
   remote tools and extensions, exceptions and policy files, an earlier CSV to
   compare with.
 
 The header has Settings, the **Safety review** and Check for updates.
+**Restart as administrator** reopens the window elevated in the same folder
+(Windows asks to confirm), with the settings, the kept catalogs and the
+choices of the form as they were. Closing the window while a step runs asks
+first (a fix stopped halfway leaves part of its changes).
 
 On the right, **Outputs** links the last report (and the per-host ones), its
 run log, CSV, JSON Lines, fix scripts, AI prompt and answer, the report
@@ -364,6 +374,32 @@ summary goes into; **Other report...** picks an earlier one. For a report of
 an earlier session the snapshot of the form is analyzed again in the same run
 and that report rewritten with the AI section (the summary lives in the HTML,
 and the same snapshot gives the same findings).
+
+**Results** opens by itself when an analysis is done (not when the fixes of
+this machine follow: the window stays on the log of their preview). It reads
+the CSV the analysis writes next to the report, so it works for an earlier
+report too (**Other report...**; a per-host report has no CSV, choose the
+report of the run). It opens on the **Overview**, read from a JSON block the
+report carries (`<script type="application/json" id="hostbadger-summary">`,
+never run by the browser): the score badge (the lowest of the hosts, or the
+host chosen), a table of the hosts (score and grade, findings by severity,
+checks not evaluated, when and as whom collected; a host name chooses that
+host), for one host its operating system, EDR, programs, missing-updates
+source and the checks not evaluated with the reason, then the CIS-based and
+DISA STIG pass rates, Essential Eight maturity (per host, or the lowest level
+of the fleet), the NIS2 ACN measures, the comparison with an earlier run and
+what it resolved, the accepted exceptions, the fix scripts written and the AI
+summary. A report written before HostBadger 2.0 kept that block has only the
+findings. Below the Overview the categories (Antivirus, Credential
+Protection, Software...), each with its number of findings and a square of the
+colour of its worst one; in the middle the table of the findings (sorted by
+severity, any column sorts); on the right the details of the one chosen: what
+was found, the value on the host and the one expected, why it matters, how an
+attacker uses it, how to fix it, the CIS rule, MITRE ATT&CK, and the fix
+script of that host when one was written. Above them: the host (with several),
+a search (Ctrl+F; every word must match), one box per severity with its count,
+and the CIS-based and DISA STIG findings, which start as the form shows them in
+the report. The charts stay in the HTML report (**Open the HTML report**).
 
 **Settings** holds what is the same at every run, in the same
 `output\hostbadger-settings.json` as menu 8: snapshot and report folders, the

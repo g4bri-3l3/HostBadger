@@ -620,6 +620,7 @@ $defender = Invoke-Section 'defender' {
         asrRules                  = @()
         puaProtection             = $null
         networkProtection         = $null
+        controlledFolderAccess    = $null
         mapsReporting             = $null
         disableBlockAtFirstSeen   = $null
         disableScriptScanning     = $null
@@ -641,6 +642,7 @@ $defender = Invoke-Section 'defender' {
         }
         $d.puaProtection = $p.PUAProtection
         $d.networkProtection = $p.EnableNetworkProtection
+        $d.controlledFolderAccess = $p.EnableControlledFolderAccess
         $d.mapsReporting = $p.MAPSReporting
         $d.disableBlockAtFirstSeen = $(if ($null -ne $p.DisableBlockAtFirstSeen) { [bool]$p.DisableBlockAtFirstSeen } else { $null })
         $d.disableScriptScanning = $(if ($null -ne $p.DisableScriptScanning) { [bool]$p.DisableScriptScanning } else { $null })
@@ -1608,6 +1610,9 @@ $hardening = Invoke-Section 'hardening' {
         mrxsmb10Start            = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10' 'Start'
         disableExceptionChainValidation = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel' 'DisableExceptionChainValidation'
         safeDllSearchMode        = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' 'SafeDllSearchMode'
+        # CIS 2.3.4.1 (only administrators install printer drivers) and 2.3.10.4 (no stored network credentials).
+        addPrinterDrivers        = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\Print\Providers\LanMan Print Services\Servers' 'AddPrinterDrivers'
+        disableDomainCreds       = Get-RegValue $lsa 'DisableDomainCreds'
         ipStack                  = [ordered]@{
             disableIpSourceRoutingV4 = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' 'DisableIPSourceRouting'
             disableIpSourceRoutingV6 = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters' 'DisableIPSourceRouting'

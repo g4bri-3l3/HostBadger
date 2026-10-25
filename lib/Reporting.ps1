@@ -215,6 +215,82 @@ function Get-ComplianceStats {
     return [PSCustomObject]@{ StigEvaluated = $stigEval; StigFailed = $stigFail; CisApplicable = $cisApplicable; CisFailed = $cisFail }
 }
 
+function ConvertTo-ReportSummaryJson {
+    # What the report shows besides the findings, as JSON for the window's Results tab (read from the
+    # HTML, so an earlier report keeps it): per host the score, the coverage, EDR, Essential Eight and
+    # ACN, then the exceptions, the comparison with an earlier run, the fix scripts and the AI summary.
+    param($Hosts, $Split, $Comparison, $Compliance, [string]$ToolVersion, $AiResult, $Remediation, [int]$HiddenCis, [int]$HiddenStig)
+    $active = @($Split.Active)
+    $hostList = New-Object System.Collections.Generic.List[object]
+    foreach ($hostItem in @($Hosts)) {
+        $mine = @($active | Where-Object { $_.Host -eq $hostItem.Name })
+        $sev = [ordered]@{}; foreach ($s in 'Critical', 'High', 'Medium', 'Low') { $sev[$s] = @($mine | Where-Object { $_.Severity -eq $s }).Count }
+        $e8 = New-Object System.Collections.Generic.List[object]
+        if ($hostItem.E8) {
+            foreach ($k in @($hostItem.E8.Keys)) {
+                $v = $hostItem.E8[$k]
+                if ($null -eq $v) { continue }
+                $e8.Add([ordered]@{ strategy = "$($script:E8Strategies[$k].Label)"; level = [int]$v.Level; capped = [bool]$v.Capped; notApplicable = [bool]$v.NotApplicable; note = "$($script:E8Strategies[$k].Note)" })
+            }
+        }
+        $acn = $null
+        if ($hostItem.Acn) {
+            $rows = @($hostItem.Acn | Where-Object { $_.State -ne 'na' })
+            $acn = [ordered]@{ met = @($rows | Where-Object { $_.State -eq 'met' }).Count; unmet = @($rows | Where-Object { $_.State -eq 'unmet' }).Count; unknown = @($rows | Where-Object { $_.State -eq 'unknown' }).Count }
+        }
+        # DISA STIG by product, as in the dashboard: rules judged and how many of them failed.
+        $stig = @(foreach ($t in @($script:StigTypeLabel.Keys)) {
+                $ev = if ($hostItem.StigByType) { [int]$hostItem.StigByType[$t] } else { 0 }
+                if ($ev -le 0) { continue }
+                [ordered]@{ product = "$($script:StigTypeLabel[$t])"; evaluated = $ev; failed = [Math]::Min($ev, @($mine | Where-Object { $_.Type -eq $t }).Count) }
+            })
+        $collected = if ($hostItem.CollectedUtc) { ([datetime]$hostItem.CollectedUtc).ToString('yyyy-MM-dd HH:mm') + ' UTC' } else { '' }
+        $hostList.Add([ordered]@{
+                name = "$($hostItem.Name)"; role = "$($hostItem.Role)"; os = "$($hostItem.Os)"; collected = $collected
+                collectedAs = $(if ($hostItem.AsSystem) { 'SYSTEM' } elseif ($hostItem.AsAdmin) { 'administrator' } else { 'standard user' })
+                score = $(if ($hostItem.Score) { [int]$hostItem.Score.Score } else { $null }); grade = $(if ($hostItem.Score) { "$($hostItem.Score.Grade)" } else { '' })
+                checksTriggered = $(if ($hostItem.Score) { [int]$hostItem.Score.ChecksTriggered } else { 0 })
+                findings = $mine.Count; severity = $sev
+                notEvaluated = @(@($hostItem.NotEvaluated | Where-Object { $_ }) | ForEach-Object { [ordered]@{ title = "$($_.Title)"; reason = "$($_.Reason)" } })
+                edr = @(@($hostItem.Edr | Where-Object { $_ }) | ForEach-Object { [ordered]@{ name = "$($_.Name)"; state = "$($_.State)" } })
+                edrKnown = [bool]$hostItem.EdrKnown
+                softwareCount = @($hostItem.Software).Count
+                stigEvaluated = [int]$hostItem.StigEvaluated; stig = $stig
+                updatesSource = "$($hostItem.UpdatesSource)"
+                e8 = $e8.ToArray(); acn = $acn
+            })
+    }
+    $sum = [ordered]@{
+        format = 1; toolVersion = $ToolVersion
+        hosts = $hostList.ToArray()
+        compliance = [ordered]@{ stigEvaluated = [int]$Compliance.StigEvaluated; stigFailed = [int]$Compliance.StigFailed; cisApplicable = [int]$Compliance.CisApplicable; cisFailed = [int]$Compliance.CisFailed }
+        hidden = [ordered]@{ cis = $HiddenCis; stig = $HiddenStig }
+        exceptions = [ordered]@{
+            accepted = @(@($Split.Accepted | Where-Object { $_ }) | ForEach-Object { [ordered]@{ type = "$($_.Finding.Type)"; title = "$($_.Finding.Title)"; host = "$($_.Finding.Host)"; object = "$($_.Finding.Object)"; reason = "$($_.Exception.reason)"; owner = "$($_.Exception.owner)"; expires = "$($_.Exception.expires)" } })
+            expired = @(@($Split.Expired | Where-Object { $_ }) | ForEach-Object { [ordered]@{ type = "$($_.type)"; host = "$($_.host)"; object = "$($_.object)"; expires = "$($_.expires)" } })
+        }
+        comparison = $null; remediation = @(); ai = $null
+    }
+    if ($Comparison) {
+        $sum.comparison = [ordered]@{
+            previous = "$(if ($Comparison.PreviousPath) { Split-Path -Leaf $Comparison.PreviousPath })"
+            new = @($Comparison.New).Count; persisting = @($Comparison.Persisting).Count
+            resolved = @(@($Comparison.Resolved | Where-Object { $_ }) | ForEach-Object { [ordered]@{ severity = "$($_.Severity)"; title = "$($_.Title)"; host = "$($_.Host)"; object = "$($_.Object)" } })
+        }
+    }
+    if ($Remediation) { $sum.remediation = @(@($Remediation | Where-Object { $_ }) | ForEach-Object { [ordered]@{ host = "$($_.Host)"; file = "$($_.File)"; actions = [int]$_.Actions; fixable = [int]$_.Fixable; notFixable = [int]$_.NotFixable } }) }
+    if ($AiResult) {
+        $sum.ai = [ordered]@{
+            model = "$($AiResult.Model)"; summary = "$($AiResult.ExecutiveSummary)"
+            quickWins = @(@($AiResult.QuickWins | Where-Object { $_ }) | ForEach-Object { "$_" })
+            plan = @(@($AiResult.RemediationPlan | Where-Object { $_ }) | ForEach-Object { [ordered]@{ title = "$($_.Title)"; effort = "$($_.Effort)"; rationale = "$($_.Rationale)" } })
+        }
+    }
+    # "</" would close the script element early; "<\/" is the same string in JSON.
+    # Windows PowerShell 5.1 writes an empty array inside a hashtable as {} (nothing here is an empty object).
+    return ((ConvertTo-Json -InputObject $sum -Depth 8 -Compress) -replace '</', '<\/' -replace '":\{\}', '":[]')
+}
+
 function Get-RingSvg {
     # A score ring: the share of the circle that is done, the big number and a small label under it.
     # GoodAt / MidAt: where the ring turns green and amber (the score ring follows the grades).
@@ -974,6 +1050,9 @@ function filterBadgerTable(input) {
     & $w "<p class=`"meta`" style=`"margin-top:32px`">Thresholds: updates $($Config.MaxPatchAgeDays) days, Defender signatures $($Config.MaxSignatureAgeDays) days, cached logons $($Config.MaxCachedLogonsWorkstation) (workstations) / $($Config.MaxCachedLogonsServer) (servers), Security log $($Config.MinSecurityLogKB) KB, support warning $($Config.SupportWarningDays) days.</p>"
     & $w '</div>'
     & $w '<p class="meta">Generated by HostBadger from read-only snapshots. The report contains host configuration details: handle as confidential.</p>'
+    # The figures above as data, for the Results tab of the window (a JSON block: the browser never runs it).
+    $summary = ConvertTo-ReportSummaryJson -Hosts $Hosts -Split $Split -Comparison $Comparison -Compliance $compliance -ToolVersion $ToolVersion -AiResult $AiResult -Remediation $Remediation -HiddenCis $hiddenCis -HiddenStig $hiddenStig
+    & $w "<script type=`"application/json`" id=`"hostbadger-summary`">$summary</script>"
     & $w '</body></html>'
     return $sb.ToString()
 }
