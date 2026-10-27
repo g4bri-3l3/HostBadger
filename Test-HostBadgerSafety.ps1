@@ -73,7 +73,7 @@ $allowed = [ordered]@{
     'Read host configuration (no write cmdlet in this list)' = @(
         'Get-ItemProperty', 'Get-Item', 'Get-CimInstance', 'Get-MpComputerStatus', 'Get-MpPreference', 'Get-BitLockerVolume',
         'Get-SmbServerConfiguration', 'Get-SmbClientConfiguration', 'Get-NetFirewallProfile', 'Get-NetTCPConnection', 'Get-NetUDPEndpoint',
-        'Get-Process', 'Get-LocalUser', 'Get-ScheduledTask', 'Get-Acl', 'Get-WinEvent', 'auditpol.exe', 'secedit.exe', 'sc.exe')
+        'Get-Process', 'Get-LocalUser', 'Get-ScheduledTask', 'Get-Acl', 'Get-WinEvent', 'Get-ProcessMitigation', 'auditpol.exe', 'secedit.exe', 'sc.exe')
     'Read driver files to hash them (SHA-256, matched against the LOLDrivers catalog)' = @('Get-FileHash')
     'Read who signed a DLL loaded by LSASS, the spooler or netsh (Authenticode, to tell a vendor entry from an unsigned one)' = @('Get-AuthenticodeSignature')
     'Files: read snapshots, write the snapshot / report' = @('Get-Content', 'Set-Content', 'Export-Csv', 'Import-Csv', 'Get-ChildItem', 'Test-Path', 'Resolve-Path',

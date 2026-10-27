@@ -22,7 +22,7 @@ is weak. It works in two steps. A single PowerShell script takes a
 Lines for a SIEM. Hand it one snapshot or a folder with hundreds and you get
 the whole fleet in one report, or one report per host.
 
-- **170 checks** and about 1,600 settings: 157 hand-written checks plus 1475 DISA
+- **181 checks** and about 1,600 settings: 168 hand-written checks plus 1475 DISA
   STIG registry rules, with the CIS Windows 11 benchmark as the baseline, and
   the drivers matched against 2,198 known vulnerable or malicious driver files
   (LOLDrivers).
@@ -211,11 +211,15 @@ should.
 - **One report per host** with `-PerHost`, or one fleet report.
 - **Comparison with an earlier run** (new and resolved findings) and **accepted
   risks** with an owner and an expiry.
+- **Score trend** over many runs (`-History`): each host's score at every
+  snapshot, drawn in the Hosts table with the change since the previous one.
+- **Large fleets**: hosts analyzed several at once (`-Threads`), with the same
+  result as one at a time.
 - **Remediation scripts** (`-OutRemediation`): one setting, the expected value,
   previewed by default, with a rollback file. The analyzer never runs them;
   the guided menu can apply this machine's own script after showing it and
   asking for YES (menu 6), and put the values back (menu 7); the window does
-  the same with its **Fix this machine** button, after a preview and a
+  the same with **Fix this machine** in its Fix tab, after a preview and a
   warning.
 - **Remediation profiles** (`-RemediationProfile Essential | Recommended |
   Strict`): a ready-made hardening level on top of the fixes of the findings,
@@ -320,9 +324,10 @@ with is asked every time.
 ### The window
 
 `.\Start-HostBadgerGui.ps1` does the same as the menu in a window (WPF, part
-of Windows; nothing to install), in two tabs: **Analyze** (the form, the
-outputs and the log) and **Results** (the findings of the last report). The
-form of Analyze is on the left, on one page:
+of Windows; nothing to install), in three tabs: **Analyze** (the form, the
+outputs and the log), **Fix** (what the fix scripts change, and Fix this
+machine) and **Results** (the findings of the last report). The form of
+Analyze is on the left, on one page:
 
 - **What to analyze**: *this machine* (a read-only snapshot is collected,
   then analyzed: folder, file ACLs, missing updates naming the WSUS server or
@@ -338,23 +343,28 @@ form of Analyze is on the left, on one page:
   shipped with HostBadger (LOLDrivers, browser extensions, the lifecycle
   table: used offline), a download now, or not used for the catalogs
   HostBadger does not ship.
-- **Fix**: what the fixes change. One level (only the safe fixes of the
-  findings, Essential, Recommended, Strict, or none of them), each with what
-  it changes, plus two independent options: **Debloat** (the preinstalled
-  apps and the unused consumer services and components) and **Disable
-  telemetry** (the privacy and telemetry settings of every level). Strict
-  includes both. **Write the fix scripts with each analysis** writes one
-  script per host next to the report, nothing applied (for other hosts: run
-  each on its host). The separate **Fix this machine** button, next to
-  Analyze, collects and analyzes this machine whatever source is chosen, then
-  previews its fix script in the log; a warning gives the number of changes
-  and of those NOT REVERSIBLE, and only Yes applies them (administrator, else
-  it offers to restart as administrator; System Restore point first in
-  Windows PowerShell 5.1, rollback file next to the script, linked in
-  Outputs, with the command that undoes it).
 - **Your organization**: allowed administrators, expected EDR, approved
   remote tools and extensions, exceptions and policy files, an earlier CSV to
   compare with.
+
+The **Fix** tab chooses what the fixes change: one level (only the safe
+fixes of the findings, Essential, Recommended, Strict, or none of them), each
+with what it changes, plus two independent options: **Debloat** (the
+preinstalled apps and the unused consumer services and components) and
+**Disable telemetry** (the privacy and telemetry settings of every level).
+Strict includes both. **Write the fix scripts with each analysis** writes one
+script per host next to the report when Analyze runs, nothing applied (for
+other hosts: run each on its host). **Fix this machine**, at the bottom of
+the tab, collects and analyzes this machine whatever source the Analyze tab
+has (a collection of this machine made in the window less than 30 minutes
+before, with the same collection options, is used again, and so is its
+analysis when the choices have not changed), then previews its fix script in the log (on the right of the tab, the
+same as the one of Analyze); a warning gives the number of changes and of
+those NOT REVERSIBLE, and only Yes applies them (No is selected, so Enter
+changes nothing; administrator, else it
+offers to restart as administrator; System Restore point first in Windows
+PowerShell 5.1, rollback file next to the script, linked in Outputs, with the
+command that undoes it).
 
 The header has Settings, the **Safety review** and Check for updates.
 **Restart as administrator** reopens the window elevated in the same folder
@@ -836,6 +846,8 @@ standard user with Defender in passive mode.
     [-OutDir .\output]                           # default output folder; a bare -Out* name lands here
     [-OutHtml report.html] [-OutCsv findings.csv] [-OutJsonl siem.jsonl]
     [-CompareTo previous_findings.csv]           # new and resolved findings
+    [-History .\output\hostbadger-history.csv]   # keep every run's score per host: the report shows how each host moved
+    [-Threads 0]                                 # hosts analyzed at once: 0 = up to 4 from 16 hosts, 1 = one at a time
     [-ExceptionsFile exceptions.json]            # accepted risks, with an owner and an expiry
     [-PolicyFile policy.json]                    # your organization's policy: the checks it turns off
     [-AllowedAdmins 'CORP/Workstation Admins', 'S-1-5-21-...-1105']
@@ -888,6 +900,26 @@ and shows it before every analysis.
 
 `-CompareTo` matches findings by check, host and object. A host that is
 missing from this run is not counted as resolved. It just wasn't collected.
+
+`-History` keeps the score of every run: one CSV line per host and snapshot
+(host, collection time, score, grade, the counts by severity, the checks not
+evaluated, the HostBadger version). The file is created when missing and
+shared by every run that names it; a snapshot analyzed again replaces its own
+line, and each host keeps its newest 100. With an earlier score in it, the
+Hosts table of the report gets a Trend column (a line of the score over the
+runs, the change since the previous snapshot), the window's overview a Change
+column, and the JSON Lines host summary `score_previous`,
+`score_previous_collected`, `score_change` and `score_history_points`. The
+guided menu and the window keep it next to their reports
+(`hostbadger-history.csv`). A file whose first line is not the history header
+is left alone.
+
+Large fleets: with 16 hosts or more the hosts are analyzed several at once
+(up to 4; `-Threads` sets the number, `-Threads 1` turns it off), on Windows
+PowerShell 5.1 and PowerShell 7 alike. Each worker loads the checks once, and
+the result is the same file for file as one host at a time. Everything after
+the per-host checks (fleet checks, scores, CSV, JSON Lines, the report) grows
+with the number of findings, not with hosts times findings.
 
 ## Fix scripts
 
@@ -1135,7 +1167,7 @@ on the host and the value the CIS benchmark or the DISA STIG requires (null
 when the check has no single value, such as the list of audit subcategories),
 and `cis_benchmark` names the CIS benchmark the `cis` rule comes from. A `resolved` line says the finding has
 gone. There is also one `host_summary` per host, with score, grade, counts,
-`not_evaluated_checks`, `policy_disabled_checks` (turned off by `-PolicyFile`), whether it was collected as SYSTEM, and `e8_levels`
+`not_evaluated_checks`, `policy_disabled_checks` (turned off by `-PolicyFile`), whether it was collected as SYSTEM, with `-History` `score_previous`, `score_previous_collected`, `score_change` and `score_history_points` (null previous and change on a host's first run), and `e8_levels`
 (the Essential Eight maturity level per strategy, null when a host cannot show
 it) with `e8_capped` (strategies where a requirement of the next level could
 not be judged), and, with `-Nis2Acn`, `acn_unmet` / `acn_not_judged` (the ACN basic measures

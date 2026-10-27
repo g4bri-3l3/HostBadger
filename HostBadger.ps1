@@ -129,6 +129,17 @@
     summary per host). Not written unless given.
 .PARAMETER CompareTo
     Findings CSV of an earlier run: new and resolved findings are shown.
+.PARAMETER History
+    Score history file (CSV, created when missing): every run adds the score of
+    each host, one line per host and snapshot (a snapshot analyzed again
+    replaces its line; each host keeps its newest 100). The report then shows
+    how each host's score moved over the runs, not only against the previous
+    one, and JSON Lines gets score_previous and score_change. The guided menu
+    and the window keep it in their output folder (hostbadger-history.csv).
+.PARAMETER Threads
+    How many hosts to analyze at once. Default 0: up to 4 when there are
+    enough hosts to pay for it (from 16 hosts), else one at a time. 1
+    analyzes one host at a time. The result is the same either way.
 .PARAMETER ExceptionsFile
     JSON list of accepted risks: [{ "type", "host", "object", "reason",
     "owner", "expires" }], host and object accept "*".
@@ -304,11 +315,14 @@ param(
     [string]$Model = 'gemini-3.8-flash',
     [int]$AiMaxAttempts = 3,
     [string]$OutLog = '',
-    [switch]$NoLog
+    [switch]$NoLog,
+    [string]$History = '',
+    [ValidateRange(0, 256)]
+    [int]$Threads = 0
 )
 
 $ErrorActionPreference = 'Stop'
-$script:HostBadgerVersion = '2.0'
+$script:HostBadgerVersion = '2.1'
 . (Join-Path $PSScriptRoot 'lib\Common.ps1')
 . (Join-Path $PSScriptRoot 'lib\Checks.ps1')
 . (Join-Path $PSScriptRoot 'lib\AI.ps1')
@@ -318,7 +332,7 @@ $script:HostBadgerVersion = '2.0'
 Write-Host @'
      _.--""--._
    .'  |    |  '.
-  /    |    |    \      HostBadger v2.0
+  /    |    |    \      HostBadger v2.1
  |  (o)|    |(o)  |     Windows host hardening
  |     |    |     |     read-only snapshots, offline analysis
   \    '.__.'    /
@@ -441,10 +455,11 @@ if (-not $OutHtml) { $OutHtml = "hostbadger_$stamp.html" }
 $OutHtml = Resolve-OutPath $OutHtml
 if (-not $OutCsv) { $OutCsv = ($OutHtml -replace '\.html?$', '') + '.csv' } else { $OutCsv = Resolve-OutPath $OutCsv }
 $OutJsonl = Resolve-OutPath $OutJsonl
+$History = Resolve-OutPath $History
 $OutRemediation = Resolve-OutPath $OutRemediation
 if (($RemediationProfile -or $RemediationDebloat -or $RemediationPrivacy) -and -not $OutRemediation) { Write-Warning '-RemediationProfile, -RemediationDebloat and -RemediationPrivacy shape the per-host fix scripts: add -OutRemediation <folder> to write them.' }
 # Create the directories the resolved (absolute) paths need, so a bare name in .\output just works.
-foreach ($p in @($OutHtml, $OutCsv, $OutJsonl, $OutRemediation) | Where-Object { $_ }) {
+foreach ($p in @($OutHtml, $OutCsv, $OutJsonl, $OutRemediation, $History) | Where-Object { $_ }) {
     $dir = Split-Path -Path $p -Parent
     if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
 }
@@ -680,56 +695,45 @@ try {
 
     $allFindings = New-Object System.Collections.Generic.List[object]
     $hosts = New-Object System.Collections.Generic.List[object]
-    $hostIndex = 0
-    foreach ($name in ($latest.Keys | Sort-Object)) {
-        $hostIndex++
-        $s = $latest[$name]
-        Step-Spinner "Analyzing host $hostIndex of $($latest.Count)"
-        $r = Invoke-HostChecks -Snapshot $s -Config $config
-        if ($SkipStig) {
-            $r.Findings = @($r.Findings | Where-Object { $_.Category -ne 'DISA STIG' })
-            $r.NotEvaluated = @($r.NotEvaluated | Where-Object { $_.Type -notlike 'stig_*' })
-        }
-        foreach ($f in $r.Findings) { $allFindings.Add($f) }
-        $osTxt = if ($s.host -and $s.host.os) { "$($s.host.os.caption) $($s.host.os.displayVersion) (build $($s.host.os.build).$($s.host.os.ubr))" } else { 'unknown' }
-        $hosts.Add([PSCustomObject]@{
-                Name         = Get-SnapshotHostName $s
-                Role         = Get-SnapshotRole $s
-                Os           = $osTxt
-                CollectedUtc = ConvertTo-UtcDate $s.meta.collectedAtUtc
-                AsSystem     = [bool]$s.meta.runningAsSystem
-                AsAdmin      = [bool]$s.meta.runningAsAdmin
-                Synthetic    = [bool]$s.meta.synthetic
-                NotEvaluated = @($r.NotEvaluated)
-                Edr          = @(Get-EdrInventory -Snapshot $s -ExtraServices $ExtraEdrServices)
-                EdrKnown     = (@($s.services | Where-Object { $_ }).Count -gt 0)
-                Findings     = @($r.Findings)
-                StigEvaluated = $(if ($SkipStig) { 0 } else { [int]$r.StigEvaluated })
-                StigByType   = $(if ($SkipStig) { @{} } else { $r.StigByType })
-                OptionalOff  = @($r.Off)
-                PolicyOff    = @($r.PolicyOff)
-                E8           = Get-E8Maturity -Role (Get-SnapshotRole $s) -Findings $r.Findings -NotEvaluated $r.NotEvaluated -Off (@($r.Off) + @($r.PolicyOff)) -StigByType $r.StigByType -SkipStig ([bool]$SkipStig) -Office ([bool]($s.hardening.officeInstalled -eq $true -or ($s.stig -and $s.stig.products.office -eq $true)))
-                Acn          = $null
-                Software     = @($s.software | Where-Object { $_ })
-                AccountMix   = Get-LocalAccountMix $s
-                UpdatesSource = $(if ($s.updatesPending) { "$($s.updatesPending.source)" } else { '' })
-                UpdatesSearched = [bool]($s.meta.options.checkUpdates -and $s.updatesPending)
-                Score        = $null
+    $names = @($latest.Keys | Sort-Object)
+    # Several hosts at once when there are enough of them to pay for starting the workers (each loads
+    # the checks): -Threads 0 picks up to 4 (the workers share one process, and more of them were slower
+    # on 16 processors), 1 analyzes one host at a time.
+    $threadCount = if ($Threads -gt 0) { $Threads } else { [Math]::Min([Math]::Min(4, [Environment]::ProcessorCount), [Math]::Floor($names.Count / 8)) }
+    $threadCount = [int][Math]::Max(1, [Math]::Min($threadCount, $names.Count))
+    if ($threadCount -gt 1) {
+        $progress = { param($done) Step-Spinner "Analyzing hosts ($done of $($names.Count), $threadCount at once)" }
+        $rows = @(Invoke-HostAnalysisParallel -Snapshots $latest -Names $names -Config $config -Threads $threadCount -SkipStig ([bool]$SkipStig) -ExtraEdrServices $ExtraEdrServices -OnProgress $progress)
+    }
+    else {
+        $hostIndex = 0
+        $rows = @(foreach ($name in $names) {
+                $hostIndex++
+                Step-Spinner "Analyzing host $hostIndex of $($names.Count)"
+                Invoke-HostAnalysis -Snapshot $latest[$name] -Config $config -SkipStig ([bool]$SkipStig) -ExtraEdrServices $ExtraEdrServices
             })
-        if (-not $s.meta.runningAsSystem -and -not $s.meta.runningAsAdmin) {
+    }
+    for ($i = 0; $i -lt $rows.Count; $i++) {
+        $row = $rows[$i]
+        foreach ($f in $row.Findings) { $allFindings.Add($f) }
+        $hosts.Add($row)
+        $meta = $latest[$names[$i]].meta
+        if (-not $meta.runningAsSystem -and -not $meta.runningAsAdmin) {
             Stop-Spinner
-            Write-Host "  $($hosts[$hosts.Count - 1].Name): collected as a standard user; $(@($r.NotEvaluated).Count) check(s) not evaluated. Collect as SYSTEM or administrator for full coverage." -ForegroundColor Yellow
+            Write-Host "  $($row.Name): collected as a standard user; $(@($row.NotEvaluated).Count) check(s) not evaluated. Collect as SYSTEM or administrator for full coverage." -ForegroundColor Yellow
         }
     }
+    Stop-Spinner
+    if ($threadCount -gt 1) { Write-Host "$($names.Count) hosts analyzed, $threadCount at once." -ForegroundColor DarkGray }
     # Fleet checks: findings that need several hosts (shared local passwords, cloned machine SIDs, drift).
     Step-Spinner 'Analyzing the fleet'
     $neByHost = @{}
     # A check the policy turns off is skipped there too.
     foreach ($h in $hosts) { $neByHost[$h.Name] = @(@($h.NotEvaluated | ForEach-Object { $_.Type }) + @($h.PolicyOff) | Where-Object { $_ }) }
-    foreach ($f in @(Invoke-FleetChecks -Snapshots @($latest.Values) -NotEvaluated $neByHost -Config $config)) {
-        $allFindings.Add($f)
-        foreach ($h in $hosts) { if ($h.Name -eq $f.Host) { $h.Findings = @($h.Findings) + @($f) } }
-    }
+    $fleetFindings = @(Invoke-FleetChecks -Snapshots @($latest.Values) -NotEvaluated $neByHost -Config $config)
+    foreach ($f in $fleetFindings) { $allFindings.Add($f) }
+    $fleetByHost = Group-ByHost $fleetFindings
+    foreach ($h in $hosts) { if ($fleetByHost.ContainsKey($h.Name)) { $h.Findings = @($h.Findings) + @(Get-HostItems $fleetByHost $h.Name) } }
     # NIS2 / ACN basic measures (-Nis2Acn), once the fleet findings are in. Drift is only judged among
     # at least five hosts of the same role.
     foreach ($h in @($hosts | Where-Object { $Nis2Acn })) {
@@ -742,7 +746,16 @@ try {
 
     $asOf = ($hosts | Sort-Object CollectedUtc -Descending | Select-Object -First 1).CollectedUtc
     $split = Split-FindingsByException -Findings $allFindings.ToArray() -Exceptions (Import-Exceptions $ExceptionsFile) -AsOf $asOf
-    foreach ($h in $hosts) { $h.Score = Get-HostScore @($split.Active | Where-Object { $_.Host -eq $h.Name }) }
+    $activeByHost = Group-ByHost $split.Active
+    foreach ($h in $hosts) { $h.Score = Get-HostScore @(Get-HostItems $activeByHost $h.Name) }
+    # The score of every run, kept per host and snapshot (-History): the report shows how each host moved.
+    if ($History) {
+        $trends = Update-ScoreHistory -Path $History -Hosts $hosts.ToArray() -ActiveByHost $activeByHost -ToolVersion $script:HostBadgerVersion
+        if ($trends) {
+            foreach ($h in $hosts) { $h.Trend = $trends[$h.Name] }
+            Write-Host "Score history: $History ($(@($hosts | Where-Object { $_.Trend -and $_.Trend.Previous }).Count) of $($hosts.Count) host(s) with an earlier score)" -ForegroundColor DarkGray
+        }
+    }
 
     $comparison = if ($CompareTo) { Get-FindingsComparison -Findings $split.Active -PreviousCsv $CompareTo } else { $null }
 
@@ -753,7 +766,7 @@ try {
         if (-not (Test-Path -LiteralPath $remDir)) { New-Item -ItemType Directory -Path $remDir -Force | Out-Null }
         $remInfo = @()
         foreach ($h in $hosts) {
-            $r = New-RemediationScript -HostName $h.Name -Role $h.Role -Findings $split.Active -Config $config -CollectedUtc $h.CollectedUtc.ToString('yyyy-MM-dd HH:mm') -ToolVersion $script:HostBadgerVersion -ProfileName $RemediationProfile -Debloat:$RemediationDebloat -Privacy:$RemediationPrivacy -NoApps:$RemediationNoApps -OnlyProfile:$RemediationOnlyProfile
+            $r = New-RemediationScript -HostName $h.Name -Role $h.Role -Findings @(Get-HostItems $activeByHost $h.Name) -Config $config -CollectedUtc $h.CollectedUtc.ToString('yyyy-MM-dd HH:mm') -ToolVersion $script:HostBadgerVersion -ProfileName $RemediationProfile -Debloat:$RemediationDebloat -Privacy:$RemediationPrivacy -NoApps:$RemediationNoApps -OnlyProfile:$RemediationOnlyProfile
             $file = ''
             if ($r.ActionCount -gt 0) {
                 $file = 'remediate_' + ($h.Name -replace '[^\w\-]', '_') + '.ps1'
@@ -777,20 +790,22 @@ try {
     $perHostFiles = @()
     if ($PerHost -and $hosts.Count -gt 1) {
         $base = $htmlFull -replace '\.html?$', ''
+        $acceptedByHost = Group-ByHost $split.Accepted -OfFinding
+        $cmpByHost = if ($comparison) { @{ New = (Group-ByHost $comparison.New); Resolved = (Group-ByHost $comparison.Resolved); Persisting = (Group-ByHost $comparison.Persisting) } } else { $null }
         foreach ($h in $hosts) {
             $hn = $h.Name
             $splitH = [PSCustomObject]@{
-                Active   = @($split.Active | Where-Object { $_.Host -eq $hn })
-                Accepted = @($split.Accepted | Where-Object { $_.Finding.Host -eq $hn })
+                Active   = @(Get-HostItems $activeByHost $hn)
+                Accepted = @(Get-HostItems $acceptedByHost $hn)
                 Expired  = @($split.Expired)
             }
             $cmpH = $null
             if ($comparison) {
                 $cmpH = [PSCustomObject]@{
                     PreviousPath = $comparison.PreviousPath
-                    New          = @($comparison.New | Where-Object { $_.Host -eq $hn })
-                    Resolved     = @($comparison.Resolved | Where-Object { $_.Host -eq $hn })
-                    Persisting   = @($comparison.Persisting | Where-Object { $_.Host -eq $hn })
+                    New          = @(Get-HostItems $cmpByHost.New $hn)
+                    Resolved     = @(Get-HostItems $cmpByHost.Resolved $hn)
+                    Persisting   = @(Get-HostItems $cmpByHost.Persisting $hn)
                 }
             }
             $remH = if ($remInfo) { @($remInfo | Where-Object { $_.Host -eq $hn }) } else { $null }
@@ -807,7 +822,7 @@ try {
     Write-Host ''
     Write-Host "Hosts analyzed: $($hosts.Count)"
     foreach ($h in ($hosts | Sort-Object { $_.Score.Score })) {
-        $hf = @($active | Where-Object { $_.Host -eq $h.Name })
+        $hf = @(Get-HostItems $activeByHost $h.Name)
         Write-Host ("  {0,-24} {1,-11} {2} {3,3}/100  {4} finding(s), {5} not evaluated" -f $h.Name, $h.Role, $h.Score.Grade, $h.Score.Score, $hf.Count, @($h.NotEvaluated).Count)
     }
     Write-Host ("Findings: {0} ({1} Critical, {2} High, {3} Medium, {4} Low){5}" -f $active.Count,

@@ -1,6 +1,6 @@
 # HostBadger coverage
 
-Every check in `lib\Checks.ps1`, generated from the catalog (170 checks, of which 13 cover the 1475 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
+Every check in `lib\Checks.ps1`, generated from the catalog (181 checks, of which 13 cover the 1475 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
 
 The CIS column gives the rule number in the *CIS Microsoft Windows 11 Enterprise Benchmark v3.0.0* and its profile level (L1 corporate, L2 high security); the descriptions are HostBadger's own. A check is a read-only comparison of the host's setting with the rule; it is not a certification of conformity, and the benchmark covers many more settings (most of the administrative templates, for instance) than HostBadger reads. On Windows 10 and on Windows Server 2022, 2019 and 2016 the findings quote the same setting in that version's CIS benchmark instead (Windows 10 Enterprise v3.0.0, Server 2022 and 2019 v4.0.0, Server 2016 v3.0.0). Checks marked *Server* follow a rule that only the server benchmarks have.
 
@@ -46,9 +46,12 @@ The last column says whether HostBadger can write a remediation script for the c
 | `defender_network_protection_off` | Medium | T1189 | 18.10.42.6.3.1 (L1) | W, S, DC | yes | Defender Network Protection not enabled |
 | `defender_pua_off` | Low | T1204.002 | 18.10.42.16 (L1) | W, S, DC | yes | Defender blocking of potentially unwanted apps off |
 | `controlled_folder_access_off` | Low | T1486 |  | W | no | Defender Controlled Folder Access off |
+| `defender_threat_action_allow` | High | T1562.001 |  | W, S, DC | no | Defender told to allow detected threats |
+| `defender_network_blocks_off` | Low | T1110 |  | W, S, DC | no | Defender brute-force or remote encryption protection not blocking |
 | `edr_agent_stopped` | High | T1562.001 |  | W, S, DC | no | EDR agent installed but not running |
 | `edr_expected_missing` | High | T1562.001 |  | W, S, DC | no | Expected EDR agent not found |
 | `edr_not_found` | Low | T1562.001 |  | W, S, DC | no | No EDR or endpoint protection agent found |
+| `phishing_protection_off` | Low | T1566 | 18.10.75.1.1 - 18.10.75.1.5 (L1) | W | no | Enhanced Phishing Protection not configured |
 | `asr_other_rules_not_blocking` | Low | T1204.002 |  | W, S, DC | no | Other attack surface reduction rules not in block mode |
 | `defender_protection_features_off` | Medium | T1562.001 | 18.10.42.5.2, 18.10.42.10.1, 18.10.42.10.4 (L1/L2) | W, S, DC | no | Defender protection feature turned off |
 | `defender_server_baseline_gaps` | Low | T1562.001 | Server 18.10.43.13.1, 18.10.43.17 (L1) | S, DC | no | Server Defender policy differs from the CIS Windows Server baseline |
@@ -64,6 +67,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `bitlocker_policy_weak` | Medium | T1005 | 18.10.9.x (BitLocker profile) | W, S, DC | no | BitLocker policy weakens the protection of the disks |
 | `bitlocker_policy_gaps` | Low | T1005 | 18.10.9.1.1 - 18.10.9.3.15 (BitLocker profile) | W, S, DC | no | BitLocker policy differs from the CIS BitLocker profile |
 | `secure_boot_off` | Medium | T1542.003 |  | W, S, DC | no | Secure Boot off |
+| `bitlocker_unlock_exposure` | Low | T1005 | 18.9.33.6.3, 18.9.33.6.4, 2.3.7.3 (BL) | W | no | BitLocker key reachable on an unattended machine |
 
 ## Network Exposure
 
@@ -88,6 +92,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `firewall_notifications_on` | Low | T1562.004 | 9.1.3, 9.2.3, 9.3.3 (L1) | W, S, DC | yes | Windows Firewall shows notifications when it blocks a program |
 | `smb1_client_driver_enabled` | Low | T1210 | 18.4.3 (L1) | W, S, DC | yes | SMBv1 client driver enabled |
 | `ip_stack_hardening_gaps` | Low | T1557 | 18.5.2, 18.5.3, 18.5.5 (L1) | W, S, DC | yes | IP stack accepts source routing or ICMP redirects |
+| `smb_encryption_off` | Low | T1557 |  | S, DC | no | SMB server does not require encryption |
 | `schannel_legacy_crypto_enabled` | Medium | T1557 |  | W, S, DC | no | Legacy TLS/SSL protocol or weak cipher explicitly enabled |
 | `ldap_server_signing_off` | Medium | T1557 | Server 2.3.5.3, 2.3.5.4 (L1) | DC | no | Domain controller does not require LDAP signing or channel binding |
 | `dc_netlogon_policy_weak` | High | T1210 | Server 2.3.5.1, 2.3.5.2, 2.3.5.5 (L1) | DC | yes | Domain controller weakens Netlogon or lets Server Operators schedule tasks |
@@ -125,6 +130,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `blank_password_network_logon` | Medium | T1078.003 | 2.3.1.3 (L1) | W, S, DC | yes | Blank passwords allowed outside the console |
 | `force_guest_sharing_model` | High | T1078.001 | 2.3.10.12 (L1) | W, S, DC | yes | Network logons are forced to the Guest account |
 | `uac_hardening_gaps` | Low | T1548.002 | 2.3.17.1, 2.3.17.4, 2.3.17.5, 2.3.17.7, 2.3.17.8 (L1) | W, S, DC | yes | UAC settings weaker than the baseline |
+| `uac_admin_protection_off` | Low | T1548.002 |  | W | no | Administrator protection not turned on |
 | `password_policy_weak` | Medium | T1110 | 1.1.1 - 1.1.5, 1.1.7 (L1) | W, S | no | Local password policy weaker than the baseline |
 | `account_lockout_weak` | Medium | T1110 | 1.2.1, 1.2.2, 1.2.4 (L1) | W, S | no | Account lockout missing or too lenient |
 | `deny_logon_rights_missing` | Low | T1078.001 | 2.2.16 - 2.2.20 (L1) | W, S, DC | no | Guests or local accounts not denied network or remote logon |
@@ -167,6 +173,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `security_log_small` | Low | T1070.001 | 18.10.25.2.2 (L1) | W, S, DC | yes | Security event log too small |
 | `event_logs_small` | Low | T1070.001 | 18.10.25.1.2, 18.10.25.4.2 (L1) | W, S, DC | yes | Application or System event log too small |
 | `powershell_transcription_off` | Low | T1562.002 | 18.10.86.2 (L2) | W, S, DC | yes | PowerShell transcription off |
+| `ntlm_audit_off` | Low | T1557.001 | 2.3.11.11, 2.3.11.12 (L1) | W, S, DC | no | NTLM traffic not audited |
 | `powershell_module_logging_off` | Low | T1059.001 |  | W, S, DC | no | PowerShell module logging off |
 | `log_forwarding_missing` | Low | T1070.001 |  | W, S, DC | no | Event logs are not sent anywhere |
 | `sysmon_missing` | Low | T1562.002 |  | W, S, DC | no | No process telemetry: neither Sysmon nor an EDR |
@@ -194,6 +201,10 @@ The last column says whether HostBadger can write a remediation script for the c
 | `service_should_be_disabled` | Low | T1021 | 5.1 - 5.44, Level 1 services (L1) | W, S | no | Service the baseline says to disable is running or automatic |
 | `sehop_disabled` | Medium | T1203 | 18.4.6 (L1) | W, S, DC | yes | SEHOP exploit mitigation disabled |
 | `safe_dll_search_off` | Medium | T1574.001 | 18.5.9 (L1) | W, S, DC | yes | Safe DLL search mode disabled |
+| `exploit_protection_off` | Medium | T1203 |  | W, S, DC | no | System-wide exploit protection turned off |
+| `vbs_policy_gaps` | Low | T1068 | 18.9.5.4, 18.9.5.6, 18.9.5.7 (L1) | W, S | no | Virtualization-based security policy without the newer protections |
+| `amsi_provider_signing_off` | Low | T1562.001 |  | W, S, DC | no | AMSI loads unsigned providers |
+| `os_hardening_extras` | Low | T1557.001 |  | W, S, DC | no | Optional Windows protections not turned on |
 | `server_baseline_gaps` | Low | T1078 | Server 2.3.7.8, 2.3.13.1, 18.9.25.2 (L1) | S, DC | yes | Server setting differs from the CIS Windows Server baseline |
 | `terminal_services_server_gaps` | Low | T1563.002 | Server 18.10.57.3.2.1 (L2), 18.10.57.3.11.2 (L1) | S, DC | no | Remote Desktop session settings differ from the CIS Windows Server baseline |
 | `explorer_motw_bypass` | Medium | T1553.005 | Server 18.10.29.2 (L1) | S, DC | no | Mark of the Web is not applied to files copied from insecure sources |

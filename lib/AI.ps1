@@ -376,8 +376,9 @@ function New-AiPromptRaw {
     $lines.Add("Fleet: $($hostList.Count) host(s) ($roles). Average hardening score $avg/100. Findings: $sevText.")
     $lines.Add('')
     $lines.Add('Hosts (name, role, operating system, score, findings, checks not evaluated):')
+    $byHost = Group-ByHost $Findings
     foreach ($h in $hostList) {
-        $n = @($Findings | Where-Object { $_.Host -eq $h.Name }).Count
+        $n = @(Get-HostItems $byHost $h.Name).Count
         $lines.Add("- $($h.Name): $($h.Role), $($h.Os), score $($h.Score.Grade) $($h.Score.Score)/100, $n finding(s), $(@($h.NotEvaluated).Count) not evaluated.")
     }
     $gaps = @($hostList | ForEach-Object { $_.NotEvaluated } | Where-Object { $_ })

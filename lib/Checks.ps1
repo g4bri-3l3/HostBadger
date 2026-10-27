@@ -386,6 +386,14 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Defender Controlled Folder Access off'
         Description = 'Controlled Folder Access is off or only auditing, so any program the user runs can encrypt or overwrite the documents, pictures and desktop folders: the ransomware protection of Microsoft Defender is not used. Not in the CIS benchmark (an opinionated setting: some legitimate programs need to be allowed first). Workstations only, Low.'
         Remediation = 'Turn Controlled Folder Access on in audit mode, allow the programs that the audit events (Microsoft-Windows-Windows Defender/Operational, event 1124) show, then block (Intune, Group Policy or Set-MpPreference -EnableControlledFolderAccess Enabled). The Strict remediation profile turns it on.' }
+    defender_threat_action_allow = @{ Category = 'Antivirus'; Severity = 'High'; Mitre = 'T1562.001'; Needs = @('defender', 'defender.preferences'); Roles = $script:AllRoles
+        Title = 'Defender told to allow detected threats'
+        Description = 'The default action for a threat level is Allow or No action, or per-threat overrides (ThreatIDDefaultAction) allow or ignore specific threats: Defender detects the malware and lets it run. Attackers set these overrides with Set-MpPreference to keep their tools alive without touching the exclusion list. High for severe and high threats or overrides, Medium for moderate and low.'
+        Remediation = 'Set the default actions back to the defaults (Set-MpPreference -SevereThreatDefaultAction / -HighThreatDefaultAction ... 0, or remove the "Specify threat alert levels" policy entries) and remove the overrides (Remove-MpPreference -ThreatIDDefaultAction_Ids). Then find out who set them.' }
+    defender_network_blocks_off = @{ Category = 'Antivirus'; Severity = 'Low'; Mitre = 'T1110'; Needs = @('defender', 'defender.preferences'); Roles = $script:AllRoles
+        Title = 'Defender brute-force or remote encryption protection not blocking'
+        Description = 'Microsoft Defender''s behavioral network blocks are not set to Block: brute-force protection (blocks the source of repeated failed logons over RDP and SMB) and remote encryption protection (blocks a remote machine that encrypts the files of this host''s shares, as ransomware does from a single infected host). Not configured leaves the engine''s default. Platforms without these settings are not judged. Not in the CIS benchmark.'
+        Remediation = 'Set them to Block (Set-MpPreference -BruteForceProtectionConfiguredState 1 -RemoteEncryptionProtectionConfiguredState 1, or the Defender CSP Behavioral Network Blocks in Intune), after a period in audit mode (2) on servers with many remote clients.' }
     # ---------------- EDR / endpoint protection agent ----------------
     edr_agent_stopped = @{ Category = 'Antivirus'; Severity = 'High'; Mitre = 'T1562.001'; Needs = @('services'); Roles = $script:AllRoles
         Title = 'EDR agent installed but not running'
@@ -407,6 +415,42 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Safe DLL search mode disabled'
         Description = 'SafeDllSearchMode = 0 makes programs look for DLLs in the current folder before the system folders, which makes DLL planting easy.'
         Remediation = 'Set "MSS: Enable Safe DLL search mode" to Enabled.' }
+    exploit_protection_off = @{ Category = 'System Hardening'; Severity = 'Medium'; Mitre = 'T1203'; Needs = @('hardening', 'hardening.exploitProtection'); Roles = $script:AllRoles
+        Title = 'System-wide exploit protection turned off'
+        Description = 'A system-wide exploit mitigation of Windows (Exploit protection > System settings: DEP, bottom-up or high-entropy ASLR, Control Flow Guard, heap termination on corruption) is explicitly set to Off. They are on by default; turning one off for the whole machine makes memory-corruption exploits against every program easier. Mandatory ASLR is off by default and is not judged. SEHOP has its own check.'
+        Remediation = 'Set the mitigation back to "Use default (On)" in Windows Security > App & browser control > Exploit protection, or remove the system setting from the exploit protection XML deployed by Intune or Group Policy. Keep per-program exceptions for the programs that need them instead.' }
+    vbs_policy_gaps = @{ Category = 'System Hardening'; Severity = 'Low'; Mitre = 'T1068'; Cis = '18.9.5.4, 18.9.5.6, 18.9.5.7 (L1)'; Needs = @('hardening'); Roles = @('workstation', 'server')
+        Title = 'Virtualization-based security policy without the newer protections'
+        Description = 'The Device Guard policy does not require the UEFI memory attributes table for memory integrity, does not turn on System Guard Secure Launch, or does not turn on kernel-mode hardware-enforced stack protection. Secure Launch measures the boot through the processor (DRTM) so firmware tampering is detected; kernel shadow stacks stop return-oriented exploits against drivers. Both need recent hardware: on a machine without it the policy has no effect but does no harm. On Home only an explicit value is judged.'
+        Remediation = 'Set "Turn On Virtualization Based Security" with Require UEFI Memory Attributes Table checked, Secure Launch Configuration Enabled and Kernel-mode Hardware-enforced Stack Protection in enforcement mode (Group Policy: System > Device Guard, or Intune), after checking drivers in audit mode.' }
+    phishing_protection_off = @{ Category = 'Antivirus'; Severity = 'Low'; Mitre = 'T1566'; Cis = '18.10.75.1.1 - 18.10.75.1.5 (L1)'; Needs = @('hardening'); Roles = @('workstation')
+        Title = 'Enhanced Phishing Protection not configured'
+        Description = 'Enhanced Phishing Protection (Microsoft Defender SmartScreen, Windows 11 22H2 and later) is not turned on with its warnings: it tells the user when the Windows password is typed into a phishing site, reused on a site, or saved in an unsafe app such as Notepad. Its warnings are off unless a policy turns them on. On Home only an explicit value is judged.'
+        Remediation = 'Set the Enhanced Phishing Protection policies (Windows Components > Windows Defender SmartScreen > Enhanced Phishing Protection: Automatic Data Collection, Notify Malicious, Notify Password Reuse, Notify Unsafe App, Service Enabled) to Enabled, or the WebThreatDefense settings in Intune.' }
+    ntlm_audit_off = @{ Category = 'Logging'; Severity = 'Low'; Mitre = 'T1557.001'; Cis = '2.3.11.11, 2.3.11.12 (L1)'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'NTLM traffic not audited'
+        Description = 'Incoming NTLM authentication is not audited for all accounts, or outgoing NTLM to remote servers is not at least audited. Without these events (Microsoft-Windows-NTLM/Operational) nobody knows which systems still use NTLM, so it can never be restricted, and NTLM relay or pass-the-hash use leaves no trace on the host.'
+        Remediation = 'Set "Network security: Restrict NTLM: Audit Incoming NTLM Traffic" to "Enable auditing for all accounts" and "Restrict NTLM: Outgoing NTLM traffic to remote servers" to "Audit all", collect the NTLM operational log, then restrict NTLM where nothing depends on it.' }
+    amsi_provider_signing_off = @{ Category = 'System Hardening'; Severity = 'Low'; Mitre = 'T1562.001'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'AMSI loads unsigned providers'
+        Description = 'The Antimalware Scan Interface does not check the Authenticode signature of its providers (HKLM\SOFTWARE\Microsoft\AMSI FeatureBits without 0x2), so a provider DLL registered by an attacker with administrator rights is loaded into every PowerShell, script host and Office process: a known persistence and AMSI bypass method. Not in the CIS benchmark; documented by Microsoft for AMSI provider developers.'
+        Remediation = 'Set HKLM\SOFTWARE\Microsoft\AMSI FeatureBits = 2 (DWORD) after checking that the AMSI providers in use (the antivirus) are signed, which they are for the major products.' }
+    uac_admin_protection_off = @{ Category = 'Local Accounts'; Severity = 'Low'; Mitre = 'T1548.002'; Needs = @('hardening'); Roles = @('workstation')
+        Title = 'Administrator protection not turned on'
+        Description = 'Windows 11 24H2 and later can replace the split-token Admin Approval Mode with Administrator protection (TypeOfAdminApprovalMode = 2): every elevation needs Windows Hello and runs under a separate, temporary administrator account, which stops the many UAC bypasses that reuse the logged-on administrator''s token. It is off unless a policy turns it on. Judged on Windows 11 builds 26100 and later only; not in the CIS benchmark.'
+        Remediation = 'Set "User Account Control: Configure type of Admin Approval Mode" to "Admin Approval Mode with Administrator protection" (Group Policy, Security Options, or Intune), after testing the applications that elevate. A restart is needed.' }
+    bitlocker_unlock_exposure = @{ Category = 'Disk and Boot'; Severity = 'Low'; Mitre = 'T1005'; Cis = '18.9.33.6.3, 18.9.33.6.4, 2.3.7.3 (BL)'; Needs = @('hardening', 'bitlocker'); Roles = @('workstation')
+        Title = 'BitLocker key reachable on an unattended machine'
+        Description = 'The operating system volume is protected by BitLocker, but the machine may sleep in standby (S1-S3), where the volume key stays in memory and a stolen laptop can be attacked through DMA or cold-boot, or there is no machine lockout threshold, so the logon screen allows unlimited password guesses instead of rebooting into BitLocker recovery. These are rules of the CIS BitLocker profile.'
+        Remediation = 'Set "Allow standby states (S1-S3) when sleeping" (on battery and plugged in) to Disabled, so the machine hibernates instead, and "Interactive logon: Machine account lockout threshold" to 10 or fewer (not 0).' }
+    smb_encryption_off = @{ Category = 'Network Exposure'; Severity = 'Low'; Mitre = 'T1557'; Needs = @('network'); Roles = @('server', 'dc')
+        Title = 'SMB server does not require encryption'
+        Description = 'The SMB server does not encrypt the traffic of its shares (EncryptData off): files read from it travel in clear on the network, where anyone in the path can read them. Signing protects the integrity, not the content. Not in the CIS benchmark; every SMB 3 client (Windows 8 / Server 2012 and later) supports encryption.'
+        Remediation = 'Turn on encryption for the whole server (Set-SmbServerConfiguration -EncryptData $true) or for the shares that hold sensitive data (Set-SmbShare -EncryptData $true), after checking that no SMB 1 or 2 client still uses them.' }
+    os_hardening_extras = @{ Category = 'System Hardening'; Severity = 'Low'; Mitre = 'T1557.001'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'Optional Windows protections not turned on'
+        Description = 'Protections Windows offers but does not turn on by default: svchost.exe mitigation options (services in svchost load only Microsoft-signed DLLs), LMHOSTS lookup off, smart multi-homed name resolution off (DNS queries are not sent on every network adapter at once, where a rogue network sees them), no user information on the locked screen, and, on domain members, Kerberos armoring (FAST) requested by the client. Not in the CIS benchmark; Microsoft documents each one as a hardening option.'
+        Remediation = 'Set "Enable svchost.exe mitigation options" to Enabled, EnableLMHOSTS = 0 (NetBT parameters), "Turn off smart multi-homed name resolution" to Enabled, "Interactive logon: Display user information when the session is locked" to "Do not display user information", and on domain members "Kerberos client support for claims, compound authentication and Kerberos armoring" to Enabled (the domain controllers must support armoring).' }
     # ---------------- Local security policy (read from the policy export) ----------------
     password_policy_weak = @{ Category = 'Local Accounts'; Severity = 'Medium'; Mitre = 'T1110'; Cis = '1.1.1 - 1.1.5, 1.1.7 (L1)'; Needs = @('securityPolicy'); Roles = @('workstation', 'server')
         Title = 'Local password policy weaker than the baseline'
@@ -467,7 +511,7 @@ $script:CheckCatalog = [ordered]@{
         Remediation = 'Set the listed rules to Audit first, read the events (Microsoft-Windows-Windows Defender/Operational 1121/1122), then to Block through Intune, Group Policy or Set-MpPreference. The PSExec/WMI rule conflicts with Configuration Manager clients and the prevalence rule blocks unknown tools: judge those two separately.' }
     defender_protection_features_off = @{ Category = 'Antivirus'; Severity = 'Medium'; Mitre = 'T1562.001'; Cis = '18.10.42.5.2, 18.10.42.10.1, 18.10.42.10.4 (L1/L2)'; Needs = @('defender', 'defender.preferences'); Roles = $script:AllRoles
         Title = 'Defender protection feature turned off'
-        Description = 'Behavior monitoring, scanning of downloaded files and attachments, script scanning, cloud-delivered protection (MAPS) or block at first sight is off while Defender is the active antivirus. Each one removes a layer that catches new or obfuscated malware.'
+        Description = 'Behavior monitoring, scanning of downloaded files and attachments, script scanning, cloud-delivered protection (MAPS) or block at first sight is off while Defender is the active antivirus. Each one removes a layer that catches new or obfuscated malware. Scanning inside archives and of files opened from network shares, on by default, is judged too when it is turned off (Low).'
         Remediation = 'Turn the feature back on (Set-MpPreference, Group Policy or Intune) and find out why it was disabled.' }
     hvci_off = @{ Category = 'Credential Protection'; Severity = 'Low'; Mitre = 'T1068'; Needs = @('credentialProtection'); Roles = @('workstation', 'server')
         Title = 'Memory integrity (HVCI) not running'
@@ -479,8 +523,8 @@ $script:CheckCatalog = [ordered]@{
         Remediation = 'Enable "Turn on Module Logging" with module name * through Group Policy or Intune, and size the PowerShell log accordingly.' }
     schannel_legacy_crypto_enabled = @{ Category = 'Network Exposure'; Severity = 'Medium'; Mitre = 'T1557'; Needs = @('hardening'); Roles = $script:AllRoles
         Title = 'Legacy TLS/SSL protocol or weak cipher explicitly enabled'
-        Description = 'The SCHANNEL registry keys switch on SSL 2.0/3.0, TLS 1.0/1.1 or a weak cipher (NULL, DES, RC2, RC4, 3DES). Only values somebody set are judged: an unset value is the Windows default. SSL and the NULL/DES/RC2/RC4 ciphers are Medium, TLS 1.0/1.1 and 3DES Low.'
-        Remediation = 'Remove the Enabled = 1 value (or set it to 0) for the listed protocol or cipher, after checking that no old client or server depends on it.' }
+        Description = 'The SCHANNEL registry keys switch on SSL 2.0/3.0, TLS 1.0/1.1 or a weak cipher (NULL, DES, RC2, RC4, 3DES), offer one of those protocols to applications by default (DisabledByDefault = 0), or the TLS cipher suite order set by policy lists a suite with NULL, EXPORT, DES, 3DES, RC4 or MD5. Only values somebody set are judged: an unset value is the Windows default. SSL and the NULL/DES/RC2/RC4/EXPORT/MD5 ciphers are Medium, TLS 1.0/1.1 and 3DES Low.'
+        Remediation = 'Remove the Enabled = 1 or DisabledByDefault = 0 value (or set Enabled to 0) for the listed protocol or cipher, and remove the weak suites from "SSL Cipher Suite Order", after checking that no old client or server depends on them.' }
     ldap_server_signing_off = @{ Category = 'Network Exposure'; Severity = 'Medium'; Mitre = 'T1557'; CisServer = '2.3.5.3, 2.3.5.4 (L1)'; Needs = @('hardening'); Roles = @('dc')
         Title = 'Domain controller does not require LDAP signing or channel binding'
         Description = 'LDAPServerIntegrity is not 2 (require signing) or LdapEnforceChannelBinding is not 2 (always), so a relayed or downgraded LDAP bind is accepted. Unset counts, because the default is not enforcing.'
@@ -738,6 +782,7 @@ $script:CheckCatalog = [ordered]@{
 $script:CheckAttacks = [ordered]@{
     account_lockout_weak = 'Password guessing and spraying: an attacker tries many passwords against local or domain accounts (over SMB, RDP or WinRM) without the accounts locking.'
     always_install_elevated = 'Privilege escalation to SYSTEM: any user can install a crafted .msi package (msiexec, or a one-line exploit module) and its custom actions run as SYSTEM.'
+    amsi_provider_signing_off = 'Persistence and AMSI bypass: an attacker with administrator rights registers an unsigned AMSI provider DLL that is loaded into every PowerShell, script host and Office process, where it sees and can blind every scan.'
     anonymous_sam_enum = 'Account enumeration without credentials: an attacker on the network lists user and group names, the starting list for password spraying and phishing.'
     anonymous_shares_enum = 'Reconnaissance without credentials: an attacker lists the accounts and shares of the host and picks the ones to attack or to search for data.'
     app_installer_policy_gaps = 'Malicious package installation: a user or malware installs software through winget from a local or unpinned source, past the usual software controls.'
@@ -748,6 +793,14 @@ $script:CheckAttacks = [ordered]@{
     autologon_enabled = 'Credential theft: the password of the auto-logon account sits in the registry (Winlogon DefaultPassword or LSA secrets) where an administrator or malware reads it in clear text, and anyone with physical access gets a signed-in session.'
     autoplay_enabled = 'Removable-media infection: a USB drive or CD runs or offers its content as soon as it is inserted, the way worms and dropped "found" USB sticks spread.'
     autorun_writable = 'Privilege escalation and persistence: a user replaces the program that starts at every logon for every user (Run key) and their code runs in the session of the next administrator who logs on.'
+    bitlocker_unlock_exposure = 'Disk encryption bypass on a stolen laptop: the key is read from memory of a machine left in standby (DMA or cold-boot attacks), or the logon screen is attacked with unlimited password guesses.'
+    defender_network_blocks_off = 'Password brute force and remote ransomware: repeated logon attempts over RDP or SMB, or a remote machine encrypting this host''s shares, are not blocked at the source.'
+    defender_threat_action_allow = 'Malware runs although Defender detects it: an attacker (or a careless change) tells Defender to allow the threat, a quieter evasion than an exclusion.'
+    exploit_protection_off = 'Easier memory-corruption exploits: without DEP, ASLR or Control Flow Guard for the whole machine, exploits against any program run attacker code more reliably.'
+    ntlm_audit_off = 'Undetected NTLM relay and pass-the-hash: NTLM use leaves no event on the host, so neither the attack nor the systems that still need NTLM are seen.'
+    os_hardening_extras = 'Name-resolution poisoning and code injection: queries sent on every network or to LMHOSTS can be answered by an attacker, and services in svchost load unsigned DLLs.'
+    phishing_protection_off = 'Credential phishing: the user types the Windows password into a fake sign-in page or saves it in a text file, and nothing warns them.'
+    smb_encryption_off = 'Data interception: files read from the shares travel in clear, so an attacker in the path (or a mirrored switch port) reads them.'
     system_path_writable = 'Privilege escalation to SYSTEM: a user drops a DLL named like one a SYSTEM service looks for and does not find (a "phantom" DLL), or a program named like a command a script calls, into the PATH folder; the service loads it at its next start.'
     program_dir_writable = 'Privilege escalation: a user plants a DLL the program loads from its own folder (DLL search order hijacking); it runs as the next administrator who starts the program, or as SYSTEM if an installer, updater or service runs from there.'
     bitlocker_data_volume_off = 'Data theft from a lost or stolen device: removing the disk or booting another OS gives full access to the files on the data volume.'
@@ -864,11 +917,13 @@ $script:CheckAttacks = [ordered]@{
     task_binary_writable = 'Privilege escalation and persistence: a user replaces the program a privileged scheduled task runs, and their code runs with the task''s account at its next trigger.'
     terminal_services_server_gaps = 'Session data exposure: shared temporary folders and several sessions per user make it easier to read another session''s files or hijack a disconnected session.'
     uac_admin_no_prompt = 'Silent elevation: malware started by an administrator gets full administrator rights without any prompt.'
+    uac_admin_protection_off = 'UAC bypass: malware running as an administrator elevates silently through the many known bypasses of the split-token Admin Approval Mode.'
     uac_disabled = 'No privilege separation: every process an administrator starts, including malware, runs with full administrator rights.'
     uac_hardening_gaps = 'UAC bypass and spoofing: the elevation prompt can be faked or driven by another program, installers elevate silently, or legacy apps write where they should not.'
     updates_pending = 'Exploitation of fixed vulnerabilities: the missing updates fix flaws that attackers can use until they are installed.'
     updates_stale = 'Exploitation of known vulnerabilities: months of security fixes may be missing, including flaws exploited in the wild.'
     user_rights_excessive = 'Privilege escalation: rights such as debug programs, backup, restore, impersonate or act as part of the OS let their holders read credentials or become SYSTEM.'
+    vbs_policy_gaps = 'Firmware and kernel attacks: boot tampering goes unmeasured, and return-oriented exploits against vulnerable drivers are not stopped by hardware stack protection.'
     vulnerable_driver_present = 'Kernel compromise (BYOVD): an attacker loads this known-vulnerable or malicious driver to kill security tools, read credentials or run code in the kernel.'
     wdigest_cleartext = 'Clear-text password theft: LSASS keeps the passwords of logged-on users in clear text, and mimikatz (sekurlsa::wdigest) reads them.'
     webclient_webdav_enabled = 'Authentication coercion and NTLM relay: an attacker makes the host authenticate over HTTP (WebDAV, PetitPotam) and relays it to LDAP or AD CS, which SMB signing does not stop.'
@@ -2253,7 +2308,7 @@ function Invoke-HostChecks {
     # its checks say nothing about this host.
     $d = $Snapshot.defender
     if ($d -and $d.amRunningMode -and "$($d.amRunningMode)" -notmatch '(?i)^normal$') {
-        foreach ($t in @('defender_realtime_off', 'defender_tamper_off', 'defender_signatures_stale', 'defender_exclusion', 'asr_standard_rules_missing', 'defender_network_protection_off', 'defender_pua_off', 'controlled_folder_access_off', 'stig_defender', 'asr_other_rules_not_blocking', 'defender_protection_features_off', 'defender_server_baseline_gaps')) {
+        foreach ($t in @('defender_realtime_off', 'defender_tamper_off', 'defender_signatures_stale', 'defender_exclusion', 'asr_standard_rules_missing', 'defender_network_protection_off', 'defender_pua_off', 'controlled_folder_access_off', 'stig_defender', 'asr_other_rules_not_blocking', 'defender_protection_features_off', 'defender_server_baseline_gaps', 'defender_threat_action_allow', 'defender_network_blocks_off')) {
             $extra[$t] = "Microsoft Defender Antivirus runs in '$($d.amRunningMode)': another antivirus is primary, check that product"
         }
     }
@@ -2283,7 +2338,15 @@ function Invoke-HostChecks {
         elseif ($hd.officeInstalled -eq $true -and @($hd.officeUserPolicy | Where-Object { $_ }).Count -eq 0) { $extra['office_macro_settings_weak'] = 'no user profile loaded (the Office policies are per user)' }
         if (-not (& $has 'kerberosEncryptionTypes')) { $extra['kerberos_rc4_allowed'] = $old }
         if (-not (& $has 'wefSubscriptionManager')) { $extra['log_forwarding_missing'] = $old }
+        foreach ($pair in @(@('exploitProtection', 'exploit_protection_off'), @('deviceGuardPolicy', 'vbs_policy_gaps'), @('phishingProtection', 'phishing_protection_off'), @('ntlmAudit', 'ntlm_audit_off'),
+                @('amsiFeatureBits', 'amsi_provider_signing_off'), @('uacAdminApprovalType', 'uac_admin_protection_off'), @('bitlockerExposure', 'bitlocker_unlock_exposure'), @('osExtras', 'os_hardening_extras'))) {
+            if (-not (& $has $pair[0])) { $extra[$pair[1]] = $old }
+        }
     }
+    if ($d -and "$($d.present)" -eq 'True' -and -not $d.PSObject.Properties['threatDefaultActions']) {
+        $extra['defender_threat_action_allow'] = 'snapshot from an older collector: field not collected'; $extra['defender_network_blocks_off'] = 'snapshot from an older collector: field not collected'
+    }
+    if ($Snapshot.network -and -not $Snapshot.network.PSObject.Properties['smbServerEncryptData']) { $extra['smb_encryption_off'] = 'snapshot from an older collector: field not collected' }
 
     $ne = @(Get-NotEvaluatedChecks -Snapshot $Snapshot -Extra $extra)
     # Opt-in checks are not "not evaluated" when nobody asked for them: pending updates exist only in a
@@ -2430,6 +2493,28 @@ function Invoke-AntivirusChecks {
         if ($d.disableScriptScanning -eq $true) { Add-Finding -Type 'defender_protection_features_off' -Object 'Script scanning' -Found 'off' -Expected 'on' -Detail 'DisableScriptScanning is on.' }
         if ($null -ne $d.mapsReporting -and "$($d.mapsReporting)" -eq '0') { Add-Finding -Type 'defender_protection_features_off' -Object 'Cloud-delivered protection' -Severity 'Low' -Found '0' -Expected '1 or 2' -Detail 'MAPS reporting is disabled (0); STIG and CIS ask for Advanced (2).' }
         if ($d.disableBlockAtFirstSeen -eq $true) { Add-Finding -Type 'defender_protection_features_off' -Object 'Block at first sight' -Severity 'Low' -Found 'off' -Expected 'on' -Detail 'DisableBlockAtFirstSeen is on.' }
+        if ($d.disableArchiveScanning -eq $true) { Add-Finding -Type 'defender_protection_features_off' -Object 'Archive scanning' -Severity 'Low' -Found 'off' -Expected 'on' -Detail 'DisableArchiveScanning is on: files inside .zip, .cab and other archives are not scanned.' }
+        if ($d.disableScanningNetworkFiles -eq $true) { Add-Finding -Type 'defender_protection_features_off' -Object 'Network file scanning' -Severity 'Low' -Found 'off' -Expected 'on' -Detail 'DisableScanningNetworkFiles is on: files opened from network shares are not scanned.' }
+    }
+    if ((& $can 'defender_threat_action_allow') -and $d.threatDefaultActions) {
+        $names = @{ '6' = 'Allow'; '9' = 'No action' }
+        foreach ($lvl in @('severe', 'high', 'moderate', 'low')) {
+            $v = "$($d.threatDefaultActions.$lvl)"
+            if ($names.ContainsKey($v)) {
+                Add-Finding -Type 'defender_threat_action_allow' -Object "default action: $lvl threats" -Severity $(if (@('severe', 'high') -contains $lvl) { 'High' } else { 'Medium' }) -Found "$v ($($names[$v]))" -Expected '0 (default), 2 (quarantine) or 3 (remove)' -Detail "$($lvl.Substring(0, 1).ToUpper() + $lvl.Substring(1))ThreatDefaultAction = $v ($($names[$v])): Defender lets $lvl threats run."
+            }
+        }
+        $c = ConvertTo-Int64OrNull $d.threatIdAllowCount
+        if ($c -gt 0) { Add-Finding -Type 'defender_threat_action_allow' -Object 'per-threat overrides' -Found "$c" -Expected '0' -Detail "$c threat id(s) set to Allow or No action (ThreatIDDefaultAction)." }
+    }
+    if (& $can 'defender_network_blocks_off') {
+        foreach ($row in @(@('bruteForceProtection', 'Brute-force protection', 'BruteForceProtectionConfiguredState'), @('remoteEncryptionProtection', 'Remote encryption protection', 'RemoteEncryptionProtectionConfiguredState'))) {
+            $v = ConvertTo-Int64OrNull $d.($row[0])
+            if ($null -ne $v -and $v -ne 1) {
+                $state = switch ($v) { 0 { 'not configured' } 2 { 'audit' } default { "$v" } }
+                Add-Finding -Type 'defender_network_blocks_off' -Object $row[1] -Found "$v ($state)" -Expected '1 (block)' -Detail "$($row[2]) = $v ($state)."
+            }
+        }
     }
 }
 
@@ -3052,6 +3137,16 @@ function Invoke-BaselineChecks {
                     $ssl = "$($pr.name)" -like 'SSL*'
                     Add-Finding -Type 'schannel_legacy_crypto_enabled' -Object "protocol: $($pr.name) ($("$($pr.side)".ToLower()))" -Severity $(if ($ssl) { 'Medium' } else { 'Low' }) -Detail "$($pr.name) is explicitly enabled for the $("$($pr.side)".ToLower()) side (Enabled = $v)."
                 }
+                # Offered by default to applications although not explicitly enabled (one finding per
+                # protocol and side: an explicit Enabled already says more).
+                elseif ((& $n $pr.disabledByDefault) -eq 0 -and $v -ne 0) {
+                    $ssl = "$($pr.name)" -like 'SSL*'
+                    Add-Finding -Type 'schannel_legacy_crypto_enabled' -Object "protocol: $($pr.name) ($("$($pr.side)".ToLower()))" -Severity $(if ($ssl) { 'Medium' } else { 'Low' }) -Found 'DisabledByDefault = 0' -Expected 'DisabledByDefault = 1 or Enabled = 0' -Detail "$($pr.name) is offered by default on the $("$($pr.side)".ToLower()) side (DisabledByDefault = 0)."
+                }
+            }
+            $suites = @("$($h.schannel.cipherSuitePolicy)" -split '[,\s]+' | Where-Object { $_ -match '(?i)_NULL_|_EXPORT|_DES_|_3DES_|_RC4_|_MD5$' })
+            if ($suites.Count -gt 0) {
+                Add-Finding -Type 'schannel_legacy_crypto_enabled' -Object 'cipher suite order policy' -Severity 'Medium' -Found "$($suites.Count) weak suite(s)" -Expected 'none' -Detail "The SSL Cipher Suite Order policy lists $($suites -join ', ')."
             }
             foreach ($ci in @($h.schannel.ciphers | Where-Object { $_ })) {
                 $v = & $n $ci.enabled
@@ -3233,6 +3328,77 @@ function Invoke-BaselineChecks {
             $v = & $n $h.allowOnlineId
             if ($v -eq 1) { Add-Finding -Type 'lsa_weak_auth_options' -Object 'PKU2U online identities' -Detail 'AllowOnlineID = 1 (CIS 2.3.11.3 expects 0).' }
         }
+    }
+    if ($h) {
+        $n = { param($v) ConvertTo-Int64OrNull $v }
+        $show = { param($v) if ($null -eq $v) { 'not set' } else { "$v" } }
+        $build = if ($S.host -and $S.host.os) { ConvertTo-Int64OrNull $S.host.os.build }
+        $isHome = Test-HomeEdition $S
+        $ep = $h.exploitProtection
+        if ((& $can 'exploit_protection_off') -and $ep) {
+            foreach ($row in @(@('dep', 'DEP', 'Data Execution Prevention'), @('bottomUpAslr', 'Bottom-up ASLR', 'bottom-up randomization of memory allocations'), @('highEntropyAslr', 'High-entropy ASLR', 'high-entropy (64-bit) address randomization'),
+                    @('cfg', 'Control Flow Guard', 'Control Flow Guard'), @('terminateOnHeapError', 'Heap integrity', 'termination of a process whose heap is corrupted'))) {
+                if ((& $n $ep.($row[0])) -eq 2) { Add-Finding -Type 'exploit_protection_off' -Object "exploit protection: $($row[1])" -Found 'off' -Expected 'on (default)' -Detail "The system setting turns off $($row[2]) for every program." }
+            }
+        }
+        $dg = $h.deviceGuardPolicy
+        if ((& $can 'vbs_policy_gaps') -and $dg) {
+            foreach ($row in @(@('hvciMatRequired', 'HVCIMATRequired', '18.9.5.4', 'UEFI memory attributes table required'), @('systemGuardLaunch', 'ConfigureSystemGuardLaunch', '18.9.5.6', 'System Guard Secure Launch'), @('kernelShadowStacks', 'ConfigureKernelShadowStacksLaunch', '18.9.5.7', 'Kernel-mode hardware-enforced stack protection'))) {
+                $v = & $n $dg.($row[0])
+                if (($null -eq $v -and -not $isHome) -or ($null -ne $v -and $v -ne 1)) { Add-Finding -Type 'vbs_policy_gaps' -Object "Device Guard: $($row[3])" -Detail "$($row[1]) = $(& $show $v) (CIS $($row[2]) expects 1)." }
+            }
+        }
+        $pp = $h.phishingProtection
+        if ((& $can 'phishing_protection_off') -and $pp -and ($null -eq $build -or $build -ge 22621)) {
+            foreach ($row in @(@('captureThreatWindow', 'CaptureThreatWindow', '18.10.75.1.1', 'Automatic Data Collection'), @('notifyMalicious', 'NotifyMalicious', '18.10.75.1.2', 'Notify Malicious'), @('notifyPasswordReuse', 'NotifyPasswordReuse', '18.10.75.1.3', 'Notify Password Reuse'),
+                    @('notifyUnsafeApp', 'NotifyUnsafeApp', '18.10.75.1.4', 'Notify Unsafe App'), @('serviceEnabled', 'ServiceEnabled', '18.10.75.1.5', 'Service Enabled'))) {
+                $v = & $n $pp.($row[0])
+                if (($null -eq $v -and -not $isHome) -or ($null -ne $v -and $v -ne 1)) { Add-Finding -Type 'phishing_protection_off' -Object "Enhanced Phishing Protection: $($row[3])" -Detail "$($row[1]) = $(& $show $v) (CIS $($row[2]) expects 1)." }
+            }
+        }
+        $na = $h.ntlmAudit
+        if ((& $can 'ntlm_audit_off') -and $na) {
+            $v = & $n $na.auditReceiving
+            if ($v -ne 2) { Add-Finding -Type 'ntlm_audit_off' -Object 'Incoming NTLM traffic' -Detail "AuditReceivingNTLMTraffic = $(& $show $v) (CIS 2.3.11.11 expects 2)." }
+            $v = & $n $na.restrictSending
+            if ($v -ne 1 -and $v -ne 2) { Add-Finding -Type 'ntlm_audit_off' -Object 'Outgoing NTLM traffic' -Found $(& $show $v) -Expected '1 (audit all) or 2 (deny all)' -Detail "RestrictSendingNTLMTraffic = $(& $show $v) (CIS 2.3.11.12 expects 1 or 2)." }
+        }
+        if ((& $can 'amsi_provider_signing_off') -and $h.PSObject.Properties['amsiFeatureBits']) {
+            $v = & $n $h.amsiFeatureBits
+            if ($null -eq $v -or ($v -band 2) -eq 0) { Add-Finding -Type 'amsi_provider_signing_off' -Object 'AMSI provider signature check' -Found $(& $show $v) -Expected '2 (bit 0x2 set)' -Detail "FeatureBits = $(& $show $v): AMSI providers are loaded without an Authenticode check." }
+        }
+        if ((& $can 'uac_admin_protection_off') -and $h.PSObject.Properties['uacAdminApprovalType'] -and $build -ge 26100) {
+            $v = & $n $h.uacAdminApprovalType
+            if ($v -ne 2) { Add-Finding -Type 'uac_admin_protection_off' -Object 'Administrator protection' -Found $(& $show $v) -Expected '2' -Detail "TypeOfAdminApprovalMode = $(& $show $v): elevation still uses the split token of the signed-in administrator." }
+        }
+        $be = $h.bitlockerExposure
+        $osVol = @($S.bitlocker.volumes | Where-Object { $_ -and "$($_.volumeType)" -eq 'OperatingSystem' -and "$($_.protectionStatus)" -eq 'On' })
+        if ((& $can 'bitlocker_unlock_exposure') -and $be -and $osVol.Count -gt 0) {
+            foreach ($row in @(@('standbyOnBattery', 'on battery', 'DCSettingIndex', '18.9.33.6.3'), @('standbyPluggedIn', 'plugged in', 'ACSettingIndex', '18.9.33.6.4'))) {
+                $v = & $n $be.($row[0])
+                if (($null -eq $v -and -not $isHome) -or ($null -ne $v -and $v -ne 0)) { Add-Finding -Type 'bitlocker_unlock_exposure' -Object "Standby (S1-S3) $($row[1])" -Detail "$($row[2]) = $(& $show $v) (CIS $($row[3]) expects 0)." }
+            }
+            $v = & $n $be.machineLockoutThreshold
+            if ($null -eq $v -or $v -lt 1 -or $v -gt 10) { Add-Finding -Type 'bitlocker_unlock_exposure' -Object 'Machine account lockout threshold' -Found $(& $show $v) -Expected '1 to 10' -Detail "MaxDevicePasswordFailedAttempts = $(& $show $v) (CIS 2.3.7.3 expects 10 or fewer, not 0)." }
+        }
+        $ox = $h.osExtras
+        if ((& $can 'os_hardening_extras') -and $ox) {
+            $v = & $n $ox.svchostMitigation
+            if ($v -ne 1) { Add-Finding -Type 'os_hardening_extras' -Object 'svchost.exe mitigation options' -Found $(& $show $v) -Expected '1' -Detail "EnableSvchostMitigationPolicy = $(& $show $v): services hosted in svchost.exe can load DLLs not signed by Microsoft." }
+            $v = & $n $ox.lmhosts
+            if ($v -ne 0) { Add-Finding -Type 'os_hardening_extras' -Object 'LMHOSTS lookup' -Found $(if ($null -eq $v) { 'not set (on)' } else { "$v" }) -Expected '0' -Detail "EnableLMHOSTS = $(if ($null -eq $v) { 'not set (on by default)' } else { $v }): NetBIOS names are also resolved from LMHOSTS files." }
+            $v = & $n $ox.smartNameResolutionOff
+            if ($v -ne 1) { Add-Finding -Type 'os_hardening_extras' -Object 'Smart multi-homed name resolution' -Found $(& $show $v) -Expected '1' -Detail "DisableSmartNameResolution = $(& $show $v): DNS queries go out on every network adapter at once." }
+            $v = & $n $ox.lockedUserInfo
+            if ($v -ne 3) { Add-Finding -Type 'os_hardening_extras' -Object 'User information on the locked screen' -Found $(& $show $v) -Expected '3' -Detail "DontDisplayLockedUserId = $(& $show $v): the locked screen shows who is signed in (3 shows nothing)." }
+            if ($S.host -and $S.host.partOfDomain -eq $true -and $role -ne 'dc') {
+                $v = & $n $ox.kerberosArmor
+                if ($v -ne 1) { Add-Finding -Type 'os_hardening_extras' -Object 'Kerberos armoring (client)' -Found $(& $show $v) -Expected '1' -Detail "EnableCbacAndArmor = $(& $show $v): the Kerberos client does not request armoring (FAST)." }
+            }
+        }
+    }
+    if ((& $can 'smb_encryption_off') -and $S.network -and $S.network.smbServerEncryptData -eq $false) {
+        Add-Finding -Type 'smb_encryption_off' -Object 'SMB server encryption' -Found 'off' -Expected 'on' -Detail 'EncryptData is off: share traffic is not encrypted unless a share asks for it.'
     }
     # Data that other sections already hold.
     $cp = $S.credentialProtection
@@ -4207,12 +4373,100 @@ function Invoke-BrowserExtensionChecks {
     }
 }
 
+function Invoke-HostAnalysis {
+    # One host, from its snapshot to the row the report shows (score filled in later, after the fleet
+    # checks and the exceptions). Runs in HostBadger.ps1 or in a worker of Invoke-HostAnalysisParallel.
+    param($Snapshot, [hashtable]$Config, [bool]$SkipStig, [string[]]$ExtraEdrServices = @())
+    $s = $Snapshot
+    $r = Invoke-HostChecks -Snapshot $s -Config $Config
+    if ($SkipStig) {
+        $r.Findings = @($r.Findings | Where-Object { $_.Category -ne 'DISA STIG' })
+        $r.NotEvaluated = @($r.NotEvaluated | Where-Object { $_.Type -notlike 'stig_*' })
+    }
+    $osTxt = if ($s.host -and $s.host.os) { "$($s.host.os.caption) $($s.host.os.displayVersion) (build $($s.host.os.build).$($s.host.os.ubr))" } else { 'unknown' }
+    return [PSCustomObject]@{
+        Name         = Get-SnapshotHostName $s
+        Role         = Get-SnapshotRole $s
+        Os           = $osTxt
+        CollectedUtc = ConvertTo-UtcDate $s.meta.collectedAtUtc
+        AsSystem     = [bool]$s.meta.runningAsSystem
+        AsAdmin      = [bool]$s.meta.runningAsAdmin
+        Synthetic    = [bool]$s.meta.synthetic
+        NotEvaluated = @($r.NotEvaluated)
+        Edr          = @(Get-EdrInventory -Snapshot $s -ExtraServices $ExtraEdrServices)
+        EdrKnown     = (@($s.services | Where-Object { $_ }).Count -gt 0)
+        Findings     = @($r.Findings)
+        StigEvaluated = $(if ($SkipStig) { 0 } else { [int]$r.StigEvaluated })
+        StigByType   = $(if ($SkipStig) { @{} } else { $r.StigByType })
+        OptionalOff  = @($r.Off)
+        PolicyOff    = @($r.PolicyOff)
+        E8           = Get-E8Maturity -Role (Get-SnapshotRole $s) -Findings $r.Findings -NotEvaluated $r.NotEvaluated -Off (@($r.Off) + @($r.PolicyOff)) -StigByType $r.StigByType -SkipStig $SkipStig -Office ([bool]($s.hardening.officeInstalled -eq $true -or ($s.stig -and $s.stig.products.office -eq $true)))
+        Acn          = $null
+        Software     = @($s.software | Where-Object { $_ })
+        AccountMix   = Get-LocalAccountMix $s
+        UpdatesSource = $(if ($s.updatesPending) { "$($s.updatesPending.source)" } else { '' })
+        UpdatesSearched = [bool]($s.meta.options.checkUpdates -and $s.updatesPending)
+        Trend        = $null
+        Score        = $null
+    }
+}
+
+function Invoke-HostAnalysisParallel {
+    # Many hosts at once: $Threads runspaces, each with its own copy of lib\Common.ps1 and lib\Checks.ps1
+    # (the checks keep the host they judge in $script: variables), taking host names from one queue.
+    # The snapshots and $Config are only read. Returns the rows in the order of $Names, so the result
+    # is the same as one host at a time. Warnings of a worker are repeated here once it is done; a host
+    # whose analysis throws stops the run, as it does one host at a time.
+    param([hashtable]$Snapshots, [string[]]$Names, [hashtable]$Config, [int]$Threads, [bool]$SkipStig, [string[]]$ExtraEdrServices = @(), [scriptblock]$OnProgress)
+    $queue = New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]'
+    foreach ($n in $Names) { $queue.Enqueue($n) }
+    $results = New-Object 'System.Collections.Concurrent.ConcurrentDictionary[string,object]'
+    # As text, so the script belongs to the worker's runspace and not to this one.
+    $worker = @'
+param($LibDir, $Queue, $Snapshots, $Config, $SkipStig, $ExtraEdrServices, $Results)
+$ErrorActionPreference = 'Stop'
+. (Join-Path $LibDir 'Common.ps1')
+. (Join-Path $LibDir 'Checks.ps1')
+# Only the main thread draws the progress cursor.
+$script:SpinEnabled = $false
+$name = $null
+while ($Queue.TryDequeue([ref]$name)) {
+    try { $Results[$name] = Invoke-HostAnalysis -Snapshot $Snapshots[$name] -Config $Config -SkipStig $SkipStig -ExtraEdrServices $ExtraEdrServices }
+    catch { $Results[$name] = [PSCustomObject]@{ HostBadgerError = "$($name): $($_.Exception.Message)" } }
+}
+'@
+    $jobs = @()
+    try {
+        for ($i = 0; $i -lt [Math]::Max(1, $Threads); $i++) {
+            $ps = [powershell]::Create()
+            [void]$ps.AddScript($worker).AddArgument($PSScriptRoot).AddArgument($queue).AddArgument($Snapshots).AddArgument($Config).AddArgument($SkipStig).AddArgument($ExtraEdrServices).AddArgument($results)
+            $jobs += [PSCustomObject]@{ Ps = $ps; Handle = $ps.BeginInvoke() }
+        }
+        foreach ($j in $jobs) {
+            while (-not $j.Handle.AsyncWaitHandle.WaitOne(150)) { if ($OnProgress) { & $OnProgress $results.Count } }
+            if ($OnProgress) { & $OnProgress $results.Count }
+            try { [void]$j.Ps.EndInvoke($j.Handle) }
+            catch { throw "Host analysis worker failed: $($_.Exception.Message)" }
+            foreach ($w in $j.Ps.Streams.Warning) { Stop-Spinner; Write-Warning $w.Message }
+        }
+    }
+    finally { foreach ($j in $jobs) { $j.Ps.Dispose() } }
+    foreach ($n in $Names) {
+        $row = $null
+        if (-not $results.TryGetValue($n, [ref]$row)) { throw "${n}: not analyzed" }
+        if ($row.PSObject.Properties['HostBadgerError']) { throw $row.HostBadgerError }
+        $row
+    }
+}
+
 function Invoke-FleetChecks {
     # Snapshots: one per host. NotEvaluated: host name -> list of check types not evaluated there.
     # Returns the findings; each carries its own host.
     param([object[]]$Snapshots, [hashtable]$NotEvaluated = @{}, $Config)
     $script:Findings = New-Object System.Collections.Generic.List[object]
-    $snaps = @($Snapshots | Where-Object { $_ })
+    # In host name order, and the groups below by key: PowerShell 7 enumerates a hashtable in a different
+    # order in every process, and the findings must come out the same at every run.
+    $snaps = @($Snapshots | Where-Object { $_ } | Sort-Object { Get-SnapshotHostName $_ })
     if ($snaps.Count -lt 2) { return }
     $can = {
         param($s, $t)
@@ -4245,7 +4499,7 @@ function Invoke-FleetChecks {
             $groups[$k].Add(@{ Snap = $s; User = $u; When = $d })
         }
     }
-    foreach ($k in $groups.Keys) {
+    foreach ($k in @($groups.Keys | Sort-Object)) {
         $g = $groups[$k].ToArray()
         $names = @($g | ForEach-Object { Get-SnapshotHostName $_.Snap } | Select-Object -Unique)
         if ($names.Count -lt 2) { continue }
@@ -4263,7 +4517,7 @@ function Invoke-FleetChecks {
         if (-not $bySid.ContainsKey($k)) { $bySid[$k] = New-Object System.Collections.Generic.List[object] }
         $bySid[$k].Add($s)
     }
-    foreach ($k in $bySid.Keys) {
+    foreach ($k in @($bySid.Keys | Sort-Object)) {
         $g = $bySid[$k].ToArray()
         if ($g.Count -lt 2) { continue }
         foreach ($s in $g) {

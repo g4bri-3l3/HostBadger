@@ -54,13 +54,13 @@ $lap = Invoke-One (Join-Path $fleet 'hostsnapshot_laptop.json')
 $dc = Invoke-One (Join-Path $fleet 'hostsnapshot_dc.json')
 $part = Invoke-One (Join-Path $fleet 'hostsnapshot_partial.json')
 
-Assert-Equal @($weak.Findings).Count 234 'weak: total findings'
+Assert-Equal @($weak.Findings).Count 256 'weak: total findings'
 Assert-Equal @($hard.Findings).Count 3 'hardened: total findings'
-Assert-Equal @($lap.Findings).Count 10 'laptop: total findings'
-Assert-Equal @($dc.Findings).Count 29 'dc: total findings'
-Assert-Equal @($part.Findings).Count 2 'partial: total findings'
+Assert-Equal @($lap.Findings).Count 14 'laptop: total findings'
+Assert-Equal @($dc.Findings).Count 30 'dc: total findings'
+Assert-Equal @($part.Findings).Count 3 'partial: total findings'
 $all = @($weak.Findings) + @($hard.Findings) + @($lap.Findings) + @($dc.Findings) + @($part.Findings)
-Assert-Equal ((@('Critical', 'High', 'Medium', 'Low') | ForEach-Object { $s = $_; @($all | Where-Object { $_.Severity -eq $s }).Count }) -join '/') '2/50/121/105' 'fleet: severity split'
+Assert-Equal ((@('Critical', 'High', 'Medium', 'Low') | ForEach-Object { $s = $_; @($all | Where-Object { $_.Severity -eq $s }).Count }) -join '/') '2/52/125/127' 'fleet: severity split'
 # A STIG value no policy sets, with the setting in effect compliant (the weak host's firewall profiles are on): still a finding, at Low.
 $effFw = @($weak.Findings | Where-Object { $_.Type -eq 'stig_firewall' -and $_.Found -like 'not configured (in effect:*' })
 Assert-True ($effFw.Count -eq 3 -and @($effFw | Where-Object { $_.Severity -ne 'Low' }).Count -eq 0 -and $effFw[0].Detail -match 'setting in effect is compliant') 'STIG: a rule no policy sets but compliant in effect is a Low finding that says so'
@@ -156,6 +156,34 @@ $oldExp.hardening.PSObject.Properties.Remove('kerberosEncryptionTypes'); $oldExp
 $oldRes = Invoke-HostChecks -Snapshot $oldExp -Config $config
 $oldNe = @($oldRes.NotEvaluated | ForEach-Object { $_.Type })
 Assert-True (@(@('unattend_credentials', 'persistence_wmi_subscription', 'root_ca_added', 'wifi_profile_insecure', 'kerberos_rc4_allowed', 'log_forwarding_missing') | Where-Object { $oldNe -notcontains $_ }).Count -eq 0 -and @($oldRes.Findings | Where-Object { $_.Type -in 'unattend_credentials', 'kerberos_rc4_allowed', 'log_forwarding_missing' }).Count -eq 0) 'a snapshot without the new sections lists the new checks as not evaluated, never clean'
+# Harden-Windows-Security gap analysis: exploit protection, VBS policy, Defender actions and network
+# blocks, Enhanced Phishing Protection, NTLM audit, AMSI signing, Administrator protection, BitLocker
+# exposure, SMB encryption, optional protections, TLS defaults and suite order.
+$newTypes = @('exploit_protection_off', 'vbs_policy_gaps', 'defender_threat_action_allow', 'defender_network_blocks_off', 'phishing_protection_off', 'ntlm_audit_off', 'amsi_provider_signing_off', 'uac_admin_protection_off', 'bitlocker_unlock_exposure', 'smb_encryption_off', 'os_hardening_extras')
+Assert-Equal @($hard.Findings | Where-Object { $_.Type -in $newTypes }).Count 0 'gap checks: the hardened server has none of them'
+Assert-Equal ((@($weak.Findings | Where-Object { $_.Type -eq 'exploit_protection_off' }) | ForEach-Object { "$($_.Object)|$($_.Severity)" }) -join ';') 'exploit protection: DEP|Medium;exploit protection: Control Flow Guard|Medium' 'exploit protection: DEP and CFG off for the machine are reported, a mitigation set On or left at the default is not'
+Assert-Equal ((@($weak.Findings | Where-Object { $_.Type -eq 'defender_threat_action_allow' }) | ForEach-Object { "$($_.Object)|$($_.Severity)|$($_.Found)" }) -join ';') 'default action: severe threats|High|6 (Allow);default action: moderate threats|Medium|9 (No action);per-threat overrides|High|2' 'Defender: Allow and No action for a threat level, and per-threat overrides that allow threats'
+Assert-Equal ((@($weak.Findings | Where-Object { $_.Type -eq 'defender_network_blocks_off' }) | ForEach-Object { "$($_.Object)|$($_.Found)" }) -join ';') 'Brute-force protection|0 (not configured);Remote encryption protection|2 (audit)' 'Defender: brute-force and remote encryption protection not blocking'
+Assert-True ((Has $weak 'defender_protection_features_off' 'Archive scanning' 'Low') -and (Has $weak 'defender_protection_features_off' 'Network file scanning' 'Low')) 'Defender: archive and network file scanning turned off are Low'
+$vbs = @($weak.Findings | Where-Object { $_.Type -eq 'vbs_policy_gaps' })
+Assert-True ($vbs.Count -eq 3 -and @($vbs | Where-Object { -not $_.Found -or $_.Expected -ne '1' }).Count -eq 0 -and @($vbs | Where-Object { $_.Object -eq 'Device Guard: Kernel-mode hardware-enforced stack protection' -and $_.Found -eq '2' }).Count -eq 1) 'VBS policy: three CIS 18.9.5 rules with Found and Expected (audit mode 2 is not enforcement)'
+$suite = @($weak.Findings | Where-Object { $_.Type -eq 'schannel_legacy_crypto_enabled' -and $_.Object -eq 'cipher suite order policy' })
+Assert-True ($suite.Count -eq 1 -and $suite[0].Detail -match 'TLS_RSA_WITH_RC4_128_SHA, TLS_RSA_WITH_3DES_EDE_CBC_SHA\.$' -and (Has $weak 'schannel_legacy_crypto_enabled' 'protocol: TLS 1.1 (client)' 'Low')) 'TLS: weak suites in the suite order policy, and a protocol offered by default (DisabledByDefault = 0)'
+$phish = @($lap.Findings | Where-Object { $_.Type -eq 'phishing_protection_off' })
+Assert-Equal (($phish | ForEach-Object { "$($_.Object)|$($_.Found)|$($_.Expected)" }) -join ';') 'Enhanced Phishing Protection: Notify Password Reuse|not set|1;Enhanced Phishing Protection: Notify Unsafe App|0|1' 'phishing protection: the password warnings off on Windows 11, with CIS Found and Expected'
+Assert-True (-not (Has $weak 'phishing_protection_off') -and -not (Has $weak 'uac_admin_protection_off') -and (Has $part 'uac_admin_protection_off' 'Administrator protection') -and -not (Has $lap 'uac_admin_protection_off')) 'Windows 10 is not judged on Enhanced Phishing Protection, Administrator protection only from build 26100'
+Assert-Equal ((@($lap.Findings | Where-Object { $_.Type -eq 'bitlocker_unlock_exposure' }) | ForEach-Object { "$($_.Object)|$($_.Found)" }) -join ';') 'Standby (S1-S3) on battery|not set;Machine account lockout threshold|0' 'BitLocker exposure: standby on battery and no lockout threshold on a BitLocker laptop'
+Assert-True (-not (Has $weak 'bitlocker_unlock_exposure') -and (Has $dc 'smb_encryption_off' 'SMB server encryption') -and -not (Has $weak 'smb_encryption_off')) 'BitLocker exposure needs a protected OS volume; SMB encryption is judged on servers and domain controllers'
+Assert-Equal ((@($weak.Findings | Where-Object { $_.Type -in 'ntlm_audit_off', 'amsi_provider_signing_off', 'os_hardening_extras' }) | ForEach-Object { $_.Object }) -join ';') 'Incoming NTLM traffic;Outgoing NTLM traffic;AMSI provider signature check;svchost.exe mitigation options;LMHOSTS lookup;Smart multi-homed name resolution;User information on the locked screen;Kerberos armoring (client)' 'NTLM audit, AMSI signing and the optional protections on the weak host'
+$oldGap = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_weak.json')
+foreach ($p in 'exploitProtection', 'deviceGuardPolicy', 'phishingProtection', 'ntlmAudit', 'amsiFeatureBits', 'uacAdminApprovalType', 'bitlockerExposure', 'osExtras') { $oldGap.hardening.PSObject.Properties.Remove($p) }
+foreach ($p in 'threatDefaultActions', 'threatIdAllowCount', 'bruteForceProtection', 'remoteEncryptionProtection') { $oldGap.defender.PSObject.Properties.Remove($p) }
+$oldGapRes = Invoke-HostChecks -Snapshot $oldGap -Config $config
+$oldGapNe = @($oldGapRes.NotEvaluated | ForEach-Object { $_.Type })
+Assert-True (@($newTypes | Where-Object { $_ -notin 'smb_encryption_off', 'uac_admin_protection_off', 'phishing_protection_off', 'bitlocker_unlock_exposure' -and $oldGapNe -notcontains $_ }).Count -eq 0 -and @($oldGapRes.Findings | Where-Object { $_.Type -in $newTypes }).Count -eq 0) 'gap checks: a snapshot from an older collector lists them as not evaluated, never clean'
+$noMit = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_weak.json'); $noMit.hardening.exploitProtection = $null
+$noMit.meta.collectionErrors = @($noMit.meta.collectionErrors) + @([PSCustomObject]@{ section = 'hardening.exploitProtection'; message = 'Get-ProcessMitigation not available' })
+Assert-True (@((Invoke-HostChecks -Snapshot $noMit -Config $config).NotEvaluated | Where-Object { $_.Type -eq 'exploit_protection_off' }).Count -eq 1) 'exploit protection: a failed read is not evaluated'
 # Fleet checks: five copies of the laptop (cloned without Sysprep, one image password), one with UAC changed by hand.
 $clones = @(foreach ($i in 1..5) {
         $c = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_laptop.json')
@@ -297,7 +325,7 @@ Assert-True (Has $dc 'spooler_on_dc') 'spooler running on a DC'
 
 # Not evaluated: never silently clean.
 $neTypes = @($part.NotEvaluated | ForEach-Object { $_.Type } | Sort-Object)
-Assert-Equal $neTypes.Count 33 'partial: checks not evaluated'
+Assert-Equal $neTypes.Count 36 'partial: checks not evaluated'
 foreach ($t in 'defender_realtime_off', 'defender_tamper_off', 'defender_signatures_stale', 'defender_exclusion', 'asr_standard_rules_missing',
     'bitlocker_os_volume_off', 'bitlocker_tpm_only', 'bitlocker_data_volume_off', 'audit_policy_gaps', 'cmdline_audit_off', 'security_log_small',
     'local_admin_member', 'service_binary_writable', 'task_binary_writable', 'autorun_writable', 'credential_guard_off') {
@@ -346,16 +374,16 @@ Compress-Archive -LiteralPath (Join-Path $fleet 'hostsnapshot_laptop.json') -Des
 $mainArgs = @{ Snapshot = @($fleet, $zipDir); OutHtml = (Join-Path $out 'r.html'); OutJsonl = (Join-Path $out 'r.jsonl'); OutRemediation = (Join-Path $out 'rem'); Nis2Acn = $true }
 & (Join-Path $root 'HostBadger.ps1') @mainArgs *>&1 | Out-Null
 $csv = @(Import-Csv (Join-Path $out 'r.csv'))
-Assert-Equal $csv.Count 280 'end to end: findings CSV (zip read, older duplicate ignored)'
+Assert-Equal $csv.Count 308 'end to end: findings CSV (zip read, older duplicate ignored)'
 Assert-Equal @($csv | Where-Object { $_.Host -eq 'LT-SALES-112' -and $_.Type -eq 'os_support_ending' } | ForEach-Object { $_.Detail -match '39 days' }).Count 1 'newest snapshot of a host used'
 $html = [System.IO.File]::ReadAllText((Join-Path $out 'r.html'))
 Assert-True ($html -match 'Incomplete coverage' -and $html -match 'WKS-HR-004') 'report lists not evaluated checks with the host'
 Assert-True ($html -match '5 hosts' -and $html -match 'Weakest: WKS-ACCT-017') 'fleet cards'
 Assert-True ($html -notmatch 'https?://(?!attack\.mitre\.org)') 'report has no external links except MITRE'
 $lines = @(Get-Content (Join-Path $out 'r.jsonl'))
-Assert-Equal $lines.Count 285 'JSON Lines: 280 findings + 5 host summaries'
+Assert-Equal $lines.Count 313 'JSON Lines: 308 findings + 5 host summaries'
 $parsed = @($lines | ForEach-Object { $_ | ConvertFrom-Json })
-Assert-Equal @($parsed | Where-Object { $_.event_type -eq 'host_summary' -and $_.host -eq 'WKS-HR-004' -and $_.not_evaluated -eq 33 }).Count 1 'host summary carries the not evaluated count'
+Assert-Equal @($parsed | Where-Object { $_.event_type -eq 'host_summary' -and $_.host -eq 'WKS-HR-004' -and $_.not_evaluated -eq 36 }).Count 1 'host summary carries the not evaluated count'
 $id1 = @($parsed | Where-Object { $_.check -eq 'uac_disabled' })[0].finding_id
 
 # Exceptions and comparison on a second run where the weak host fixed UAC.
@@ -375,8 +403,8 @@ New-Item -ItemType Directory -Path $out2 -Force | Out-Null
 $args2 = @{ Snapshot = @($fixed); OutHtml = (Join-Path $out2 'r.html'); OutJsonl = (Join-Path $out2 'r.jsonl'); CompareTo = (Join-Path $out 'r.csv'); ExceptionsFile = $exc }
 & (Join-Path $root 'HostBadger.ps1') @args2 *>&1 | Out-Null
 $csv2 = @(Import-Csv (Join-Path $out2 'r.csv'))
-# 280 - 4 (partial host not collected; with it gone the hardened server shares its LocalAdm password with nobody) - 1 (UAC fixed) - 1 (SMBv1 accepted) - 2 (NetBIOS accepted) = 272
-Assert-Equal $csv2.Count 272 'second run: fixed, accepted and missing-host findings gone'
+# 308 - 5 (partial host not collected; with it gone the hardened server shares its LocalAdm password with nobody) - 1 (UAC fixed) - 1 (SMBv1 accepted) - 2 (NetBIOS accepted) = 299
+Assert-Equal $csv2.Count 299 'second run: fixed, accepted and missing-host findings gone'
 Assert-True (@($csv2 | Where-Object { $_.Type -eq 'guest_enabled' }).Count -eq 1) 'expired exception ignored'
 $j2 = @(Get-Content (Join-Path $out2 'r.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })
 $resolved = @($j2 | Where-Object { $_.event_type -eq 'resolved' })
@@ -384,6 +412,49 @@ Assert-True (@($resolved | Where-Object { $_.check -eq 'uac_disabled' -and $_.fi
 Assert-True (@($resolved | Where-Object { $_.host -eq 'WKS-HR-004' }).Count -eq 0) 'host missing from the run is not "resolved"'
 $html2 = [System.IO.File]::ReadAllText((Join-Path $out2 'r.html'))
 Assert-True ($html2 -match 'Accepted risks' -and $html2 -match 'Expired exceptions ignored') 'report shows accepted and expired exceptions'
+
+# Hosts analyzed at once (-Threads): the same CSV and JSON Lines as one at a time, on both editions.
+$thrOut = Join-Path $work 'threads'
+foreach ($n in 1, 3) { & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $thrOut "t$n.html") -OutJsonl (Join-Path $thrOut "t$n.jsonl") -Threads $n -NoLog *>&1 | Out-Null }
+Assert-True ([System.IO.File]::ReadAllText((Join-Path $thrOut 't1.csv')) -ceq [System.IO.File]::ReadAllText((Join-Path $thrOut 't3.csv'))) 'threads: three hosts at once give the same findings CSV as one at a time'
+Assert-True ([System.IO.File]::ReadAllText((Join-Path $thrOut 't1.jsonl')) -ceq [System.IO.File]::ReadAllText((Join-Path $thrOut 't3.jsonl'))) 'threads: and the same JSON Lines'
+$thrRows = @(Invoke-HostAnalysisParallel -Snapshots @{ A = (Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_weak.json')); B = (Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_dc.json')) } -Names @('B', 'A') -Config $config -Threads 2 -SkipStig $false)
+Assert-Equal (($thrRows | ForEach-Object { "$($_.Name):$(@($_.Findings).Count)" }) -join ',') "DC01:$(@($dc.Findings).Count),WKS-ACCT-017:$(@($weak.Findings).Count)" 'threads: the rows come back in the order asked, with the findings of one host at a time'
+$thrBad = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_laptop.json'); $thrBad.meta.collectedAtUtc = $null
+$thrErr = try { $null = Invoke-HostAnalysisParallel -Snapshots @{ X = $thrBad } -Names @('X') -Config $config -Threads 1 -SkipStig $false; '' } catch { "$($_.Exception.Message)" }
+Assert-True ($thrErr -match 'collectedAtUtc missing') "threads: a host that cannot be analyzed stops the run, as one at a time ($thrErr)"
+
+# Score history (-History): a first run, then the same hosts collected a week later with UAC fixed on the
+# weak host; the same snapshots analyzed again replace their lines.
+$histOut = Join-Path $work 'history'
+$histFile = Join-Path $histOut 'hostbadger-history.csv'
+& (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $histOut 'a.html') -OutJsonl (Join-Path $histOut 'a.jsonl') -History $histFile -NoLog *>&1 | Out-Null
+$histLater = Join-Path $work 'fleet_later'
+New-Item -ItemType Directory -Path $histLater -Force | Out-Null
+foreach ($f in Get-ChildItem $fleet -Filter *.json) {
+    $txt = [System.IO.File]::ReadAllText($f.FullName) -replace '"collectedAtUtc":\s*"2026-10-01T08:00:00Z"', '"collectedAtUtc": "2026-10-08T08:00:00Z"'
+    if ($f.Name -match 'weak') { $txt = $txt -replace '"enableLua":\s*0', '"enableLua":  1' }
+    [System.IO.File]::WriteAllText((Join-Path $histLater $f.Name), $txt)
+}
+foreach ($n in 'b', 'c') { & (Join-Path $root 'HostBadger.ps1') -Snapshot $histLater -OutHtml (Join-Path $histOut "$n.html") -OutJsonl (Join-Path $histOut "$n.jsonl") -History $histFile -NoLog *>&1 | Out-Null }
+$histLines = @(Get-Content -LiteralPath $histFile)
+Assert-Equal $histLines[0] 'host,collected_utc,score,grade,critical,high,medium,low,findings,not_evaluated,tool_version' 'history: header'
+Assert-Equal ($histLines.Count - 1) 10 'history: two snapshots of five hosts (the third run replaced the lines of the second)'
+$sumA = @(Get-Content (Join-Path $histOut 'a.jsonl') | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.event_type -eq 'host_summary' -and $_.host -eq 'WKS-ACCT-017' })[0]
+$sumC = @(Get-Content (Join-Path $histOut 'c.jsonl') | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.event_type -eq 'host_summary' -and $_.host -eq 'WKS-ACCT-017' })[0]
+Assert-True ($null -eq $sumA.score_previous -and $null -eq $sumA.score_change -and $sumA.score_history_points -eq 1) 'history: a first run has no previous score'
+Assert-True ($sumC.score_previous -eq $sumA.score -and $sumC.score_change -eq ($sumC.score - $sumA.score) -and $sumC.score_history_points -eq 2 -and (ConvertTo-UtcDate $sumC.score_previous_collected).ToString("yyyy-MM-ddTHH:mm", [Globalization.CultureInfo]::InvariantCulture) -eq "2026-10-01T08:00") "history: the later run names the previous score and the change ($($sumA.score) -> $($sumC.score))"
+$htmlC = [System.IO.File]::ReadAllText((Join-Path $histOut 'c.html'))
+Assert-True ($htmlC -match '<th>Trend</th>' -and $htmlC -match "class='trend'" -and $htmlC -match 'since 2026-10-01 \(2 runs\)') 'history: the Hosts table draws the trend'
+Assert-True ([System.IO.File]::ReadAllText((Join-Path $histOut 'a.html')) -notmatch '<th>Trend</th>') 'history: no Trend column before a second run'
+$sumJsonC = if ($htmlC -match '(?s)<script type="application/json" id="hostbadger-summary">(.*?)</script>') { $Matches[1] | ConvertFrom-Json } else { $null }
+Assert-True (@($sumJsonC.hosts | Where-Object { @($_.trend).Count -eq 2 -and $null -ne $_.scoreChange }).Count -eq 5) 'history: the summary block carries the trend of every host for the window'
+$notHist = Join-Path $histOut 'notes.csv'
+[System.IO.File]::WriteAllText($notHist, "name,value`nkeep,me`n")
+& (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $histOut 'd.html') -History $notHist -NoLog *>&1 | Out-Null
+Assert-Equal ([System.IO.File]::ReadAllText($notHist)) "name,value`nkeep,me`n" 'history: a file that is not a score history is left alone'
+# The menu and the window keep the history next to their reports.
+foreach ($ln in 'Start-HostBadger.ps1', 'Start-HostBadgerGui.ps1') { Assert-True ([System.IO.File]::ReadAllText((Join-Path $root $ln)) -match "\`$ap\['History'\] = .*'hostbadger-history\.csv'") "history: $ln passes -History next to the report" }
 
 # Organization policy (-PolicyFile): the checks it turns off do not run, are not "not evaluated", are
 # listed with their reason, and a name that matches no check stops the run.
@@ -397,7 +468,7 @@ $baseCsv = @(Import-Csv (Join-Path $out 'r.csv'))
 $polGone = @($baseCsv | Where-Object { $_.Type -eq 'bloatware_installed' -or $_.Type -like 'stig_*' -or $_.Type -eq 'service_binary_writable' }).Count
 Assert-True ($polGone -gt 0 -and $polCsv.Count -eq $baseCsv.Count - $polGone -and @($polCsv | Where-Object { $_.Type -like 'stig_*' -or $_.Type -in 'bloatware_installed', 'service_binary_writable' }).Count -eq 0) 'policy: the checks it turns off (exact names and a pattern) leave the report, and nothing else does'
 $polHr = @(Get-Content (Join-Path $polOut 'r.jsonl') | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.event_type -eq 'host_summary' -and $_.host -eq 'WKS-HR-004' })[0]
-Assert-True (@($polHr.policy_disabled_checks) -contains 'service_binary_writable' -and @($polHr.not_evaluated_checks) -notcontains 'service_binary_writable' -and $polHr.not_evaluated -eq 31) 'policy: a check it turns off is listed apart, not as "not evaluated" (33 less service_binary_writable and stig_defender)'
+Assert-True (@($polHr.policy_disabled_checks) -contains 'service_binary_writable' -and @($polHr.not_evaluated_checks) -notcontains 'service_binary_writable' -and $polHr.not_evaluated -eq 34) 'policy: a check it turns off is listed apart, not as "not evaluated" (36 less service_binary_writable and stig_defender)'
 $polHtml = [System.IO.File]::ReadAllText((Join-Path $polOut 'r.html'))
 Assert-True ($polHtml -match 'Turned off by the policy &ldquo;Contoso baseline&rdquo;' -and $polHtml -match 'consumer apps allowed on this fleet') 'policy: the report names the policy, the checks and the reason'
 $polBad = Join-Path $work 'policy_bad.json'
@@ -419,8 +490,8 @@ $remFiles = @(Get-ChildItem (Join-Path $out 'rem') -Filter 'remediate_*.ps1' -Er
 Assert-Equal ($remFiles.Name -join ',') 'remediate_DC01.ps1,remediate_WKS-ACCT-017.ps1' 'remediation: a script only for hosts with a fixable finding'
 $remWeak = New-RemediationScript -HostName 'WKS-ACCT-017' -Role 'workstation' -Findings $all -Config $config -CollectedUtc '2026-10-01 08:00' -ToolVersion 'test'
 $remDc = New-RemediationScript -HostName 'DC01' -Role 'dc' -Findings $all -Config $config -CollectedUtc '2026-10-01 08:00' -ToolVersion 'test'
-Assert-Equal "$($remWeak.ActionCount)/$($remWeak.FixableFindings)/$($remWeak.TotalFindings)" '88/87/234' 'remediation: weak host settings / findings with a script / findings'
-Assert-Equal "$($remDc.ActionCount)/$($remDc.FixableFindings)/$($remDc.TotalFindings)" '5/5/29' 'remediation: domain controller settings / findings with a script / findings'
+Assert-Equal "$($remWeak.ActionCount)/$($remWeak.FixableFindings)/$($remWeak.TotalFindings)" '88/87/256' 'remediation: weak host settings / findings with a script / findings'
+Assert-Equal "$($remDc.ActionCount)/$($remDc.FixableFindings)/$($remDc.TotalFindings)" '5/5/30' 'remediation: domain controller settings / findings with a script / findings'
 Assert-Equal @(New-RemediationScript -HostName 'SRV-APP-02' -Role 'server' -Findings $all -Config $config -CollectedUtc 'x' -ToolVersion 'test').ActionCount 0 'remediation: hardened server has nothing to fix'
 # Every check type that promises a script must produce one for at least one finding of the fleet. A
 # typo in an Object would otherwise hide it.
@@ -925,7 +996,7 @@ $noStigRes = Invoke-HostChecks -Snapshot $noStig -Config $config
 Assert-True (@($noStigRes.NotEvaluated | Where-Object { $_.Type -like 'stig_*' -and $_.Reason -match "section 'stig' not in the snapshot" }).Count -eq 11 -and @($noStigRes.Findings | Where-Object { $_.Type -like 'stig_*' }).Count -eq 0) 'STIG: a snapshot without the stig section lists the rules as not evaluated, never as clean'
 $skipOut = Join-Path $work 'skipstig'; New-Item -ItemType Directory -Path $skipOut -Force | Out-Null
 $skipRun = & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $skipOut 'r.html') -SkipStig *>&1 | Out-String
-Assert-True (@(Import-Csv (Join-Path $skipOut 'r.csv') | Where-Object { $_.Type -like 'stig_*' }).Count -eq 0 -and @(Import-Csv (Join-Path $skipOut 'r.csv')).Count -eq 253) 'STIG: -SkipStig leaves the STIG findings out and nothing else'
+Assert-True (@(Import-Csv (Join-Path $skipOut 'r.csv') | Where-Object { $_.Type -like 'stig_*' }).Count -eq 0 -and @(Import-Csv (Join-Path $skipOut 'r.csv')).Count -eq 281) 'STIG: -SkipStig leaves the STIG findings out and nothing else'
 # The progress cursor draws only on an interactive console, moves its frame, and clears its line.
 $script:SpinEnabled = $null; $script:SpinWidth = 0; Step-Spinner 'x' 6>&1 | Out-Null
 Assert-True ($script:SpinEnabled -eq $false -or [Console]::IsOutputRedirected -eq $false) 'spinner: off when output is redirected'
@@ -953,7 +1024,7 @@ Assert-True ($showHtml -match 'Summary by framework' -and $showHtml -match 'E8: 
 Assert-True ([regex]::Match($showHtml, '(?s)Summary by category</h2>.*?</table>').Value -notmatch '<td>DISA STIG</td>' -and [regex]::Match($showHtml, '(?s)Summary by framework</h2>.*?</table>').Value -match '<td>DISA STIG') 'report: DISA STIG is in the summary by framework, not in the summary by category'
 Assert-True ((Get-DashboardHtml -Hosts @([PSCustomObject]@{ Name = 'h'; Role = 'workstation'; Score = [PSCustomObject]@{ Score = 48; Grade = 'D' }; StigByType = @{}; NotEvaluated = @(); OptionalOff = @(); StigEvaluated = 0 }) -All @() -Shown @() -Title 't') -match 'Partial protection') 'dashboard: the verdict follows the grades (48, grade D, is partial protection)'
 Assert-True ($hideHtml -match 'DISA STIG compliance' -and $hideHtml -match 'Hidden from this report: \d+ CIS-based and 27 DISA STIG' -and $hideHtml -notmatch 'WN11 V-253260' -and $hideHtml -notmatch 'CIS 18\.10\.7\.3' -and $hideHtml.Length -lt $showHtml.Length) 'report: -HideCis -HideStig leave the findings out and keep the charts'
-Assert-Equal @(Import-Csv (Join-Path $hideOut 'hide.csv')).Count 280 'report: hidden findings stay in the CSV'
+Assert-Equal @(Import-Csv (Join-Path $hideOut 'hide.csv')).Count 308 'report: hidden findings stay in the CSV'
 $aiNo = Join-Path $hideOut 'ai_no.txt'; $aiYes = Join-Path $hideOut 'ai_yes.txt'
 & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $hideOut 'a.html') -AiDryRun $aiNo *>&1 | Out-Null
 & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $hideOut 'b.html') -AiDryRun $aiYes -AiIncludeStig *>&1 | Out-Null
@@ -1359,7 +1430,7 @@ $zipBytes = [System.IO.File]::ReadAllBytes($weakZip); Remove-Item -LiteralPath $
 $pwSnap = Join-Path $encDir 'pw'; New-Item -ItemType Directory -Path $pwSnap -Force | Out-Null
 [System.IO.File]::WriteAllBytes((Join-Path $pwSnap 'hostsnapshot_WKS-ACCT-017_20261001080000.hbx'), (Protect-SnapshotBytes -Data $zipBytes -Password 'Corr3ct-h0rse'))
 $encPw = & (Join-Path $root 'HostBadger.ps1') -Snapshot $pwSnap -OutHtml (Join-Path $encDir 'pw.html') -SnapshotPassword (ConvertTo-SecureString 'Corr3ct-h0rse' -AsPlainText -Force) *>&1 | Out-String
-Assert-Equal @(Import-Csv (Join-Path $encDir 'pw.csv')).Count 234 'encryption: a password snapshot opens with -SnapshotPassword and gives the same findings'
+Assert-Equal @(Import-Csv (Join-Path $encDir 'pw.csv')).Count 256 'encryption: a password snapshot opens with -SnapshotPassword and gives the same findings'
 $encBad = & (Join-Path $root 'HostBadger.ps1') -Snapshot $pwSnap -OutHtml (Join-Path $encDir 'bad.html') -SnapshotPassword (ConvertTo-SecureString 'wrong' -AsPlainText -Force) *>&1 | Out-String
 Assert-True ($encBad -match 'wrong password, or the file is damaged' -and $encBad -match 'No readable snapshot') 'encryption: a wrong password is reported and the host is skipped'
 $hbxBytes = [System.IO.File]::ReadAllBytes((Join-Path $pwSnap 'hostsnapshot_WKS-ACCT-017_20261001080000.hbx'))
@@ -1374,7 +1445,7 @@ $pfxFile = Join-Path $encDir 't.pfx'; [System.IO.File]::WriteAllBytes($pfxFile, 
 $certSnap = Join-Path $encDir 'cert'; New-Item -ItemType Directory -Path $certSnap -Force | Out-Null
 [System.IO.File]::WriteAllBytes((Join-Path $certSnap 'hostsnapshot_WKS-ACCT-017_20261001080000.hbx'), (Protect-SnapshotBytes -Data $zipBytes -Certificate (Get-EncryptionCertificate $cerFile)))
 & (Join-Path $root 'HostBadger.ps1') -Snapshot $certSnap -OutHtml (Join-Path $encDir 'cert.html') -SnapshotPfx $pfxFile -SnapshotPfxPassword (ConvertTo-SecureString 'pfx-pw' -AsPlainText -Force) *>&1 | Out-Null
-Assert-Equal @(Import-Csv (Join-Path $encDir 'cert.csv')).Count 234 'encryption: a certificate snapshot opens with the private key in -SnapshotPfx'
+Assert-Equal @(Import-Csv (Join-Path $encDir 'cert.csv')).Count 256 'encryption: a certificate snapshot opens with the private key in -SnapshotPfx'
 $encNoKey = & (Join-Path $root 'HostBadger.ps1') -Snapshot $certSnap -OutHtml (Join-Path $encDir 'nokey.html') *>&1 | Out-String
 Assert-True ($encNoKey -match 'private key is not available here') 'encryption: without the private key the snapshot is not read, and says why'
 $noKevHtml = [System.IO.File]::ReadAllText((Join-Path $hideOut 'show.html'))
@@ -1450,7 +1521,10 @@ Assert-True ((Test-Path -LiteralPath $gitAttr) -and ([System.IO.File]::ReadAllTe
 $guiOut = (& (Join-Path $root 'Start-HostBadgerGui.ps1') -NoShow *>&1 | ForEach-Object { "$_" }) -join "`n"
 Assert-True ($guiOut -match 'GUI ready: \d+ controls, 6 catalogs, version \d+\.\d+; settings: \d+ controls, 6 catalogs, 5 fix levels') "window: builds without errors ($($guiOut -replace '\s+', ' '))"
 Assert-True ($guiOut -match 'Fix button: nothing chosen False, no level False, no level with debloat True, a level True') "window: Fix this machine only when there is something to change ($($guiOut -replace '\s+', ' '))"
+Assert-True ($guiOut -match 'Fix tab: button in Fix, options in Fix, log repeated True') "window: the fixes have their own tab, with the log ($($guiOut -replace '\s+', ' '))"
+Assert-True ($guiOut -match 'Fix reuse: recent True, older False, other options False, same choices elsewhere True, other choices False') "window: Fix this machine reuses only a recent collection with the same options, and its analysis only with the same choices ($($guiOut -replace '\s+', ' '))"
 $guiSrc = [System.IO.File]::ReadAllText((Join-Path $root 'Start-HostBadgerGui.ps1'))
+Assert-True ($guiSrc -match "'HostBadger: apply the fixes', 'YesNo', 'Warning', 'No'" -and $guiSrc -match 'Enter answers No') 'window: the warning before applying defaults to No and says so'
 Assert-True ($guiSrc -match "'-StartIn'" -and $guiSrc -match 'Set-Location -LiteralPath \$StartIn') 'window: Restart as administrator keeps the folder (-StartIn), so the settings and kept catalogs are found'
 # The Results tab reads the CSV of the demo report: every finding, host and category, and the description of
 # every check (taken from the catalog with the parser).

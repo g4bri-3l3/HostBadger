@@ -333,21 +333,6 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
               </StackPanel>
             </Border>
 
-            <Border Style="{StaticResource Card}">
-              <StackPanel>
-                <TextBlock Text="Fix" Style="{StaticResource H2}"/>
-                <TextBlock x:Name="RemWarn" TextWrapping="Wrap" Margin="0,0,0,4"/>
-                <StackPanel x:Name="RemPanel" Margin="0,4,0,0">
-                  <TextBlock Text="What the fixes change" Style="{StaticResource H3}" Margin="0,4,0,4"/>
-                  <StackPanel x:Name="ProfilePanel"/>
-                  <TextBlock Text="Also" Style="{StaticResource H3}"/>
-                  <CheckBox x:Name="DebloatChk" Content="Debloat: preinstalled Store apps (workstations), unused consumer services and Windows components (Xbox, Fax, Steps Recorder...). Strict includes it"/>
-                  <CheckBox x:Name="PrivacyChk" Content="Disable telemetry: the privacy and telemetry settings of every level (Strict includes them)"/>
-                  <CheckBox x:Name="RemChk" Content="Write the fix scripts with each analysis (one per host, nothing applied)" FontWeight="SemiBold" Margin="0,10,18,4"/>
-                  <TextBlock x:Name="RemOutText" Style="{StaticResource Muted}" Margin="0,4,0,0"/>
-                </StackPanel>
-              </StackPanel>
-            </Border>
 
             <Border Style="{StaticResource Card}">
               <StackPanel>
@@ -382,7 +367,6 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
             <DockPanel LastChildFill="False">
               <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
                 <Button x:Name="RunBtn" Content="Analyze" Style="{StaticResource Primary}" ToolTipService.ShowOnDisabled="True"/>
-                <Button x:Name="FixBtn" Content="Fix this machine" Background="#FBD9D2" ToolTipService.ShowOnDisabled="True"/>
                 <Button x:Name="OpenBtn" Content="Open the last report" IsEnabled="False" Margin="0"/>
               </StackPanel>
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
@@ -425,6 +409,58 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
           </Grid>
         </Border>
       </Grid>
+    </Grid>
+    </TabItem>
+
+    <!-- Fix: what the fix scripts change, and Fix this machine. The log on the right repeats the one of Analyze. -->
+    <TabItem x:Name="TabFix" Header="Fix">
+    <Grid>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" MinWidth="560"/>
+        <ColumnDefinition Width="10"/>
+        <ColumnDefinition Width="440" MinWidth="300"/>
+      </Grid.ColumnDefinitions>
+      <Grid Grid.Column="0">
+        <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
+          <StackPanel>            <Border Style="{StaticResource Card}">
+              <StackPanel>
+                <TextBlock Text="Fix" Style="{StaticResource H2}"/>
+                <TextBlock x:Name="RemWarn" TextWrapping="Wrap" Margin="0,0,0,4"/>
+                <StackPanel x:Name="RemPanel" Margin="0,4,0,0">
+                  <TextBlock Text="What the fixes change" Style="{StaticResource H3}" Margin="0,4,0,4"/>
+                  <StackPanel x:Name="ProfilePanel"/>
+                  <TextBlock Text="Also" Style="{StaticResource H3}"/>
+                  <CheckBox x:Name="DebloatChk" Content="Debloat: preinstalled Store apps (workstations), unused consumer services and Windows components (Xbox, Fax, Steps Recorder...). Strict includes it"/>
+                  <CheckBox x:Name="PrivacyChk" Content="Disable telemetry: the privacy and telemetry settings of every level (Strict includes them)"/>
+                  <CheckBox x:Name="RemChk" Content="Write the fix scripts with each analysis (one per host, nothing applied)" FontWeight="SemiBold" Margin="0,10,18,4"/>
+                  <TextBlock x:Name="RemOutText" Style="{StaticResource Muted}" Margin="0,4,0,0"/>
+                </StackPanel>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+        <Border Grid.Row="1" Style="{StaticResource Card}" Padding="14,12" Margin="0,0,8,0">
+          <StackPanel>
+            <StackPanel Orientation="Horizontal">
+              <Button x:Name="FixBtn" Content="Fix this machine" Background="#FBD9D2" ToolTipService.ShowOnDisabled="True" Margin="0"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,10,0,0">
+              <ProgressBar x:Name="FixBusy" Width="120" Height="10" IsIndeterminate="False" Margin="0,0,10,0" Foreground="#E2372A" Background="#E8E2D4" BorderBrush="#161513"/>
+              <TextBlock x:Name="FixStatusText" Foreground="#5F5A51"/>
+            </StackPanel>
+          </StackPanel>
+        </Border>
+      </Grid>
+      <GridSplitter Grid.Column="1" Width="10" HorizontalAlignment="Stretch" Background="Transparent" Cursor="SizeWE"/>
+      <Border Grid.Column="2" BorderBrush="#161513" BorderThickness="3" Background="#161513" Margin="0,0,6,0">
+        <Grid>
+          <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+          <TextBlock Text="LOG" Foreground="#F2B632" FontWeight="Bold" FontFamily="Cascadia Mono, Consolas" Margin="10,6,10,0"/>
+          <TextBox x:Name="FixLogBox" Grid.Row="1" IsReadOnly="True" Background="#161513" Foreground="#F3EFE6" BorderThickness="0" FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                   VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="Wrap" Padding="10,6,10,10"/>
+        </Grid>
+      </Border>
     </Grid>
     </TabItem>
 
@@ -714,8 +750,12 @@ $ui = $main.Ui
 # ---------------- Helpers.
 function Add-Log {
     param([string]$Text)
-    $ui.LogBox.AppendText("$Text`r`n")
-    $ui.LogBox.ScrollToEnd()
+    Add-LogText "$Text`r`n"
+}
+function Add-LogText {
+    # The log of Analyze, repeated in the Fix tab.
+    param([string]$Text)
+    foreach ($box in $ui.LogBox, $ui.FixLogBox) { $box.AppendText($Text); $box.ScrollToEnd() }
 }
 function Split-List { param([string]$Text) return @("$Text" -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
 function Get-Stamp { return (Get-Date).ToString('yyyyMMdd_HHmmss') }
@@ -790,11 +830,17 @@ $script:LastSnapshot = ''
 $script:Kept = $false
 $script:ApplyAfter = $false
 $script:ForFix = $false
+# This machine's last collection in this window (time and options) and the analysis that wrote its fix
+# script: Fix this machine reuses them for $script:FixReuseMinutes instead of collecting again.
+$script:LastSnapshotAt = $null
+$script:LastSnapshotOpts = ''
+$script:FixBasis = $null
+$script:FixReuseMinutes = 30
 
 function Set-Busy {
     param([bool]$On, [string]$Text = '')
-    $ui.Busy.IsIndeterminate = $On
-    $ui.StatusText.Text = $Text
+    $ui.Busy.IsIndeterminate = $On; $ui.FixBusy.IsIndeterminate = $On
+    $ui.StatusText.Text = $Text; $ui.FixStatusText.Text = $Text
     foreach ($b in 'UpdateCheckBtn', 'UpdateBtn', 'ElevateBtn', 'SettingsBtn', 'SafetyBtn') { $ui[$b].IsEnabled = -not $On }
     foreach ($b in 'AiDryBtn', 'AiPickBtn', 'ResPickBtn') { $ui[$b].IsEnabled = -not $On }
     Update-Actions
@@ -832,7 +878,7 @@ function Read-TaskOutput {
     }
     $errs = $T.Ps.Streams.Error
     while ($T.ErrSeen -lt $errs.Count) { [void]$sb.Append("ERROR: $($errs[$T.ErrSeen])`r`n"); $T.ErrSeen++ }
-    if ($sb.Length) { $ui.LogBox.AppendText($sb.ToString()); $ui.LogBox.ScrollToEnd() }
+    if ($sb.Length) { Add-LogText $sb.ToString() }
 }
 function Read-GuiTask {
     $t = $script:Task
@@ -882,6 +928,7 @@ function Update-Outputs {
         Add-OutputLink 'Run log' "$base.log"
         Add-OutputLink 'CSV' "$base.csv"
         Add-OutputLink 'JSON Lines' "$base.jsonl"
+        Add-OutputLink 'Score history' (Join-Path (Split-Path -Parent $r) 'hostbadger-history.csv')
         Add-OutputLink 'Fix scripts' "$($base)_fixes"
         Add-OutputLink 'Rollback file' "$($base)_fixes\rollback.json"
         Add-OutputLink 'AI prompt' "$($base)_ai_prompt.txt"
@@ -1240,12 +1287,18 @@ function Show-ResultsOverview {
     $mineOnly = { param($x) -not $HostSel -or "$($x.host)" -eq $HostSel }
 
     Add-OvText $(if ($HostSel) { $HostSel } else { "Hosts ($($all.Count))" }) -Heading
+    # The change since the host's previous run, when the score history has one (reports of 2.1 and later).
+    $withChange = @($all | Where-Object { $_.PSObject.Properties['scoreChange'] -and $null -ne $_.scoreChange }).Count -gt 0
     $rows = foreach ($x in @($hs | Sort-Object { [int]$_.score })) {
         $c = Get-GradeColors "$($x.grade)"
-        , @($(if ($all.Count -gt 1 -and -not $HostSel) { New-HostLink "$($x.name)" } else { "$($x.name)" }), "$($x.role)", (New-OvPill "$($x.score)  $($x.grade)" $c[0] $c[1]),
-            "$($x.findings)", "$($x.severity.Critical)", "$($x.severity.High)", "$($x.severity.Medium)", "$($x.severity.Low)", "$(@($x.notEvaluated).Count)", "$($x.collected)", "$($x.collectedAs)")
+        $cells = New-Object System.Collections.Generic.List[object]
+        $cells.Add($(if ($all.Count -gt 1 -and -not $HostSel) { New-HostLink "$($x.name)" } else { "$($x.name)" })); $cells.Add("$($x.role)"); $cells.Add((New-OvPill "$($x.score)  $($x.grade)" $c[0] $c[1]))
+        if ($withChange) { $cells.Add($(if ($x.PSObject.Properties['scoreChange'] -and $null -ne $x.scoreChange) { "$(if ([int]$x.scoreChange -gt 0) { '+' })$($x.scoreChange) since $("$($x.scorePreviousCollected)".Substring(0, [Math]::Min(10, "$($x.scorePreviousCollected)".Length)))" } else { 'first run' })) }
+        foreach ($v in "$($x.findings)", "$($x.severity.Critical)", "$($x.severity.High)", "$($x.severity.Medium)", "$($x.severity.Low)", "$(@($x.notEvaluated).Count)", "$($x.collected)", "$($x.collectedAs)") { $cells.Add($v) }
+        , $cells.ToArray()
     }
-    Add-OvTable -Headers @('Host', 'Role', 'Score', 'Findings', 'Critical', 'High', 'Medium', 'Low', 'Not evaluated', 'Collected', 'Collected as') -Rows @($rows)
+    $heads = @('Host', 'Role', 'Score') + @(if ($withChange) { 'Change' }) + @('Findings', 'Critical', 'High', 'Medium', 'Low', 'Not evaluated', 'Collected', 'Collected as')
+    Add-OvTable -Headers $heads -Rows @($rows)
     Add-OvText 'The score counts each check that fired once, at its worst severity (Critical 20, High 8, Medium 3, Low 1), and is capped at 35 with a Critical and 65 with a High. The DISA STIG rules are compliance and stay out of it.' -Muted
 
     if ($hs.Count -eq 1) {
@@ -1258,6 +1311,8 @@ function Show-ResultsOverview {
             , @('Programs installed', "$($x.softwareCount)")
             , @('Missing updates', $(if ($x.updatesSource) { "searched with $($x.updatesSource)" } else { 'not searched (Search missing updates when collecting)' }))
             , @('DISA STIG rules judged', "$($x.stigEvaluated)"))
+        $trend = @(if ($x.PSObject.Properties['trend']) { $x.trend | Where-Object { $_ } })
+        if ($trend.Count -gt 1) { Add-OvText "Score over the last runs: $((@($trend | Select-Object -Last 10) | ForEach-Object { "$($_.score) ($("$($_.collected)".Substring(0, 10)))" }) -join ', ')." -Muted }
         if ("$($x.collectedAs)" -eq 'standard user') { Add-OvText 'Collected as a standard user: some checks could not be read. Collect as administrator or SYSTEM for full coverage.' -Color '#B3261E' }
         $ne = @($x.notEvaluated | Where-Object { $_ -and $_.title })
         if ($ne.Count) {
@@ -1591,7 +1646,7 @@ function Update-Actions {
     $ui.RunBtn.IsEnabled = (-not $busy) -and $srcOk
     $ui.RunBtn.ToolTip = if ($srcOk) { 'Changes nothing on any machine.' } else { 'Choose a snapshot file or folder that exists (File... or Folder...).' }
     $ui.FixBtn.IsEnabled = (-not $busy) -and $fixOk
-    $ui.FixBtn.ToolTip = if ($fixOk) { 'Collect and analyze this machine, preview its fix script, then apply it after a warning (administrator).' } else { 'Choose what the fixes change first (Fix section): a level, or "No fix of the findings" with Debloat or Disable telemetry.' }
+    $ui.FixBtn.ToolTip = if ($fixOk) { 'Collect and analyze this machine, preview its fix script, then apply it after a warning (administrator).' } else { 'Choose what the fixes change first (above): a level, or "No fix of the findings" with Debloat or Disable telemetry.' }
     $ui.RemChk.IsEnabled = $fixOk
     $ui.RemChk.ToolTip = if ($fixOk) { $null } else { 'Nothing to write: choose a level, or Debloat or Disable telemetry.' }
     # Sending needs the key; the dry run does not.
@@ -1609,7 +1664,7 @@ function Update-RemPanel {
     # Analyze never changes anything (it writes the scripts when asked). Fix this machine, whatever the
     # source chosen above, collects and analyzes this machine, previews and applies after a warning.
     Update-Actions
-    $ui.RemWarn.Text = "Fix this machine (button below) CHANGES THIS MACHINE, whatever is chosen under What to analyze: it collects and analyzes it (with the collection options of This machine), previews its fix script and applies it only after a warning and Yes$(if ($script:IsAdmin) { '' } else { ' (needs administrator: Restart as administrator first)' }), with a System Restore point first (Windows PowerShell 5.1) and a rollback file of every value changed. Changes marked NOT REVERSIBLE (removed apps, LSA protection) cannot be undone by it. Analyze changes nothing; for other hosts tick Write the fix scripts and run each script on its host."
+    $ui.RemWarn.Text = "Fix this machine (button below) CHANGES THIS MACHINE, whatever the Analyze tab has under What to analyze: it collects and analyzes it (with the collection options of This machine there; a collection made in this window in the last $($script:FixReuseMinutes) minutes with the same options is used again), previews its fix script and applies it only after a warning and Yes$(if ($script:IsAdmin) { '' } else { ' (needs administrator: Restart as administrator first)' }), with a System Restore point first (Windows PowerShell 5.1) and a rollback file of every value changed. Changes marked NOT REVERSIBLE (removed apps, LSA protection) cannot be undone by it. Analyze changes nothing; for other hosts tick Write the fix scripts with each analysis, analyze, and run each script on its host."
     $ui.RemWarn.Foreground = New-Brush '#B3261E'; $ui.RemWarn.FontWeight = 'SemiBold'
     $rep = Get-FullPath $ui.ReportBox.Text.Trim()
     $ui.RemOutText.Text = "Written to $(($rep -replace '\.html?$', ''))_fixes: one remediate_<HOST>.ps1 per host. Preview: .\remediate_<HOST>.ps1   Apply, as administrator on that host: .\remediate_<HOST>.ps1 -Apply"
@@ -1628,6 +1683,8 @@ function Get-AnalysisParams {
     if (-not $ui.ShowCisChk.IsChecked) { $ap['HideCis'] = $true }
     if ($ui.AcnChk.IsChecked) { $ap['Nis2Acn'] = $true }
     if ($ui.JsonlChk.IsChecked) { $ap['OutJsonl'] = $ap['OutHtml'] -replace '\.html?$', '.jsonl' }
+    # The score of every run, next to the reports: each report shows how the scores moved.
+    if ($ap['OutHtml'] -and (Split-Path -Parent $ap['OutHtml'])) { $ap['History'] = Join-Path (Split-Path -Parent $ap['OutHtml']) 'hostbadger-history.csv' }
     if (($ui.RemChk.IsChecked -and (Test-FixChoice)) -or $ForFix) {
         $ap['OutRemediation'] = ($ap['OutHtml'] -replace '\.html?$', '') + '_fixes'
         $p = Get-ProfileChoice
@@ -1654,6 +1711,18 @@ function Get-AnalysisParams {
     # The analysis stays in the background runspace's memory for the AI buttons (never on disk).
     $ap['AiLater'] = $true
     return $ap
+}
+
+function Get-ParamsSignature {
+    # What decides the findings and the fix script of an analysis (not where its files go): two analyses
+    # with the same signature on the same snapshot write the same fix script.
+    param($Ap)
+    $skip = 'Snapshot', 'OutHtml', 'OutJsonl', 'OutRemediation', 'History', 'AiLater', 'SnapshotPassword', 'NoLog', 'PerHost'
+    (@($Ap.Keys | Where-Object { $skip -notcontains $_ } | Sort-Object) | ForEach-Object { "$_=$(@($Ap[$_]) -join ',')" }) -join ';'
+}
+
+function Get-CollectOptions {
+    "SkipAcl=$([bool]$ui.SkipAclChk.IsChecked);CheckUpdates=$([bool]$ui.UpdatesChk.IsChecked)"
 }
 
 function Save-FormChoices {
@@ -1797,11 +1866,17 @@ function Invoke-Analyze {
     if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     $script:Kept = $false
     $script:Pending = $ap['OutHtml']
+    # An analysis of this machine's last collection that writes the fix scripts can serve the next Fix.
+    $script:PendingBasis = $null
+    if ($ap['OutRemediation'] -and $script:LastSnapshot -and $ap['Snapshot'] -eq $script:LastSnapshot) {
+        $script:PendingBasis = @{ Snapshot = $ap['Snapshot']; Signature = (Get-ParamsSignature $ap); Fixes = $ap['OutRemediation'] }
+    }
     Start-GuiTask -Label 'Analyzing' -Work $script:RunScript -Arguments @((Join-Path $root 'HostBadger.ps1'), $ap) -Done {
         param($t)
         $ok = Test-Path -LiteralPath $script:Pending
         $script:Kept = $ok
         Set-Busy $false $(if ($ok) { 'Report ready' } else { 'The analysis did not finish' })
+        if ($ok -and $script:PendingBasis) { $script:FixBasis = $script:PendingBasis }
         if ($ok) {
             $script:LastReport = $script:Pending
             Write-GuiLog -Path ($script:LastReport -replace '\.html?$', '.log') -Lines $t.Lines
@@ -1888,7 +1963,32 @@ function Invoke-Run {
         if ("$answer" -eq 'Yes') { Invoke-Elevate }
         return
     }
+    if ($Fix -and (Test-RecentCollection)) {
+        # This machine was collected here a few minutes ago with the same options: no second collection.
+        # The preview reads every setting again, so a value changed since then is not set twice.
+        $at = $script:LastSnapshotAt.ToString('HH:mm')
+        $ui.SnapshotBox.Text = $script:LastSnapshot
+        $b = $script:FixBasis
+        if ($b -and $b.Snapshot -eq $script:LastSnapshot -and $b.Signature -eq (Get-ParamsSignature (Get-AnalysisParams -ForFix)) -and (Test-Path -LiteralPath $b.Fixes)) {
+            $script:ApplyAfter = $false
+            Add-Log "Fix: the analysis of this machine collected at $at is used again (same choices); the preview reads every setting again."
+            Invoke-FixPreview -Dir $b.Fixes
+            return
+        }
+        Add-Log "Fix: this machine collected at $at is analyzed again with these choices (not collected again)."
+        Invoke-Analyze
+        return
+    }
     if ($Fix -or $ui.SrcMachine.IsChecked) { Invoke-Collect -ThenAnalyze } else { Invoke-Analyze }
+}
+
+function Test-RecentCollection {
+    # A collection of this machine made in this window less than FixReuseMinutes ago, with the collection
+    # options the form has now.
+    if (-not $script:LastSnapshot -or -not $script:LastSnapshotAt) { return $false }
+    if (-not (Test-Path -LiteralPath $script:LastSnapshot)) { return $false }
+    if ($script:LastSnapshotOpts -ne (Get-CollectOptions)) { return $false }
+    return ((Get-Date) - $script:LastSnapshotAt).TotalMinutes -lt $script:FixReuseMinutes
 }
 
 function Invoke-Elevate {
@@ -1906,7 +2006,8 @@ function Invoke-Elevate {
 
 function Invoke-FixPreview {
     # This machine, after its analysis: preview the fix script, then ask before applying it.
-    $dir = ($script:LastReport -replace '\.html?$', '') + '_fixes'
+    param([string]$Dir)
+    $dir = if ($Dir) { $Dir } else { ($script:LastReport -replace '\.html?$', '') + '_fixes' }
     $fix = @(Get-ChildItem -LiteralPath $dir -Filter 'remediate_*.ps1' -ErrorAction SilentlyContinue | Select-Object -First 1)
     if ($fix.Count -eq 0) { Add-Log 'Fix: nothing on this machine has a fix to apply.'; return }
     $script:FixScript = $fix[0].FullName
@@ -1917,7 +2018,7 @@ function Invoke-FixPreview {
         $would = @($t.Lines | Where-Object { $_ -match '^WOULD ' })
         $noUndo = @($would | Where-Object { $_ -match 'NOT REVERSIBLE' })
         if ($would.Count -eq 0) { Add-Log 'Fix: this machine already has every setting of the script.'; return }
-        $msg = "WARNING: $($would.Count) change(s) to THIS machine, listed in the log$(if ($noUndo.Count) { ", $($noUndo.Count) of them NOT REVERSIBLE (removed apps come back only from the Microsoft Store)" }).`n`nA System Restore point is made first (Windows PowerShell 5.1 on a Windows client) and every previous value is saved in a rollback file. Some changes take effect after a restart.`n`nApply them now?"
+        $msg = "WARNING: $($would.Count) change(s) to THIS machine, listed in the log$(if ($noUndo.Count) { ", $($noUndo.Count) of them NOT REVERSIBLE (removed apps come back only from the Microsoft Store)" }).`n`nA System Restore point is made first (Windows PowerShell 5.1 on a Windows client) and every previous value is saved in a rollback file. Some changes take effect after a restart.`n`nYes: apply them now.`nNo (the button already selected, so Enter answers No): change nothing."
         if ("$([System.Windows.MessageBox]::Show($msg, 'HostBadger: apply the fixes', 'YesNo', 'Warning', 'No'))" -ne 'Yes') { Add-Log 'Fix: not applied, nothing changed.'; return }
         Invoke-FixApply
     }
@@ -1950,11 +2051,15 @@ function Invoke-Collect {
         if (-not $ui.EncCertBox.Text.Trim()) { [void][System.Windows.MessageBox]::Show('Give the .cer path or the thumbprint of the certificate.', 'HostBadger'); return }
         $p['EncryptCertificate'] = $ui.EncCertBox.Text.Trim()
     }
+    $script:PendingCollectOpts = Get-CollectOptions
     Start-GuiTask -Label 'Collecting this machine (read only)' -Work $script:RunScript -Arguments @((Join-Path $root 'Collect-HostSnapshot.ps1'), $p) -Done {
         param($t)
         $snap = @($t.Lines | Where-Object { $_ -like 'Snapshot: *' } | ForEach-Object { $_.Substring(10).Trim() }) | Select-Object -Last 1
         if ($snap) {
             $script:LastSnapshot = $snap
+            $script:LastSnapshotAt = Get-Date
+            $script:LastSnapshotOpts = $script:PendingCollectOpts
+            $script:FixBasis = $null
             $ui.SnapshotBox.Text = $snap
             $ui.SnapshotNote.Text = "The snapshot just collected ($((Get-Item -LiteralPath $snap).LastWriteTime.ToString('yyyy-MM-dd HH:mm')))."
             if ($ui.EncPass.IsChecked) { $ui.SnapPassBox.Password = $ui.EncPassBox.Password }
@@ -2111,6 +2216,20 @@ if ($NoShow) {
     ($rbs | Where-Object { "$($_.Tag)" -eq 'Essential' }).IsChecked = $true; Update-RemPanel; $fixLevel = $ui.FixBtn.IsEnabled
     foreach ($rb in $rbs) { $rb.IsChecked = $false }; Update-RemPanel; $fixNothing = $ui.FixBtn.IsEnabled
     "Fix button: nothing chosen $fixNothing, no level $fixNone, no level with debloat $fixDebloat, a level $fixLevel"
+    # The fixes have their own tab, with the log of Analyze repeated there.
+    $fixTab = $ui.FixBtn; while ($fixTab -and $fixTab -isnot [System.Windows.Controls.TabItem]) { $fixTab = [System.Windows.LogicalTreeHelper]::GetParent($fixTab) }
+    "Fix tab: button in $($fixTab.Header), options in $(if ([System.Windows.LogicalTreeHelper]::GetParent($ui.RemPanel)) { $p = $ui.RemPanel; while ($p -and $p -isnot [System.Windows.Controls.TabItem]) { $p = [System.Windows.LogicalTreeHelper]::GetParent($p) }; $p.Header }), log repeated $($ui.FixLogBox.Text.Length -gt 0 -and $ui.FixLogBox.Text -eq $ui.LogBox.Text)"
+    # Fix this machine reuses a recent collection with the same options, and its analysis while the
+    # choices are the same (the paths of the files do not count).
+    $script:LastSnapshot = $PSCommandPath; $script:LastSnapshotOpts = Get-CollectOptions
+    $script:LastSnapshotAt = (Get-Date).AddMinutes(-5); $recent = Test-RecentCollection
+    $script:LastSnapshotAt = (Get-Date).AddMinutes(-$script:FixReuseMinutes - 1); $old = Test-RecentCollection
+    $script:LastSnapshotAt = (Get-Date).AddMinutes(-5); $ui.SkipAclChk.IsChecked = -not $ui.SkipAclChk.IsChecked; $otherOpts = Test-RecentCollection; $ui.SkipAclChk.IsChecked = -not $ui.SkipAclChk.IsChecked
+    $sig = Get-ParamsSignature (Get-AnalysisParams -ForFix)
+    $ap2 = Get-AnalysisParams -ForFix; $ap2['OutHtml'] = 'C:\elsewhere\r.html'; $ap2['OutRemediation'] = 'C:\elsewhere\r_fixes'; $samePaths = (Get-ParamsSignature $ap2) -eq $sig
+    $ap2['AllowedAdmins'] = @('someone'); $otherChoice = (Get-ParamsSignature $ap2) -eq $sig
+    $script:LastSnapshot = ''; $script:LastSnapshotAt = $null
+    "Fix reuse: recent $recent, older $old, other options $otherOpts, same choices elsewhere $samePaths, other choices $otherChoice"
     # The Results tab on the demo report: every finding read, the categories listed, a finding detailed.
     Show-Results (Join-Path $root 'examples\demo_report.html')
     $ui.ResCisChk.IsChecked = $true; $ui.ResStigChk.IsChecked = $true; Update-ResultsView

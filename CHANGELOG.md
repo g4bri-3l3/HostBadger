@@ -6,6 +6,65 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
+## [2.1] - 2026-10-26
+### Added
+- `-History <file>`: the score of every run, one CSV line per host and
+  snapshot (a snapshot analyzed again replaces its line; each host keeps its
+  newest 100). The Hosts table of the report gets a Trend column (the score
+  over the runs and the change since the previous snapshot), the JSON Lines
+  host summary `score_previous`, `score_previous_collected`, `score_change`
+  and `score_history_points`, the report's summary block a `trend` per host.
+  The guided menu and the window keep `hostbadger-history.csv` next to their
+  reports; the window shows the change in its overview, the scores of the last
+  runs of one host and the file in Outputs.
+- `-Threads`: from 16 hosts the hosts are analyzed several at once (up to 4 by
+  default, one runspace each with its own copy of the checks), on Windows
+  PowerShell 5.1 and PowerShell 7; `-Threads 1` analyzes one at a time. The
+  findings, CSV and JSON Lines are the same either way.
+- Window: the fix choices and **Fix this machine** have their own tab, **Fix**,
+  with the progress and the log of the run on the right.
+- Window: **Fix this machine** uses again a collection of this machine made in
+  the window less than 30 minutes before with the same collection options (and
+  its analysis when the fix and analysis choices have not changed) instead of
+  collecting it again; the preview still reads every setting on the machine.
+  The warning before applying says that only Yes applies and that No, already
+  selected, is what Enter answers.
+- 11 checks (181 in all), from a comparison with the settings that Harden
+  Windows Security applies, kept where a host can show a defect:
+  `exploit_protection_off` (DEP, bottom-up or high-entropy ASLR, Control Flow
+  Guard or heap termination off for the whole machine, read with
+  `Get-ProcessMitigation -System`), `vbs_policy_gaps` (CIS 18.9.5.4/6/7: UEFI
+  memory attributes table, System Guard Secure Launch, kernel shadow stacks),
+  `defender_threat_action_allow` (a threat level or per-threat overrides set to
+  Allow or No action), `defender_network_blocks_off` (brute-force and remote
+  encryption protection not blocking), `phishing_protection_off` (Enhanced
+  Phishing Protection, CIS 18.10.75.1.x, Windows 11 22H2 and later),
+  `ntlm_audit_off` (CIS 2.3.11.11/12), `amsi_provider_signing_off` (AMSI
+  FeatureBits without 0x2), `uac_admin_protection_off` (Administrator
+  protection, Windows 11 build 26100 and later), `bitlocker_unlock_exposure`
+  (standby and machine lockout threshold with BitLocker on, CIS 18.9.33.6.3/4
+  and 2.3.7.3), `smb_encryption_off` (servers and domain controllers) and
+  `os_hardening_extras` (svchost mitigation options, LMHOSTS, smart multi-homed
+  name resolution, user information on the locked screen, Kerberos armoring on
+  domain members). Snapshots from an older collector list them as not
+  evaluated.
+- `defender_protection_features_off` also reports archive scanning and network
+  file scanning turned off; `schannel_legacy_crypto_enabled` also reports a
+  legacy protocol offered by default (`DisabledByDefault = 0`) and weak suites
+  (NULL, EXPORT, DES, 3DES, RC4, MD5) in the cipher suite order policy.
+- Collector: the new values above (`defender`, `network.smbServerEncryptData`,
+  `hardening`), and `Get-ProcessMitigation` in the safety review's read-only
+  list.
+
+### Changed
+- Scores, the fleet findings, the per-host reports and fix scripts, the JSON
+  Lines host summaries, the report's Hosts table and the AI host table index
+  the findings by host once instead of going through all of them for every
+  host: on 200 hosts the scores went from 10 seconds to a quarter of a second.
+- The fleet checks go through the hosts in name order: on PowerShell 7 a
+  hashtable comes back in a different order in every process, so two runs on
+  the same snapshots could list the fleet findings in a different order.
+
 ## [2.0] - 2026-10-23
 ### Added
 - `Start-HostBadgerGui.ps1`: HostBadger in a window, in the style of the

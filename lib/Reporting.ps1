@@ -44,6 +44,100 @@ function Get-FindingsComparison {
     }
 }
 
+# Score history (-History): one CSV line per host and snapshot, so the report shows how each host's score
+# moved over many runs and not only against the previous one (-CompareTo). A snapshot analyzed again
+# replaces its line (same host, same collection time: a new policy or catalog gives a new score for the
+# same day); each host keeps its newest $script:HistoryMaxPoints lines. Host names have no commas.
+$script:HistoryMaxPoints = 100
+$script:HistoryHeader = 'host,collected_utc,score,grade,critical,high,medium,low,findings,not_evaluated,tool_version'
+
+function Read-ScoreHistory {
+    # host (upper case) -> list of points, oldest first. $null when the file is not a score history.
+    param([string]$Path)
+    $byHost = @{}
+    if (-not (Test-Path -LiteralPath $Path)) { return $byHost }
+    $lines = [System.IO.File]::ReadAllLines($Path)
+    if ($lines.Count -eq 0) { return $byHost }
+    if ($lines[0].TrimStart([char]0xFEFF) -ne $script:HistoryHeader) { return $null }
+    for ($i = 1; $i -lt $lines.Count; $i++) {
+        $c = $lines[$i].Split(',')
+        if ($c.Count -lt 11 -or $c[2] -notmatch '^\d+$') { continue }
+        $date = ConvertTo-UtcDate $c[1]
+        if (-not $date) { continue }
+        $k = $c[0].ToUpper()
+        if (-not $byHost.ContainsKey($k)) { $byHost[$k] = New-Object System.Collections.Generic.List[object] }
+        $byHost[$k].Add([PSCustomObject]@{ Host = $c[0]; Collected = $date; Score = [int]$c[2]; Grade = $c[3]; Critical = [int]$c[4]; High = [int]$c[5]; Medium = [int]$c[6]; Low = [int]$c[7]; Findings = [int]$c[8]; NotEvaluated = [int]$c[9]; ToolVersion = $c[10] })
+    }
+    return $byHost
+}
+
+function Update-ScoreHistory {
+    # Adds this run to the history file and returns host name -> trend: Points (oldest first, this run
+    # included), Previous (the newest point collected before this snapshot, or $null) and Change.
+    param([string]$Path, $Hosts, [hashtable]$ActiveByHost, [string]$ToolVersion)
+    $byHost = Read-ScoreHistory $Path
+    if ($null -eq $byHost) { Write-Warning "$Path is not a HostBadger score history (first line: $script:HistoryHeader): left as it is, no score trend."; return $null }
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    foreach ($h in $Hosts) {
+        $k = "$($h.Name)".ToUpper()
+        if (-not $byHost.ContainsKey($k)) { $byHost[$k] = New-Object System.Collections.Generic.List[object] }
+        $hf = @(Get-HostItems $ActiveByHost $h.Name)
+        $sev = @{}; foreach ($s in 'Critical', 'High', 'Medium', 'Low') { $sev[$s] = @($hf | Where-Object { $_.Severity -eq $s }).Count }
+        $when = ([datetime]$h.CollectedUtc).ToUniversalTime()
+        $stamp = $when.ToString('yyyy-MM-ddTHH:mm:ss', $inv)
+        $kept = @($byHost[$k] | Where-Object { $_.Collected.ToString('yyyy-MM-ddTHH:mm:ss', $inv) -ne $stamp })
+        $byHost[$k] = New-Object System.Collections.Generic.List[object]
+        foreach ($p in $kept) { $byHost[$k].Add($p) }
+        $byHost[$k].Add([PSCustomObject]@{ Host = "$($h.Name)"; Collected = $when; Score = [int]$h.Score.Score; Grade = "$($h.Score.Grade)"; Critical = $sev.Critical; High = $sev.High; Medium = $sev.Medium; Low = $sev.Low; Findings = $hf.Count; NotEvaluated = @($h.NotEvaluated).Count; ToolVersion = $ToolVersion })
+    }
+    $out = New-Object System.Text.StringBuilder
+    [void]$out.AppendLine($script:HistoryHeader)
+    $trends = @{}
+    foreach ($k in @($byHost.Keys | Sort-Object)) {
+        $pts = @($byHost[$k] | Sort-Object Collected | Select-Object -Last $script:HistoryMaxPoints)
+        foreach ($p in $pts) {
+            $hn = "$($p.Host)".Replace(',', '')
+            [void]$out.AppendLine((@($hn, $p.Collected.ToString('yyyy-MM-ddTHH:mm:ssZ', $inv), $p.Score, $p.Grade, $p.Critical, $p.High, $p.Medium, $p.Low, $p.Findings, $p.NotEvaluated, $p.ToolVersion) -join ','))
+        }
+        $trends[$k] = $pts
+    }
+    [System.IO.File]::WriteAllText($Path, $out.ToString(), (New-Object System.Text.UTF8Encoding($false)))
+    $result = @{}
+    foreach ($h in $Hosts) {
+        $pts = @($trends["$($h.Name)".ToUpper()])
+        $when = ([datetime]$h.CollectedUtc).ToUniversalTime()
+        $prev = @($pts | Where-Object { $_.Collected -lt $when.AddSeconds(-1) }) | Select-Object -Last 1
+        $result["$($h.Name)"] = [PSCustomObject]@{ Points = $pts; Previous = $prev; Change = $(if ($prev) { [int]$h.Score.Score - $prev.Score } else { $null }) }
+    }
+    return $result
+}
+
+function Get-TrendSvg {
+    # A small line of the score over the runs (0 to 100), the last point marked.
+    param($Points, [int]$Width = 96, [int]$Height = 24)
+    $pts = @($Points)
+    if ($pts.Count -lt 2) { return '' }
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    $xy = for ($i = 0; $i -lt $pts.Count; $i++) {
+        $x = 2 + ($Width - 4) * $i / ($pts.Count - 1)
+        $y = 2 + ($Height - 4) * (100 - [Math]::Max(0, [Math]::Min(100, $pts[$i].Score))) / 100
+        "$($x.ToString('0.#', $inv)),$($y.ToString('0.#', $inv))"
+    }
+    $last = $xy[$xy.Count - 1].Split(',')
+    $label = (@($pts | ForEach-Object { "$($_.Collected.ToString('yyyy-MM-dd')) $($_.Score)" }) -join ', ')
+    return "<svg class='trend' viewBox='0 0 $Width $Height' width='$Width' height='$Height' role='img' aria-label='Score over the runs: $(ConvertTo-HtmlSafe $label)'><title>$(ConvertTo-HtmlSafe $label)</title>" +
+    "<polyline points='$($xy -join ' ')' fill='none' stroke='#5F5A51' stroke-width='1.5' stroke-linejoin='round'/>" +
+    "<circle cx='$($last[0])' cy='$($last[1])' r='2.5' fill='#161513'/></svg>"
+}
+
+function Get-TrendText {
+    # "+5 since 2026-09-01 (6 runs)" for the hosts table and the console.
+    param($Trend)
+    if (-not $Trend -or -not $Trend.Previous) { return '' }
+    $sign = if ($Trend.Change -gt 0) { '+' } elseif ($Trend.Change -lt 0) { '' } else { '&plusmn;' }
+    return "$sign$($Trend.Change) since $($Trend.Previous.Collected.ToString('yyyy-MM-dd')) ($(@($Trend.Points).Count) runs)"
+}
+
 # One JSON object per line, for any SIEM. The event_type is finding, resolved, or host_summary (one
 # per host, with the score, the counts and the checks not evaluated). SIEM searches depend on these
 # fields, so add fields but never rename or remove them.
@@ -103,9 +197,10 @@ function Export-FindingsJsonl {
             [void]$sb.AppendLine(($o | ConvertTo-Json -Compress -Depth 3))
         }
     }
+    $findingsByHost = Group-ByHost $Findings
     foreach ($h in $Hosts) {
         $o = & $base 'host_summary' $h.Name
-        $hf = @($Findings | Where-Object { $_.Host -eq $h.Name })
+        $hf = @(Get-HostItems $findingsByHost $h.Name)
         $o['score'] = $h.Score.Score
         $o['grade'] = $h.Score.Grade
         $o['os'] = $h.Os
@@ -116,6 +211,14 @@ function Export-FindingsJsonl {
         # The checks the organization's policy (-PolicyFile) turned off on this host.
         $o['policy_disabled_checks'] = [string[]]@($h.PolicyOff | Where-Object { $_ })
         $o['collected_as_system'] = $h.AsSystem
+        # With -History: the score of the newest earlier snapshot of this host, the change since, and how
+        # many runs the history holds for it.
+        if ($h.Trend) {
+            $o['score_previous'] = $(if ($h.Trend.Previous) { $h.Trend.Previous.Score } else { $null })
+            $o['score_previous_collected'] = $(if ($h.Trend.Previous) { $h.Trend.Previous.Collected.ToString('o') } else { $null })
+            $o['score_change'] = $h.Trend.Change
+            $o['score_history_points'] = @($h.Trend.Points).Count
+        }
         # The EDR agents found among the services, as name:state (empty list if none, null if the services were not collected).
         $o['edr'] = $(if ($h.EdrKnown) { [string[]]@(@($h.Edr) | ForEach-Object { "$($_.Name):$($_.State)" }) } else { $null })
         # Essential Eight maturity level per strategy from what the host shows (null: not visible from a
@@ -222,8 +325,9 @@ function ConvertTo-ReportSummaryJson {
     param($Hosts, $Split, $Comparison, $Compliance, [string]$ToolVersion, $AiResult, $Remediation, [int]$HiddenCis, [int]$HiddenStig)
     $active = @($Split.Active)
     $hostList = New-Object System.Collections.Generic.List[object]
+    $activeByHost = Group-ByHost $active
     foreach ($hostItem in @($Hosts)) {
-        $mine = @($active | Where-Object { $_.Host -eq $hostItem.Name })
+        $mine = @(Get-HostItems $activeByHost $hostItem.Name)
         $sev = [ordered]@{}; foreach ($s in 'Critical', 'High', 'Medium', 'Low') { $sev[$s] = @($mine | Where-Object { $_.Severity -eq $s }).Count }
         $e8 = New-Object System.Collections.Generic.List[object]
         if ($hostItem.E8) {
@@ -258,6 +362,9 @@ function ConvertTo-ReportSummaryJson {
                 stigEvaluated = [int]$hostItem.StigEvaluated; stig = $stig
                 updatesSource = "$($hostItem.UpdatesSource)"
                 e8 = $e8.ToArray(); acn = $acn
+                trend = $(if ($hostItem.Trend) { @(@($hostItem.Trend.Points) | ForEach-Object { [ordered]@{ collected = $_.Collected.ToString('yyyy-MM-dd HH:mm') + ' UTC'; score = [int]$_.Score; grade = "$($_.Grade)" } }) } else { @() })
+                scoreChange = $(if ($hostItem.Trend -and $hostItem.Trend.Previous) { [int]$hostItem.Trend.Change } else { $null })
+                scorePreviousCollected = $(if ($hostItem.Trend -and $hostItem.Trend.Previous) { $hostItem.Trend.Previous.Collected.ToString('yyyy-MM-dd HH:mm') + ' UTC' } else { '' })
             })
     }
     $sum = [ordered]@{
@@ -869,12 +976,19 @@ function filterBadgerTable(input) {
     if ($AiResult) { & $w (ConvertTo-AiSectionHtml $AiResult) }
 
     # ---------------- Hosts ----------------
-    & $w "<details open><summary><h2>Hosts</h2></summary><div class=`"table-wrap`"><table><tr><th>Host</th><th>Role</th><th>Operating system</th><th>Collected (UTC)</th><th>As</th><th>Score</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Not evaluated</th><th>EDR</th></tr>"
+    # The score over the runs (-History), when at least one host has an earlier score.
+    $withTrend = [bool](@($Hosts | Where-Object { $_.Trend -and $_.Trend.Previous }).Count)
+    $findingsByHost = Group-ByHost $findings
+    & $w "<details open><summary><h2>Hosts</h2></summary><div class=`"table-wrap`"><table><tr><th>Host</th><th>Role</th><th>Operating system</th><th>Collected (UTC)</th><th>As</th><th>Score</th>$(if ($withTrend) { '<th>Trend</th>' })<th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Not evaluated</th><th>EDR</th></tr>"
     # Not $h: PowerShell names are case-insensitive, and $H is the encoder.
     foreach ($hst in ($Hosts | Sort-Object { $_.Score.Score }, Name)) {
-        $hf = @($findings | Where-Object { $_.Host -eq $hst.Name })
+        $hf = @(Get-HostItems $findingsByHost $hst.Name)
         $as = if ($hst.AsSystem) { 'SYSTEM' } elseif ($hst.AsAdmin) { 'admin' } else { '<span style="color:var(--critical)">standard user</span>' }
         $row = "<tr class=`"data-row`"><td><b>$(& $H $hst.Name)</b></td><td>$(& $H $hst.Role)</td><td>$(& $H $hst.Os)</td><td>$($hst.CollectedUtc.ToString('yyyy-MM-dd HH:mm'))</td><td>$as</td><td>$($hst.Score.Grade) &middot; $($hst.Score.Score)</td>"
+        if ($withTrend) {
+            $tc = if ($hst.Trend -and $hst.Trend.Previous) { $col = if ($hst.Trend.Change -lt 0) { 'var(--critical)' } elseif ($hst.Trend.Change -gt 0) { 'var(--required)' } else { 'var(--muted)' }; "$(Get-TrendSvg $hst.Trend.Points)<br><span class=`"meta`" style=`"color:$col`">$(Get-TrendText $hst.Trend)</span>" } else { '<span class="meta">first run</span>' }
+            $row += "<td>$tc</td>"
+        }
         foreach ($s in $sevOrder) { $row += "<td>$(@($hf | Where-Object { $_.Severity -eq $s }).Count)</td>" }
         # What EDR the host runs: the agents found among its services, or "none found"; "unknown" without a service list.
         $edrText = if (-not $hst.EdrKnown) { '<span class="meta">unknown</span>' }

@@ -185,6 +185,24 @@ function Get-SnapshotHostName {
     return "$($Snapshot.meta.computerName)"
 }
 
+# Findings (or anything with a Host, or with -OfFinding a Finding.Host) by host name, built once, so that
+# a fleet of thousands of hosts is not scanned again for every host. Names compare without case, as -eq.
+function Group-ByHost {
+    param($Items, [switch]$OfFinding)
+    $index = @{}
+    foreach ($i in $Items) {
+        $k = if ($OfFinding) { "$($i.Finding.Host)" } else { "$($i.Host)" }
+        if (-not $index.ContainsKey($k)) { $index[$k] = New-Object System.Collections.Generic.List[object] }
+        $index[$k].Add($i)
+    }
+    return $index
+}
+# What Group-ByHost holds for one host; nothing when the host has none (use it inside @()).
+function Get-HostItems {
+    param([hashtable]$Index, [string]$Name)
+    if ($Index.ContainsKey($Name)) { return $Index[$Name].ToArray() }
+}
+
 function Get-LocalAccountMix {
     # Local accounts of one host: enabled members of the local Administrators group (by SID), other
     # enabled accounts, disabled accounts. $null when it cannot be told: a domain controller (no local

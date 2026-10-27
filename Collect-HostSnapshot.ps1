@@ -80,7 +80,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:CollectorVersion = '2.0'
+$script:CollectorVersion = '2.1'
 $script:SchemaVersion = 1
 $script:Errors = New-Object System.Collections.Generic.List[object]
 $script:Sections = New-Object System.Collections.Generic.List[string]
@@ -624,6 +624,16 @@ $defender = Invoke-Section 'defender' {
         mapsReporting             = $null
         disableBlockAtFirstSeen   = $null
         disableScriptScanning     = $null
+        disableArchiveScanning    = $null
+        disableScanningNetworkFiles = $null
+        # Default action per threat level (0 default, 1 clean, 2 quarantine, 3 remove, 6 allow, 8 user
+        # defined, 9 no action, 10 block) and how many per-threat overrides allow or ignore a threat
+        # (the threat ids are not kept).
+        threatDefaultActions      = $null
+        threatIdAllowCount        = $null
+        # Behavioral network blocks (0 not configured, 1 block, 2 audit); $null on older platforms.
+        bruteForceProtection      = $null
+        remoteEncryptionProtection = $null
     }
     try {
         $p = Get-MpPreference
@@ -646,6 +656,12 @@ $defender = Invoke-Section 'defender' {
         $d.mapsReporting = $p.MAPSReporting
         $d.disableBlockAtFirstSeen = $(if ($null -ne $p.DisableBlockAtFirstSeen) { [bool]$p.DisableBlockAtFirstSeen } else { $null })
         $d.disableScriptScanning = $(if ($null -ne $p.DisableScriptScanning) { [bool]$p.DisableScriptScanning } else { $null })
+        $d.disableArchiveScanning = $(if ($null -ne $p.DisableArchiveScanning) { [bool]$p.DisableArchiveScanning } else { $null })
+        $d.disableScanningNetworkFiles = $(if ($null -ne $p.DisableScanningNetworkFiles) { [bool]$p.DisableScanningNetworkFiles } else { $null })
+        $d.threatDefaultActions = [ordered]@{ severe = $p.SevereThreatDefaultAction; high = $p.HighThreatDefaultAction; moderate = $p.ModerateThreatDefaultAction; low = $p.LowThreatDefaultAction }
+        $d.threatIdAllowCount = @($p.ThreatIDDefaultAction_Actions | Where-Object { $null -ne $_ -and @(6, 9) -contains [int]$_ }).Count
+        if ($p.PSObject.Properties['BruteForceProtectionConfiguredState']) { $d.bruteForceProtection = $p.BruteForceProtectionConfiguredState }
+        if ($p.PSObject.Properties['RemoteEncryptionProtectionConfiguredState']) { $d.remoteEncryptionProtection = $p.RemoteEncryptionProtectionConfiguredState }
     }
     catch { Add-CollectionError -Section 'defender.preferences' -Message $_.Exception.Message }
     if (-not $d.exclusionsReadable) { Add-CollectionError -Section 'defender.exclusions' -Message 'exclusions not readable (administrator or SYSTEM needed)' }
@@ -729,6 +745,7 @@ $network = Invoke-Section 'network' {
         smb1ServerEnabled         = $null
         smbServerSigningRequired  = $null
         smbClientSigningRequired  = $null
+        smbServerEncryptData      = $null
         llmnrPolicyEnableMulticast = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient' 'EnableMulticast'
         # mDNS: the policy (CIS Server 18.6.4.1), else the DNS client's own setting.
         mdnsPolicyEnable          = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient' 'EnableMDNS'
@@ -741,6 +758,7 @@ $network = Invoke-Section 'network' {
         $srv = Get-SmbServerConfiguration
         $n.smb1ServerEnabled = [bool]$srv.EnableSMB1Protocol
         $n.smbServerSigningRequired = [bool]$srv.RequireSecuritySignature
+        $n.smbServerEncryptData = [bool]$srv.EncryptData
     }
     catch {
         $p = 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'
@@ -748,6 +766,8 @@ $network = Invoke-Section 'network' {
         $n.smb1ServerEnabled = $(if ($null -eq $s1) { $null } else { [int]$s1 -ne 0 })
         $rs = Get-RegValue $p 'RequireSecuritySignature'
         $n.smbServerSigningRequired = $(if ($null -eq $rs) { $null } else { [int]$rs -eq 1 })
+        $ed = Get-RegValue $p 'EncryptData'
+        $n.smbServerEncryptData = $(if ($null -eq $ed) { $null } else { [int]$ed -eq 1 })
     }
     try { $n.smbClientSigningRequired = [bool](Get-SmbClientConfiguration).RequireSecuritySignature }
     catch {
@@ -1405,13 +1425,33 @@ $hardening = Invoke-Section 'hardening' {
     $schProtocols = @()
     foreach ($pn in @('SSL 2.0', 'SSL 3.0', 'TLS 1.0', 'TLS 1.1')) {
         foreach ($side in @('Server', 'Client')) {
-            $schProtocols += [ordered]@{ name = $pn; side = $side; enabled = Get-RegValue "$sch\Protocols\$pn\$side" 'Enabled' }
+            $schProtocols += [ordered]@{ name = $pn; side = $side; enabled = Get-RegValue "$sch\Protocols\$pn\$side" 'Enabled'; disabledByDefault = Get-RegValue "$sch\Protocols\$pn\$side" 'DisabledByDefault' }
         }
     }
     $schCiphers = @()
     foreach ($cn in @('NULL', 'DES 56/56', 'RC2 40/128', 'RC2 56/128', 'RC2 128/128', 'RC4 40/128', 'RC4 56/128', 'RC4 64/128', 'RC4 128/128', 'Triple DES 168')) {
         $schCiphers += [ordered]@{ name = $cn; enabled = Get-RegValue "$sch\Ciphers\$cn" 'Enabled' }
     }
+    # The TLS cipher suite order set by policy (SSL Configuration Settings), $null when not set.
+    $suitePolicy = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Cryptography\Configuration\SSL\00010002' 'Functions'
+    # System-wide exploit protection (Get-ProcessMitigation -System): 0 not set (the Windows default,
+    # on), 1 on, 2 off.
+    $exploit = $null
+    try {
+        $pm = Get-ProcessMitigation -System
+        $exploit = [ordered]@{
+            dep              = [int]$pm.Dep.Enable
+            bottomUpAslr     = [int]$pm.Aslr.BottomUp
+            highEntropyAslr  = [int]$pm.Aslr.HighEntropy
+            forceRelocate    = [int]$pm.Aslr.ForceRelocateImages
+            cfg              = [int]$pm.Cfg.Enable
+            terminateOnHeapError = [int]$pm.Heap.TerminateOnError
+        }
+    }
+    catch { Add-CollectionError -Section 'hardening.exploitProtection' -Message $_.Exception.Message }
+    $dgPol = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard'
+    $wtds = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WTDS\Components'
+    $power = 'HKLM:\SOFTWARE\Policies\Microsoft\Power\PowerSettings\abfc2519-3608-4c2a-94ea-171b0ed546ab'
     # BitLocker policy (CIS 18.10.9.x): every value the benchmark names, $null when not set.
     # RDVDenyWriteAccess is the one Group Policy writes under SYSTEM, not under SOFTWARE.
     $fve = 'HKLM:\SOFTWARE\Policies\Microsoft\FVE'
@@ -1488,7 +1528,46 @@ $hardening = Invoke-Section 'hardening' {
         $offProfiles += $vals
     }
     [ordered]@{
-        schannel                 = [ordered]@{ protocols = $schProtocols; ciphers = $schCiphers }
+        schannel                 = [ordered]@{ protocols = $schProtocols; ciphers = $schCiphers; cipherSuitePolicy = $(if ($null -eq $suitePolicy) { $null } else { "$suitePolicy" }) }
+        exploitProtection        = $exploit
+        # Virtualization-based security policy (CIS 18.9.5.x): UEFI memory attributes table for HVCI,
+        # System Guard Secure Launch, kernel-mode hardware-enforced stack protection.
+        deviceGuardPolicy        = [ordered]@{
+            hvciMatRequired     = Get-RegValue $dgPol 'HVCIMATRequired'
+            systemGuardLaunch   = Get-RegValue $dgPol 'ConfigureSystemGuardLaunch'
+            kernelShadowStacks  = Get-RegValue $dgPol 'ConfigureKernelShadowStacksLaunch'
+        }
+        # Enhanced Phishing Protection in SmartScreen (CIS 18.10.75.1.x).
+        phishingProtection       = [ordered]@{
+            captureThreatWindow = Get-RegValue $wtds 'CaptureThreatWindow'
+            notifyMalicious     = Get-RegValue $wtds 'NotifyMalicious'
+            notifyPasswordReuse = Get-RegValue $wtds 'NotifyPasswordReuse'
+            notifyUnsafeApp     = Get-RegValue $wtds 'NotifyUnsafeApp'
+            serviceEnabled      = Get-RegValue $wtds 'ServiceEnabled'
+        }
+        # Restrict NTLM auditing (CIS 2.3.11.11, 2.3.11.12).
+        ntlmAudit                = [ordered]@{
+            auditReceiving      = Get-RegValue "$lsa\MSV1_0" 'AuditReceivingNTLMTraffic'
+            restrictSending     = Get-RegValue "$lsa\MSV1_0" 'RestrictSendingNTLMTraffic'
+        }
+        # AMSI loads only Authenticode-signed providers when bit 0x2 is set.
+        amsiFeatureBits          = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\AMSI' 'FeatureBits'
+        # Administrator protection (2) instead of the classic Admin Approval Mode (1 or not set).
+        uacAdminApprovalType     = Get-RegValue $sysPol 'TypeOfAdminApprovalMode'
+        # What keeps the BitLocker key reachable while the machine is unattended: standby (S1-S3) on
+        # battery and plugged in (CIS 18.9.33.6.3/4), and the machine lockout threshold (CIS 2.3.7.3).
+        bitlockerExposure        = [ordered]@{
+            standbyOnBattery     = Get-RegValue $power 'DCSettingIndex'
+            standbyPluggedIn     = Get-RegValue $power 'ACSettingIndex'
+            machineLockoutThreshold = Get-RegValue $sysPol 'MaxDevicePasswordFailedAttempts'
+        }
+        osExtras                 = [ordered]@{
+            svchostMitigation    = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\SCMConfig' 'EnableSvchostMitigationPolicy'
+            lmhosts              = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\NetBT\Parameters' 'EnableLMHOSTS'
+            smartNameResolutionOff = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient' 'DisableSmartNameResolution'
+            lockedUserInfo       = Get-RegValue $sysPol 'DontDisplayLockedUserId'
+            kerberosArmor        = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters' 'EnableCbacAndArmor'
+        }
         ldapServer               = [ordered]@{ integrity = Get-RegValue $ntdsP 'LDAPServerIntegrity'; channelBinding = Get-RegValue $ntdsP 'LdapEnforceChannelBinding' }
         pointAndPrint           = [ordered]@{
             restrictDriverInstallToAdmins = Get-RegValue $pnpP 'RestrictDriverInstallationToAdministrators'

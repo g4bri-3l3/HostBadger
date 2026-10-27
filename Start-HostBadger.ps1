@@ -75,7 +75,7 @@ function Show-Banner {
         ''
         '    _.--""--._'
         '  .''  |    |  ''.'
-        ' /    |    |    \      HostBadger v2.0'
+        ' /    |    |    \      HostBadger v2.1'
         '|  (o)|    |(o)  |     Windows host hardening'
         '|     |    |     |     collect, analyze, optional AI summary'
         ' \    ''.__.''    /'
@@ -742,6 +742,9 @@ function Get-AnalysisParams {
         Write-Host "`nRemediation scripts: the report already shows a fix script under each check whose fix is one safe setting. HostBadger can also write one remediate_<host>.ps1 per host with all of that host's fixes in one file, for a scripted rollout. They are text files: HostBadger never runs them, they only preview until run with -Apply, and they write a rollback file. Read them and test on a pilot host first." -ForegroundColor DarkGray
         if (Test-Yes 'Write one remediation script per host? (y/N)') { $ap['OutRemediation'] = Read-Path "Folder for the remediation scripts" ($ap['OutHtml'] -replace '\.html?$', '_remediation') }
     }
+    # The score of every run, next to the reports: each report shows how the scores moved.
+    $histDir = Split-Path -Parent $ap['OutHtml']
+    $ap['History'] = if ($histDir) { Join-Path $histDir 'hostbadger-history.csv' } else { 'hostbadger-history.csv' }
     # Never saved in the global settings: it changes with every run.
     $prev = Read-Path "Findings CSV of an earlier run, to show new and resolved (optional, Enter to skip)"
     if ($prev) { if (Test-Path -LiteralPath $prev) { $ap['CompareTo'] = $prev } else { Write-Host "Not found, comparison skipped: $prev" -ForegroundColor Yellow } }

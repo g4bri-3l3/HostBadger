@@ -123,8 +123,9 @@ $otherAsrIds = @('7674ba52-37eb-4a4f-a9a1-f0f9a1619a2c', 'd4f940ab-401b-4efc-aad
     'c1db55ab-c21a-4637-bb3f-a12568109d35', '33ddedf1-c6e0-47cb-833e-de6133960387', 'c0033c00-d16d-4114-a5a0-dc9b3a7d2ceb')
 $allAsr = @($standardAsr) + @($otherAsrIds | ForEach-Object { [ordered]@{ id = $_; action = 1 } })
 $schannelClean = [ordered]@{
-    protocols = @('SSL 2.0', 'SSL 3.0', 'TLS 1.0', 'TLS 1.1' | ForEach-Object { $p = $_; 'Server', 'Client' | ForEach-Object { [ordered]@{ name = $p; side = $_; enabled = $null } } })
+    protocols = @('SSL 2.0', 'SSL 3.0', 'TLS 1.0', 'TLS 1.1' | ForEach-Object { $p = $_; 'Server', 'Client' | ForEach-Object { [ordered]@{ name = $p; side = $_; enabled = $null; disabledByDefault = $null } } })
     ciphers   = @('NULL', 'DES 56/56', 'RC2 40/128', 'RC2 56/128', 'RC2 128/128', 'RC4 40/128', 'RC4 56/128', 'RC4 64/128', 'RC4 128/128', 'Triple DES 168' | ForEach-Object { [ordered]@{ name = $_; enabled = $null } })
+    cipherSuitePolicy = $null
 }
 $baseServices = @(
     (Svc 'Dnscache' 'C:\Windows\system32\svchost.exe -k NetworkService -p' 'C:\Windows\system32\svchost.exe' 'NT AUTHORITY\NetworkService'),
@@ -171,12 +172,13 @@ $s = [ordered]@{
         os = [ordered]@{ caption = 'Microsoft Windows Server 2022 Standard'; version = '10.0.20348'; build = 20348; ubr = 4171; displayVersion = '21H2'; editionId = 'ServerStandard'; productType = 3; architecture = '64-bit'; installDateUtc = '2024-02-01T10:00:00Z'; lastBootUtc = '2026-09-20T03:00:00Z' }
     }
     patches              = [ordered]@{ hotfixes = @([ordered]@{ id = 'KB5065306'; description = 'Security Update'; installedOnUtc = '2026-09-10T00:00:00Z' }); lastUpdateInstalledUtc = '2026-09-10T03:12:00Z'; rebootPending = [ordered]@{ cbs = $false; windowsUpdate = $false } }
-    defender             = [ordered]@{ present = $true; amRunningMode = 'Normal'; amServiceEnabled = $true; antivirusEnabled = $true; realTimeProtectionEnabled = $true; behaviorMonitorEnabled = $true; ioavProtectionEnabled = $true; isTamperProtected = $true; signatureUpdatedUtc = '2026-09-30T22:00:00Z'; exclusionsReadable = $true; exclusionPaths = @(); exclusionExtensions = @(); exclusionProcesses = @(); asrRules = $allAsr; puaProtection = 1; networkProtection = 1; controlledFolderAccess = 1; mapsReporting = 2; disableBlockAtFirstSeen = $false; disableScriptScanning = $false }
+    defender             = [ordered]@{ present = $true; amRunningMode = 'Normal'; amServiceEnabled = $true; antivirusEnabled = $true; realTimeProtectionEnabled = $true; behaviorMonitorEnabled = $true; ioavProtectionEnabled = $true; isTamperProtected = $true; signatureUpdatedUtc = '2026-09-30T22:00:00Z'; exclusionsReadable = $true; exclusionPaths = @(); exclusionExtensions = @(); exclusionProcesses = @(); asrRules = $allAsr; puaProtection = 1; networkProtection = 1; controlledFolderAccess = 1; mapsReporting = 2; disableBlockAtFirstSeen = $false; disableScriptScanning = $false
+        disableArchiveScanning = $false; disableScanningNetworkFiles = $false; threatDefaultActions = [ordered]@{ severe = 0; high = 0; moderate = 0; low = 0 }; threatIdAllowCount = 0; bruteForceProtection = 1; remoteEncryptionProtection = 1 }
     bitlocker            = [ordered]@{ featureInstalled = $true; volumes = @([ordered]@{ mountPoint = 'C:'; volumeType = 'OperatingSystem'; protectionStatus = 'On'; volumeStatus = 'FullyEncrypted'; encryptionMethod = 'XtsAes256'; keyProtectors = @('Tpm', 'RecoveryPassword') }) }
     boot                 = [ordered]@{ secureBootEnabled = $true; firmware = 'UEFI' }
     credentialProtection = [ordered]@{ runAsPPL = 2; lsaCfgFlags = 1; credentialGuardRunning = $true; hvciRunning = $true; vbsStatus = 2; wdigestUseLogonCredential = 0; cachedLogonsCount = '1'; lmCompatibilityLevel = 5; noLmHash = 1; restrictAnonymous = 1; restrictAnonymousSam = 1 }
     network              = [ordered]@{
-        smb1ServerEnabled = $false; smbServerSigningRequired = $true; smbClientSigningRequired = $true; llmnrPolicyEnableMulticast = 0; mdnsPolicyEnable = 0; mdnsServiceEnable = $null
+        smb1ServerEnabled = $false; smbServerSigningRequired = $true; smbClientSigningRequired = $true; smbServerEncryptData = $true; llmnrPolicyEnableMulticast = 0; mdnsPolicyEnable = 0; mdnsServiceEnable = $null
         netbios = @([ordered]@{ adapter = 'vmxnet3 Ethernet Adapter'; tcpipNetbiosOptions = 2 })
         firewallProfiles = @('Domain', 'Private', 'Public' | ForEach-Object { [ordered]@{ name = $_; enabled = $true; defaultInboundAction = 'Block'; logBlocked = 'True' } })
         listening = @([ordered]@{ protocol = 'tcp'; address = '0.0.0.0'; port = 445; process = 'System' }, [ordered]@{ protocol = 'tcp'; address = '0.0.0.0'; port = 443; process = 'w3wp' }, [ordered]@{ protocol = 'tcp'; address = '127.0.0.1'; port = 6379; process = 'redis-server' })
@@ -237,6 +239,16 @@ $s = [ordered]@{
         officeInstalled = $true
         officeUserPolicy = @((OfficeProfile 1 3 2 2))
         kerberosEncryptionTypes = 2147483640; wefSubscriptionManager = $true
+        # Exploit protection at the Windows defaults, the newer VBS protections and Enhanced Phishing
+        # Protection on, NTLM audited, signed AMSI providers only, Administrator protection, no standby
+        # with BitLocker, and the optional protections Windows leaves off.
+        exploitProtection = [ordered]@{ dep = 0; bottomUpAslr = 0; highEntropyAslr = 0; forceRelocate = 0; cfg = 0; terminateOnHeapError = 0 }
+        deviceGuardPolicy = [ordered]@{ hvciMatRequired = 1; systemGuardLaunch = 1; kernelShadowStacks = 1 }
+        phishingProtection = [ordered]@{ captureThreatWindow = 1; notifyMalicious = 1; notifyPasswordReuse = 1; notifyUnsafeApp = 1; serviceEnabled = 1 }
+        ntlmAudit = [ordered]@{ auditReceiving = 2; restrictSending = 1 }
+        amsiFeatureBits = 2; uacAdminApprovalType = 2
+        bitlockerExposure = [ordered]@{ standbyOnBattery = 0; standbyPluggedIn = 0; machineLockoutThreshold = 10 }
+        osExtras = [ordered]@{ svchostMitigation = 1; lmhosts = 0; smartNameResolutionOff = 1; lockedUserInfo = 3; kerberosArmor = 1 }
     }
     # The baseline is a Windows Server 2022 member server; the scenarios set their own product.
     stig                 = Get-StigSection $stigMachine $stigUser ([ordered]@{ edge = $true; chrome = $true; firefox = $true; office = $true }) 'srv2022ms'
@@ -304,6 +316,10 @@ switch ($Scenario) {
         # the default collection date.
         $s.host.os = [ordered]@{ caption = 'Microsoft Windows 11 Enterprise'; version = '10.0.22631'; build = 22631; ubr = 5909; displayVersion = '23H2'; editionId = 'Enterprise'; productType = 1; architecture = '64-bit'; installDateUtc = '2024-03-01T09:00:00Z'; lastBootUtc = '2026-09-29T07:00:00Z' }
         $s.credentialProtection.cachedLogonsCount = '4'
+        # Enhanced Phishing Protection on without its password warnings; the laptop sleeps in standby
+        # on battery and the logon screen never locks the machine out.
+        $s.hardening.phishingProtection = [ordered]@{ captureThreatWindow = 1; notifyMalicious = 1; notifyPasswordReuse = $null; notifyUnsafeApp = 0; serviceEnabled = 1 }
+        $s.hardening.bitlockerExposure = [ordered]@{ standbyOnBattery = $null; standbyPluggedIn = 0; machineLockoutThreshold = 0 }
         $s.remoteAccess.rdpEnabled = $false
         $s.defender.exclusionPaths = @('C:\Program Files\Contoso CAD\Projects')
         $s.localAccounts.users[0].enabled = $false
@@ -394,6 +410,20 @@ switch ($Scenario) {
         $hd.pointAndPrint = [ordered]@{ restrictDriverInstallToAdmins = 0; noWarningNoElevationOnInstall = 1; noWarningNoElevationOnUpdate = $null }
         $hd.mrxsmb10Start = 2; $hd.disableExceptionChainValidation = 1; $hd.safeDllSearchMode = 0; $hd.addPrinterDrivers = 0; $hd.disableDomainCreds = 0
         $hd.ipStack = [ordered]@{ disableIpSourceRoutingV4 = 0; disableIpSourceRoutingV6 = 1; enableIcmpRedirect = 1 }
+        # TLS 1.1 offered to clients by default, and a cipher suite order that still lists RC4 and 3DES.
+        $hd.schannel.protocols = @($hd.schannel.protocols | ForEach-Object { if ($_.name -eq 'TLS 1.1' -and $_.side -eq 'Client') { [ordered]@{ name = $_.name; side = $_.side; enabled = $null; disabledByDefault = 0 } } else { $_ } })
+        $hd.schannel.cipherSuitePolicy = 'TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_RC4_128_SHA,TLS_RSA_WITH_3DES_EDE_CBC_SHA'
+        # DEP and Control Flow Guard turned off for the whole machine (an old game's "fix"); none of the
+        # newer protections; Defender allows severe threats and two threat ids, does not scan archives
+        # or network files, brute-force protection not configured and remote encryption in audit.
+        $hd.exploitProtection = [ordered]@{ dep = 2; bottomUpAslr = 0; highEntropyAslr = 1; forceRelocate = 0; cfg = 2; terminateOnHeapError = 0 }
+        $hd.deviceGuardPolicy = [ordered]@{ hvciMatRequired = $null; systemGuardLaunch = $null; kernelShadowStacks = 2 }
+        $hd.ntlmAudit = [ordered]@{ auditReceiving = $null; restrictSending = 0 }
+        $hd.amsiFeatureBits = $null; $hd.uacAdminApprovalType = $null
+        $hd.osExtras = [ordered]@{ svchostMitigation = $null; lmhosts = $null; smartNameResolutionOff = $null; lockedUserInfo = 1; kerberosArmor = $null }
+        $s.defender.threatDefaultActions = [ordered]@{ severe = 6; high = 0; moderate = 9; low = 0 }; $s.defender.threatIdAllowCount = 2
+        $s.defender.disableArchiveScanning = $true; $s.defender.disableScanningNetworkFiles = $true
+        $s.defender.bruteForceProtection = 0; $s.defender.remoteEncryptionProtection = 2
         # DISA STIG: Defender, firewall and browser policies not configured (Windows 10: three of its own STIG rules, none of the Windows 11 ones), a few Office user policies missing.
         $wm = $stigMachine
         foreach ($pr in 'win10', 'defender', 'firewall', 'edge', 'chrome', 'firefox') { $wm = Remove-StigValues $wm $pr 3 }
@@ -523,6 +553,8 @@ switch ($Scenario) {
         $s.hardening.terminalServicesPolicy = [ordered]@{ perSessionTempDir = 0; singleSessionPerUser = $null }
         $s.hardening.serverPolicy = [ordered]@{ disableMotwInsecureCopy = 1; ipv6DefaultDnsDisabled = 0; ieFeedBasicAuthInClear = 1; ldapClientConfidentiality = 0; samNgcRocaValidation = $null; auditNtlmInDomain = $null; appInstaller = [ordered]@{ localArchiveMalwareScanOverride = 1; bypassCertPinningForStore = $null; commandLineInterfaces = 1 } }
         $s.network.smbServerSigningRequired = $false
+        # SYSVOL and NETLOGON travel unencrypted.
+        $s.network.smbServerEncryptData = $false
         $s.localAccounts.users = @([ordered]@{ name = 'Administrator'; sid = "$domainSid-500"; enabled = $true; passwordRequired = $true; passwordExpires = $true; lastLogonUtc = '2026-09-30T09:00:00Z'; passwordLastSetUtc = '2026-08-01T09:00:00Z' })
         $s.localAccounts.administrators = @([ordered]@{ path = 'CORP/Administrator'; sid = "$domainSid-500"; class = 'User' }, [ordered]@{ path = 'CORP/Domain Admins'; sid = "$domainSid-512"; class = 'Group' })
         $s.audit.subcategories = @($allAudit | ForEach-Object { $v = if ($_[1] -like 'Kerberos*' -or $_[1] -eq 'Directory Service Changes') { 0 } else { 3 }; Audit $_[0] $v $_[1] })
@@ -567,6 +599,8 @@ switch ($Scenario) {
         $s.securityPolicy = $null
         $s.credentialProtection.credentialGuardRunning = $null
         $s.credentialProtection.cachedLogonsCount = '4'
+        # Windows 11 24H2 with the classic Admin Approval Mode.
+        $s.hardening.uacAdminApprovalType = 1
         $s.localAccounts.administrators = @()
         $s.localAccounts.administratorsReadable = $false
     }

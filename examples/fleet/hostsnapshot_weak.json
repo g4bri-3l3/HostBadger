@@ -114,9 +114,21 @@
     ],
     "puaProtection": 0,
     "networkProtection": 0,
+    "controlledFolderAccess": 2,
     "mapsReporting": 0,
     "disableBlockAtFirstSeen": false,
-    "disableScriptScanning": false
+    "disableScriptScanning": false,
+    "disableArchiveScanning": true,
+    "disableScanningNetworkFiles": true,
+    "threatDefaultActions": {
+      "severe": 6,
+      "high": 0,
+      "moderate": 9,
+      "low": 0
+    },
+    "threatIdAllowCount": 2,
+    "bruteForceProtection": 0,
+    "remoteEncryptionProtection": 2
   },
   "bitlocker": {
     "featureInstalled": true,
@@ -160,6 +172,7 @@
     "smb1ServerEnabled": true,
     "smbServerSigningRequired": false,
     "smbClientSigningRequired": false,
+    "smbServerEncryptData": true,
     "llmnrPolicyEnableMulticast": null,
     "mdnsPolicyEnable": null,
     "mdnsServiceEnable": null,
@@ -613,17 +626,20 @@
         {
           "name": "SSL 2.0",
           "side": "Server",
-          "enabled": null
+          "enabled": null,
+          "disabledByDefault": null
         },
         {
           "name": "SSL 2.0",
           "side": "Client",
-          "enabled": null
+          "enabled": null,
+          "disabledByDefault": null
         },
         {
           "name": "SSL 3.0",
           "side": "Server",
-          "enabled": null
+          "enabled": null,
+          "disabledByDefault": null
         },
         {
           "name": "SSL 3.0",
@@ -638,17 +654,20 @@
         {
           "name": "TLS 1.0",
           "side": "Client",
-          "enabled": null
+          "enabled": null,
+          "disabledByDefault": null
         },
         {
           "name": "TLS 1.1",
           "side": "Server",
-          "enabled": null
+          "enabled": null,
+          "disabledByDefault": null
         },
         {
           "name": "TLS 1.1",
           "side": "Client",
-          "enabled": null
+          "enabled": null,
+          "disabledByDefault": 0
         }
       ],
       "ciphers": [
@@ -692,7 +711,8 @@
           "name": "Triple DES 168",
           "enabled": null
         }
-      ]
+      ],
+      "cipherSuitePolicy": "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_RC4_128_SHA,TLS_RSA_WITH_3DES_EDE_CBC_SHA"
     },
     "ldapServer": {
       "integrity": 2,
@@ -858,6 +878,8 @@
     "mrxsmb10Start": 2,
     "disableExceptionChainValidation": 1,
     "safeDllSearchMode": 0,
+    "addPrinterDrivers": 0,
+    "disableDomainCreds": 0,
     "ipStack": {
       "disableIpSourceRoutingV4": 0,
       "disableIpSourceRoutingV6": 1,
@@ -929,7 +951,45 @@
       }
     ],
     "kerberosEncryptionTypes": null,
-    "wefSubscriptionManager": false
+    "wefSubscriptionManager": false,
+    "exploitProtection": {
+      "dep": 2,
+      "bottomUpAslr": 0,
+      "highEntropyAslr": 1,
+      "forceRelocate": 0,
+      "cfg": 2,
+      "terminateOnHeapError": 0
+    },
+    "deviceGuardPolicy": {
+      "hvciMatRequired": null,
+      "systemGuardLaunch": null,
+      "kernelShadowStacks": 2
+    },
+    "phishingProtection": {
+      "captureThreatWindow": 1,
+      "notifyMalicious": 1,
+      "notifyPasswordReuse": 1,
+      "notifyUnsafeApp": 1,
+      "serviceEnabled": 1
+    },
+    "ntlmAudit": {
+      "auditReceiving": null,
+      "restrictSending": 0
+    },
+    "amsiFeatureBits": null,
+    "uacAdminApprovalType": null,
+    "bitlockerExposure": {
+      "standbyOnBattery": 0,
+      "standbyPluggedIn": 0,
+      "machineLockoutThreshold": 10
+    },
+    "osExtras": {
+      "svchostMitigation": null,
+      "lmhosts": null,
+      "smartNameResolutionOff": null,
+      "lockedUserInfo": 1,
+      "kerberosArmor": null
+    }
   },
   "stig": {
     "products": {
