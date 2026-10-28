@@ -270,19 +270,20 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
                     <Button x:Name="CollectDirBtn" Grid.Column="2" Content="Folder..." Margin="12,4,0,4"/>
                   </Grid>
                   <CheckBox x:Name="SkipAclChk" Content="Skip file permissions (faster, fewer checks)"/>
-                  <CheckBox x:Name="UpdatesChk"/>
                   <WrapPanel>
                     <TextBlock Text="Encryption" Style="{StaticResource Label}"/>
-                    <RadioButton x:Name="EncNone" Content="None" IsChecked="True"/>
+                    <RadioButton x:Name="EncNone" GroupName="Enc" Content="None" IsChecked="True"/>
                     <StackPanel Orientation="Horizontal">
-                      <RadioButton x:Name="EncPass" Content="Password" Margin="0,4,8,4"/>
+                      <RadioButton x:Name="EncPass" GroupName="Enc" Content="Password" Margin="0,4,8,4"/>
                       <PasswordBox x:Name="EncPassBox" Width="160" Margin="0,4,18,4"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal">
-                      <RadioButton x:Name="EncCert" Content="Certificate (.cer or thumbprint)" Margin="0,4,8,4"/>
+                      <RadioButton x:Name="EncCert" GroupName="Enc" Content="Certificate" Margin="0,4,8,4"/>
                       <TextBox x:Name="EncCertBox" Width="200" Margin="0,4"/>
+                      <Button x:Name="EncCertBtn" Content="File..." Margin="8,4,0,4"/>
                     </StackPanel>
                   </WrapPanel>
+                  <TextBlock Style="{StaticResource Muted}" Text="Certificate: the public certificate (.cer file) of whoever will open the snapshot, or the thumbprint of a certificate in this machine's store. Only the public key is used here; the snapshot opens only where the matching private key is (certificate store, or the .pfx given to the analysis)."/>
                 </StackPanel>
                 <RadioButton x:Name="SrcSnap" GroupName="Src" FontWeight="SemiBold" Content="Snapshots already collected: a file, or a folder with several hosts"/>
                 <StackPanel x:Name="SnapPanel" Margin="26,2,0,0">
@@ -330,6 +331,7 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
                 <Grid x:Name="CatalogGrid">
                   <Grid.ColumnDefinitions><ColumnDefinition Width="230"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                 </Grid>
+                <CheckBox x:Name="UpdatesChk" Margin="0,8,0,0"/>
               </StackPanel>
             </Border>
 
@@ -689,11 +691,11 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
             <TextBlock Text="Collection" Style="{StaticResource H2}"/>
             <TextBlock Text="Encryption proposed for a new snapshot" Style="{StaticResource Label}"/>
             <StackPanel Orientation="Horizontal">
-              <RadioButton x:Name="SetEncAsk" Content="Ask (guided menu)" IsChecked="True"/>
-              <RadioButton x:Name="SetEncNone" Content="None"/>
-              <RadioButton x:Name="SetEncPass" Content="Password (typed each time)"/>
-              <RadioButton x:Name="SetEncCert" Content="Certificate" Margin="0,4,8,4"/>
-              <TextBox x:Name="SetCert" Width="240" Margin="0,4"/>
+              <RadioButton x:Name="SetEncAsk" GroupName="SetEnc" Content="Ask (guided menu)" IsChecked="True"/>
+              <RadioButton x:Name="SetEncNone" GroupName="SetEnc" Content="None"/>
+              <RadioButton x:Name="SetEncPass" GroupName="SetEnc" Content="Password (typed each time)"/>
+              <RadioButton x:Name="SetEncCert" GroupName="SetEnc" Content="Certificate" Margin="0,4,8,4"/>
+              <TextBox x:Name="SetCert" Width="240" Margin="0,4" ToolTip="Path of the .cer file (public certificate) of whoever opens the snapshots, or the thumbprint of a certificate in the store."/>
             </StackPanel>
           </StackPanel>
         </Border>
@@ -1588,6 +1590,8 @@ function Update-Source {
     $m = [bool]$ui.SrcMachine.IsChecked
     $ui.MachinePanel.IsEnabled = $m; $ui.MachinePanel.Opacity = if ($m) { 1 } else { 0.5 }
     $ui.SnapPanel.IsEnabled = -not $m; $ui.SnapPanel.Opacity = if ($m) { 0.5 } else { 1 }
+    # The update search is part of the collection: nothing to search in snapshots already collected.
+    $ui.UpdatesChk.IsEnabled = $m; $ui.UpdatesChk.Opacity = if ($m) { 1 } else { 0.5 }
     $ui.RunBtn.Content = if ($m) { 'Collect and analyze' } else { 'Analyze' }
     Update-RemPanel
 }
@@ -2151,6 +2155,7 @@ $ui.SnapshotBox.Add_TextChanged({ Update-Source })
 # Typing a password or a certificate means that encryption: without it the box would be ignored.
 $ui.EncPassBox.Add_GotFocus({ $ui.EncPass.IsChecked = $true })
 $ui.EncCertBox.Add_GotFocus({ $ui.EncCert.IsChecked = $true })
+$ui.EncCertBtn.Add_Click({ $d = New-Object Microsoft.Win32.OpenFileDialog; $d.Filter = 'Certificates|*.cer;*.crt;*.pem|All files|*.*'; if ($d.ShowDialog()) { $ui.EncCertBox.Text = $d.FileName; $ui.EncCert.IsChecked = $true } })
 $ui.RunBtn.Add_Click({ Invoke-Run })
 $ui.FixBtn.Add_Click({ Invoke-Run -Fix })
 $ui.SafetyBtn.Add_Click({ Start-GuiTask -Label 'Safety review' -Work $script:RunScript -Arguments @((Join-Path $root 'Test-HostBadgerSafety.ps1'), @{}) -Done { } })

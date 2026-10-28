@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
+## [2.2] - 2026-10-28
+### Changed
+- Window: **Search missing updates** moved to the Catalogs card, next to the
+  other choices that reach the network (it stays greyed out when analyzing
+  snapshots already collected). The certificate for an encrypted snapshot has a
+  **File...** button and a line saying what goes there (the public .cer of
+  whoever opens the snapshot, or a thumbprint in the store).
+
+### Fixed
+- Window: the three Encryption choices (None, Password, Certificate) could all
+  stay selected at once, since each sat in its own panel; they are one group
+  now, as are the Settings ones.
+
 ## [2.1] - 2026-10-26
 ### Added
 - `-History <file>`: the score of every run, one CSV line per host and
