@@ -74,8 +74,9 @@ $allowed = [ordered]@{
         'Get-ItemProperty', 'Get-Item', 'Get-CimInstance', 'Get-MpComputerStatus', 'Get-MpPreference', 'Get-BitLockerVolume',
         'Get-SmbServerConfiguration', 'Get-SmbClientConfiguration', 'Get-NetFirewallProfile', 'Get-NetTCPConnection', 'Get-NetUDPEndpoint',
         'Get-Process', 'Get-LocalUser', 'Get-ScheduledTask', 'Get-Acl', 'Get-WinEvent', 'Get-ProcessMitigation', 'auditpol.exe', 'secedit.exe', 'sc.exe')
+    'List the BITS transfer jobs of every user, to see which run a program when they finish (read only)' = @('Get-BitsTransfer')
     'Read driver files to hash them (SHA-256, matched against the LOLDrivers catalog)' = @('Get-FileHash')
-    'Read who signed a DLL loaded by LSASS, the spooler or netsh (Authenticode, to tell a vendor entry from an unsigned one)' = @('Get-AuthenticodeSignature')
+    'Read who signed a DLL or program Windows loads from a startup point (LSASS, the spooler, netsh, the logon screen, network and time providers, services, Office COM add-ins), to tell a vendor entry from an unsigned one (Authenticode)' = @('Get-AuthenticodeSignature')
     'Files: read snapshots, write the snapshot / report' = @('Get-Content', 'Set-Content', 'Export-Csv', 'Import-Csv', 'Get-ChildItem', 'Test-Path', 'Resolve-Path',
         'Join-Path', 'Split-Path', 'New-Item', 'Remove-Item', 'Compress-Archive')
     'Environment' = @('Add-Type', 'Get-Date')

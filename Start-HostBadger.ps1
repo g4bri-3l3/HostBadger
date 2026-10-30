@@ -75,7 +75,7 @@ function Show-Banner {
         ''
         '    _.--""--._'
         '  .''  |    |  ''.'
-        ' /    |    |    \      HostBadger v2.2'
+        ' /    |    |    \      HostBadger v2.3'
         '|  (o)|    |(o)  |     Windows host hardening'
         '|     |    |     |     collect, analyze, optional AI summary'
         ' \    ''.__.''    /'
@@ -84,17 +84,40 @@ function Show-Banner {
         ''
     )
     $width = ($art | Measure-Object -Property Length -Maximum).Maximum + 4
-    $edge = ' ' + ('#' * ($width + 2))
-    Write-Host $edge -ForegroundColor DarkYellow
-    foreach ($line in $art) { Write-Host (' #  ' + $line.PadRight($width - 2) + '#') -ForegroundColor DarkYellow }
-    Write-Host $edge -ForegroundColor DarkYellow
+    $edge = ' +' + ('-' * $width) + '+'
+    Write-Host $edge -ForegroundColor DarkGray
+    foreach ($line in $art) {
+        # The badger in yellow, the words beside it in white.
+        $cut = [Math]::Min(22, $line.Length)
+        Write-Host ' |  ' -NoNewline -ForegroundColor DarkGray
+        Write-Host $line.Substring(0, $cut) -NoNewline -ForegroundColor Yellow
+        Write-Host $line.Substring($cut).PadRight($width - 2 - $cut) -NoNewline -ForegroundColor White
+        Write-Host '|' -ForegroundColor DarkGray
+    }
+    Write-Host $edge -ForegroundColor DarkGray
+}
+
+function Write-MenuGroup {
+    param([string]$Title)
+    Write-Host ''
+    Write-Host "  $($Title.ToUpper())" -ForegroundColor DarkGray
+}
+function Write-MenuItem {
+    # [key] name   (note): the key in yellow, the name in white, the note grey; a disabled item is all grey.
+    param([string]$Key, [string]$Name, [string]$Note = '', [switch]$Off, [switch]$Warn)
+    Write-Host '   ' -NoNewline
+    Write-Host "[$Key]" -NoNewline -ForegroundColor $(if ($Off) { 'DarkGray' } else { 'Yellow' })
+    Write-Host (' ' + $Name.PadRight(34)) -NoNewline -ForegroundColor $(if ($Off) { 'DarkGray' } elseif ($Warn) { 'DarkYellow' } else { 'White' })
+    Write-Host $Note -ForegroundColor DarkGray
 }
 
 function Invoke-Sub {
     param([string]$Script, [hashtable]$Params = @{})
     $path = Join-Path $root $Script
     if (-not (Test-Path -LiteralPath $path)) { Write-Host "Missing $Script next to the launcher." -ForegroundColor Red; return }
-    Write-Host "`n--- $Script ---`n" -ForegroundColor Cyan
+    Write-Host ''
+    Write-Host ("== $Script " + ('=' * [Math]::Max(4, 60 - $Script.Length))) -ForegroundColor Cyan
+    Write-Host ''
     # A failing step must not kill the menu, so we report it and go back. Out-Host shows whatever
     # the script prints and keeps it from being mistaken for a value the menu needs.
     try { & $path @Params | Out-Host }
@@ -286,30 +309,37 @@ function Find-KeptCatalog {
 }
 
 function Get-CatalogPrompt {
-    param([string]$Name, [bool]$Kept)
+    param([string]$Name, [bool]$Kept, [bool]$Stale)
     $c = $script:CatalogDefs[$Name]
     if (-not $Kept) { return $c.Prompt }
+    if ($Stale) {
+        if ($Name -eq 'Kev') { return "$($c.Label): [O]nline download (the kept copy is over a week old), [U]se the kept copy, a [F]ile you already have, or [N]one (O/u/f/n)" }
+        return "$($c.Label): download a fresh one [O]nline (the kept copy is over a week old), [U]se the kept copy, or [N]o, $($c.OffPrompt) (O/u/n)"
+    }
     if ($Name -eq 'Kev') { return "$($c.Label): [U]se the kept copy, [O]nline download, a [F]ile you already have, or [N]one (U/o/f/n)" }
     return "$($c.Label): [U]se the kept copy, download a fresh one [O]nline, or [N]o, $($c.OffPrompt) (U/o/n)"
 }
 
-# Ask about one catalog and set its parameters. With a kept copy, Enter (or U) uses it. -Edit is the
+# Ask about one catalog and set its parameters. With a kept copy, Enter (or U) uses it; when that copy
+# is over a week old, Enter downloads a fresh one (as the "auto" mode of the settings). -Edit is the
 # review screen: asked again, never resumed, and the new answer saved under its question.
 function Set-CatalogChoice {
     param([hashtable]$Ap, [string]$Name, [switch]$Edit)
     $c = $script:CatalogDefs[$Name]
     $kept = Find-KeptCatalog -Suffix $c.Suffix -Report $Ap['OutHtml']
+    $stale = $false
     if ($kept) {
         $age = (Get-Date) - $kept.LastWriteTime
         $ageText = if ($age.TotalDays -ge 2) { '{0} days ago' -f [math]::Floor($age.TotalDays) } elseif ($age.TotalHours -ge 2) { '{0} hours ago' -f [math]::Floor($age.TotalHours) } else { 'less than 2 hours ago' }
-        $stale = if ($age.TotalDays -gt 7) { ' It is over a week old: a fresh download is advisable.' } else { '' }
-        Write-Host ("Kept from an earlier run: {0} ({1:yyyy-MM-dd HH:mm}, {2}).{3}" -f $kept.FullName, $kept.LastWriteTime, $ageText, $stale) -ForegroundColor DarkGray
+        $stale = $age.TotalDays -gt 7
+        $staleText = if ($stale) { ' It is over a week old: Enter downloads a fresh one.' } else { '' }
+        Write-Host ("Kept from an earlier run: {0} ({1:yyyy-MM-dd HH:mm}, {2}).{3}" -f $kept.FullName, $kept.LastWriteTime, $ageText, $staleText) -ForegroundColor DarkGray
     }
-    $prompt = Get-CatalogPrompt -Name $Name -Kept ([bool]$kept)
+    $prompt = Get-CatalogPrompt -Name $Name -Kept ([bool]$kept) -Stale $stale
     if ($Edit) { $ans = "$(Read-Host $prompt)"; Set-WizardValue $prompt $ans } else { $ans = Read-Line $prompt }
     $ans = $ans.Trim().ToUpper()
     $Ap.Remove($c.Online); $Ap.Remove($c.File)
-    if ($ans -match '^[OYS]') { $Ap[$c.Online] = $true }
+    if ($ans -match '^[OYS]' -or ($stale -and $ans -eq '')) { $Ap[$c.Online] = $true }
     elseif ($ans -eq 'F' -and $Name -eq 'Kev') {
         $kp = if ($Edit) { Read-PathRaw 'Path of known_exploited_vulnerabilities.json' '' } else { Read-Path 'Path of known_exploited_vulnerabilities.json' }
         if ($Edit) { Set-WizardValue 'Path of known_exploited_vulnerabilities.json' $kp }
@@ -339,15 +369,16 @@ $script:RunAi = ''
 $script:AiModes = [ordered]@{ A = 'ask after the report'; N = 'no'; D = 'dry run (write the prompt, send nothing)'; S = 'send to Gemini'; C = 'send after reading the prompt' }
 $script:AiModePrompt = 'AI summary (Gemini): [A]sk after the report, [N]o, [D]ry run, [S]end, [C]onfirm after reading the prompt (A/n/d/s/c)'
 
-# Catalogs: kept (the newest kept copy, else as without a download), auto (the kept copy if it is at most
-# a week old, else a download), online (a download every run), off, file (KEV only: KevFile). Ai is a
-# letter of $script:AiModes. Lists are comma separated text (an empty array would be written "{}" by 5.1).
+# Catalogs: auto (the default: the kept copy if it is at most a week old, else a download), kept (the
+# newest kept copy whatever its age, else as without a download), online (a download every run), off,
+# file (KEV only: KevFile). Version 1 files had "kept" as the default, so their "kept" is read as "auto".
+# Ai is a letter of $script:AiModes. Lists are comma separated text (an empty array would be written "{}" by 5.1).
 function New-GlobalSettings {
     return [ordered]@{
-        version = 1; savedUtc = ''
+        version = 2; savedUtc = ''
         SnapshotDir = ''; SkipAcl = $false; CheckUpdates = $false; Encrypt = 'ask'; Certificate = ''
         ReportDir = 'output'; PerHost = $true; SkipStig = $false; HideCis = $false; HideStig = $false; Nis2Acn = $false
-        Kev = 'kept'; KevFile = ''; Drivers = 'kept'; Eol = 'kept'; Choco = 'kept'; Cve = 'kept'
+        Kev = 'auto'; KevFile = ''; Drivers = 'auto'; Eol = 'auto'; Choco = 'auto'; Cve = 'auto'; Ext = 'auto'
         Jsonl = $false; Remediation = $false; RemediationProfile = ''; RemediationDebloat = $false
         ExceptionsFile = ''; PolicyFile = ''; AllowedAdmins = ''; ExpectedEdr = ''; AllowedRemoteTools = ''; AllowedExtensions = ''
         Ai = 'A'; AiIncludeStig = $false; Model = ''; AiMaxAttempts = ''
@@ -361,6 +392,10 @@ function Read-GlobalSettings {
     catch { Write-Host "Global settings not read ($($_.Exception.Message)): the questions are asked." -ForegroundColor Yellow; return }
     foreach ($p in @($j.PSObject.Properties)) { if ($s.Contains($p.Name) -and $null -ne $p.Value) { $s[$p.Name] = $p.Value } }
     if (-not $script:AiModes.Contains("$($s.Ai)")) { $s['Ai'] = 'A' }
+    if ([int]"0$($j.version)" -lt 2) {
+        foreach ($cn in $script:CatalogDefs.Keys) { if ("$($s[$cn])" -eq 'kept') { $s[$cn] = 'auto' } }
+        $s['version'] = 2
+    }
     return $s
 }
 
@@ -390,11 +425,11 @@ function Get-CatalogModeText {
     param([string]$Name, $S)
     $c = $script:CatalogDefs[$Name]
     switch ("$($S[$Name])") {
-        'auto' { return "kept copy under a week old, else download ($($c.Site))" }
+        'kept' { return "kept copy whatever its age, else $($c.Off)" }
         'online' { return "download ($($c.Site))" }
         'off' { return $c.Off }
         'file' { return "file $($S.KevFile)" }
-        default { return "kept copy, else $($c.Off)" }
+        default { return "kept copy under a week old, else download ($($c.Site))" }
     }
 }
 
@@ -412,10 +447,10 @@ function Set-GlobalAnalysisParams {
         elseif ($mode -eq 'file' -and $cn -eq 'Kev') {
             if ($S.KevFile -and (Test-Path -LiteralPath $S.KevFile)) { $Ap['KevFile'] = "$($S.KevFile)" } else { Write-Host "Saved KEV file not found, KEV skipped: $($S.KevFile)" -ForegroundColor Yellow }
         }
-        elseif ($mode -eq 'kept' -or $mode -eq 'auto') {
+        elseif ($mode -ne 'off') {
             $kept = Find-KeptCatalog -Suffix $c.Suffix -Report $Ap['OutHtml']
             if ($kept -and ($mode -eq 'kept' -or ((Get-Date) - $kept.LastWriteTime).TotalDays -le 7)) { $Ap[$c.File] = $kept.FullName }
-            elseif ($mode -eq 'auto') { $Ap[$c.Online] = $true }
+            elseif ($mode -ne 'kept') { $Ap[$c.Online] = $true }
         }
     }
     if ($S.Jsonl) { $Ap['OutJsonl'] = $Ap['OutHtml'] -replace '\.html?$', '.jsonl' }
@@ -511,12 +546,12 @@ function Edit-GlobalSettings {
             }
             { $script:CatalogDefs.Contains($_) } {
                 $c = $script:CatalogDefs[$k]
-                $v = "$(Read-Host "$($c.Label): [K]ept copy, else $($c.Off); [A]uto: the kept copy if under a week old, else download; [O]nline download every run; [N]o, $($c.OffPrompt)$(if ($k -eq 'Kev') { '; a [F]ile you have' }) (K/a/o/n$(if ($k -eq 'Kev') { '/f' }))")".Trim().ToUpper()
+                $v = "$(Read-Host "$($c.Label): [A]uto: the kept copy if under a week old, else download; [K]ept copy whatever its age, else $($c.Off); [O]nline download every run; [N]o, $($c.OffPrompt)$(if ($k -eq 'Kev') { '; a [F]ile you have' }) (A/k/o/n$(if ($k -eq 'Kev') { '/f' }))")".Trim().ToUpper()
                 if ($v -eq 'F' -and $k -eq 'Kev') {
                     $kp = Read-PathRaw 'Path of known_exploited_vulnerabilities.json' $s.KevFile
                     if ($kp -and (Test-Path -LiteralPath $kp)) { $s['Kev'] = 'file'; $s['KevFile'] = "$kp" } else { Write-Host "Not found, unchanged: $kp" -ForegroundColor Yellow }
                 }
-                elseif ($v -eq 'A') { $s[$k] = 'auto' } elseif ($v -eq 'O') { $s[$k] = 'online' } elseif ($v -eq 'N') { $s[$k] = 'off' } elseif ($v -eq 'K' -or -not $v) { $s[$k] = 'kept' }
+                elseif ($v -eq 'K') { $s[$k] = 'kept' } elseif ($v -eq 'O') { $s[$k] = 'online' } elseif ($v -eq 'N') { $s[$k] = 'off' } elseif ($v -eq 'A' -or -not $v) { $s[$k] = 'auto' }
             }
             'ExceptionsFile' {
                 $v = Read-PathRaw 'Exceptions file ("-" for none)' $s.ExceptionsFile
@@ -1114,14 +1149,35 @@ function Select-OwnSnapshot {
     return [PSCustomObject]@{ Path = ''; Kind = '' }
 }
 
+# This machine's debloat and telemetry script (lib\Remediation.ps1 Write-ProfileOnlyScript), for its
+# role, without a collection: the libraries load into a module of their own, so nothing they define
+# stays in the menu. The apps are left out: the menu lists them itself. Returns the file, or nothing.
+$script:ProfileOnlyWork = {
+    param([string]$Root, [string]$OutDir)
+    $mod = New-Object System.Management.Automation.PSModuleInfo $true
+    & $mod {
+        param([string]$Root, [string]$OutDir)
+        . (Join-Path $Root 'lib\Common.ps1')
+        . (Join-Path $Root 'lib\Checks.ps1')
+        . (Join-Path $Root 'lib\Remediation.ps1')
+        $pt = "$((Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\ProductOptions' -Name ProductType -ErrorAction SilentlyContinue).ProductType)"
+        $role = switch ($pt) { 'LanmanNT' { 'dc' } 'ServerNT' { 'server' } default { 'workstation' } }
+        $ver = if ([System.IO.File]::ReadAllText((Join-Path $Root 'HostBadger.ps1')) -match "\`$script:HostBadgerVersion = '([\d.]+)'") { $Matches[1] } else { '?' }
+        $r = Write-ProfileOnlyScript -HostName $env:COMPUTERNAME -Role $role -OutDir $OutDir -ToolVersion $ver -Debloat -Privacy -NoApps
+        if ($r.File) { "$($r.File) ($($r.Actions) setting(s) for a $role)" }
+    } $Root $OutDir
+}
+
 function Invoke-RemediateStep {
     if (-not (Test-IsAdmin)) { Write-Host 'Remediation changes system settings: start an elevated PowerShell (Run as administrator), or restart the menu as administrator, and choose it again.' -ForegroundColor Yellow; return }
-    Write-Host "`nRemediate this machine: HostBadger collects and analyzes this machine (or starts from a snapshot of it already taken), then shows what its fix script would change. Without a profile only settings with a safe, reversible fix are in it (one value, the one the baseline expects, no organizational choice); a profile adds its own list of settings. Nothing changes until you type YES; a System Restore point comes first where Windows has one, and the script writes every previous value to a rollback file (menu 7 puts them back, except what is marked NOT REVERSIBLE). Group Policy or Intune may set a value back on managed machines." -ForegroundColor DarkGray
+    Write-Host "`nRemediate this machine: HostBadger collects and analyzes this machine (or starts from a snapshot of it already taken; with debloat and telemetry only it needs neither), then shows what its fix script would change. Without a profile only settings with a safe, reversible fix are in it (one value, the one the baseline expects, no organizational choice); a profile adds its own list of settings. Nothing changes until you type YES; a System Restore point comes first where Windows has one, and the script writes every previous value to a rollback file (menu 7 puts them back, except what is marked NOT REVERSIBLE). Group Policy or Intune may set a value back on managed machines." -ForegroundColor DarkGray
     if (-not (Test-Yes 'Continue? (y/N)')) { return }
     # The saved profile (menu 8) is the default; the question is always asked, so the answers do not shift.
     $g = Read-GlobalSettings
     $remProfile = Read-RemediationProfile $(if ($g) { "$($g.RemediationProfile)" } else { '' })
-    $from = Select-OwnSnapshot
+    # Debloat and telemetry only: no fix of the findings, so no snapshot to start from.
+    $onlyProfile = $remProfile -eq 'DebloatTelemetry'
+    $from = if ($onlyProfile) { [PSCustomObject]@{ Path = ''; Kind = '' } } else { Select-OwnSnapshot }
     $run = Join-Path $script:RemediationRoot (Ts)
     New-Item -ItemType Directory -Path $run -Force | Out-Null
     # Never resumed: an interrupted run is only explained at the next start (and option 7 offered).
@@ -1132,7 +1188,12 @@ function Invoke-RemediateStep {
     $hp['RemediationNoApps'] = $true
     $withApps = $remProfile -in 'Strict', 'DebloatTelemetry'
     [System.IO.File]::WriteAllText((Join-Path $run 'run.json'), (ConvertTo-Json -InputObject ([ordered]@{ profile = "$remProfile"; started = (Get-Date).ToString('yyyy-MM-dd HH:mm') })), (New-Object System.Text.UTF8Encoding($false)))
-    if ($from.Path) {
+    if ($onlyProfile) {
+        Write-Host "`nDebloat and telemetry only: these settings depend on the role of this machine, not on its findings, so it is not collected or analyzed." -ForegroundColor DarkGray
+        $made = & $script:ProfileOnlyWork $root $run
+        if ($made) { Write-Host "Fix script: $made" -ForegroundColor DarkGray }
+    }
+    elseif ($from.Path) {
         $hp['Snapshot'] = $from.Path
         if ($from.Kind -eq 'hbx') {
             $pw = Read-Host 'Password of the encrypted snapshot (Enter if it is encrypted to a certificate)' -AsSecureString
@@ -1145,7 +1206,7 @@ function Invoke-RemediateStep {
         if ($snap.Count -eq 0) { Write-Host 'No snapshot produced; nothing changed.' -ForegroundColor Red; return }
         $hp['Snapshot'] = $snap[0].FullName
     }
-    Invoke-Sub 'HostBadger.ps1' $hp
+    if (-not $onlyProfile) { Invoke-Sub 'HostBadger.ps1' $hp }
     $fix = @(Get-ChildItem -LiteralPath $run -Filter 'remediate_*.ps1' -ErrorAction SilentlyContinue | Select-Object -First 1)
     $applied = $false
     if ($fix.Count -eq 0) { Write-Host 'No setting on this machine has a safe fix script.' -ForegroundColor Green }
@@ -1169,7 +1230,7 @@ function Invoke-RemediateStep {
         Write-Host "`nPreinstalled apps: games, consumer apps and trials from HostBadger's list." -ForegroundColor DarkGray
         if (Test-Yes 'Look for preinstalled apps to remove? (y/N)') { $appsGone = Invoke-BloatwareStep -Run $run }
     }
-    Write-Host "Report of this run: $(Join-Path $run 'report.html')" -ForegroundColor Green
+    if (-not $onlyProfile) { Write-Host "Report of this run: $(Join-Path $run 'report.html')" -ForegroundColor Green }
     if ($applied -or $appsGone) {
         Write-Host 'Windows applies some of these changes (services, features, policies read at startup) only after a restart.' -ForegroundColor Yellow
         if ((Read-Host 'Restart now? Type YES to restart this machine now (Enter = later)') -ceq 'YES') { Restart-Computer -Force }
@@ -1235,22 +1296,27 @@ try {
         Write-Host ""
         # Without administrator rights the options that need them say so.
         $na = -not $script:IsAdmin
-        $gapColor = if ($na) { 'DarkYellow' } else { 'White' }
-        Write-Host "  [1] Collect this machine        (read-only snapshot$(if ($na) { '; not administrator: with gaps' }))" -ForegroundColor $gapColor
-        Write-Host "  [2] Analyze snapshots           (a file, a zip or a folder of many hosts)" -ForegroundColor White
-        Write-Host "  [3] Collect and analyze this machine$(if ($na) { '   (not administrator: with gaps)' })" -ForegroundColor $gapColor
-        Write-Host "  [4] Analyze with an AI summary  (Gemini, names tokenized, dry run available)" -ForegroundColor White
-        Write-Host "  [5] Safety review               (what the scripts can and cannot do)" -ForegroundColor White
+        Write-Host '  Running as ' -NoNewline -ForegroundColor DarkGray
+        if ($na) { Write-Host 'a standard user' -NoNewline -ForegroundColor DarkYellow; Write-Host ': collections have gaps, fixes are off.' -ForegroundColor DarkGray }
+        else { Write-Host 'administrator' -ForegroundColor Green }
+        Write-MenuGroup 'Collect and analyze'
+        Write-MenuItem '1' 'Collect this machine' "read-only snapshot$(if ($na) { ', with gaps' })" -Warn:$na
+        Write-MenuItem '2' 'Analyze snapshots' 'a file, a zip or a folder of many hosts'
+        Write-MenuItem '3' 'Collect and analyze this machine' $(if ($na) { 'with gaps' } else { 'both in one go' }) -Warn:$na
+        Write-MenuItem '4' 'Analyze with an AI summary' 'Gemini, names tokenized, dry run available'
+        Write-MenuGroup 'Fix this machine'
         if ($na) {
-            Write-Host "  [6] Remediate this machine      (needs administrator)" -ForegroundColor DarkGray
-            Write-Host "  [7] Restore a remediation backup (preview only; restoring needs administrator)" -ForegroundColor DarkGray
+            Write-MenuItem '6' 'Remediate this machine' 'needs administrator' -Off
+            Write-MenuItem '7' 'Restore a remediation backup' 'preview only; restoring needs administrator' -Off
         }
         else {
-            Write-Host "  [6] Remediate this machine      (preview, apply after YES, restore point and rollback)" -ForegroundColor White
-            Write-Host "  [7] Restore a remediation backup" -ForegroundColor White
+            Write-MenuItem '6' 'Remediate this machine' 'preview, apply after YES, restore point and rollback'
+            Write-MenuItem '7' 'Restore a remediation backup' 'undo a run from its rollback file'
         }
-        Write-Host "  [8] Global settings             (the usual answers, saved: a run asks whether to use them)" -ForegroundColor White
-        Write-Host "  [Q] Quit" -ForegroundColor White
+        Write-MenuGroup 'Tools'
+        Write-MenuItem '5' 'Safety review' 'what the scripts can and cannot do'
+        Write-MenuItem '8' 'Global settings' 'the usual answers, saved: a run asks whether to use them'
+        Write-MenuItem 'Q' 'Quit'
         if ($script:ResumeChoice) { $choice = $script:ResumeChoice; $script:ResumeChoice = ''; Write-Host "`nChoice: $choice   (resumed)" -ForegroundColor DarkGray }
         else { $choice = (Read-Host "`nChoice").Trim().ToUpper() }
         # Whether to use the global settings is asked again by each menu choice.

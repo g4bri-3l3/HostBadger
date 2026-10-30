@@ -38,6 +38,22 @@ foreach ($k in @(
         'defender_pua_off', 'defender_network_protection_off', 'firewall_profile_disabled', 'firewall_default_inbound_allow', 'firewall_drop_logging_off', 'firewall_notifications_on', 'dc_netlogon_policy_weak', 'server_baseline_gaps', 'driver_blocklist_off', 'mdns_enabled',
         'powershell_v2_enabled', 'spooler_on_dc', 'script_files_execute_on_open', 'network_credentials_stored', 'printer_drivers_by_users')) { $script:FixTypes[$k] = $true }
 
+# Fixes that change what the user sees or does (logon screen, screen lock, prompts, saved passwords,
+# AutoPlay, scripts opened as text...): the Essential profile leaves them out (user decision
+# 2026-10-30), Recommended and Strict apply them. '*' = every Object of the type.
+$script:UxFixes = @{
+    'interactive_logon_gaps' = '*'; 'inactivity_lock_missing' = '*'; 'uac_disabled' = '*'; 'uac_admin_no_prompt' = '*'
+    'uac_hardening_gaps' = @('Admin Approval Mode for the built-in Administrator', 'Secure desktop for prompts')
+    'rdp_policy_gaps' = @('Password prompt', 'Drive redirection'); 'autoplay_enabled' = '*'; 'script_files_execute_on_open' = '*'
+    'cached_logons_high' = '*'; 'network_credentials_stored' = '*'; 'firewall_notifications_on' = '*'; 'powershell_transcription_off' = '*'
+}
+
+function Test-UxFix {
+    param($Finding)
+    $v = @($script:UxFixes["$($Finding.Type)"])
+    return ($v -contains '*' -or $v -contains "$($Finding.Object)")
+}
+
 # The fixes for one finding, as data. Kind is reg, smb, mp, fw, feature, user or service. Two
 # renderings come from it: the lines of the per-host script (with rollback) and the plain PowerShell
 # snippets under each check in the report.
@@ -900,17 +916,40 @@ if ($script:Failed -gt 0) { exit 1 }
 
 # Builds the script for one host from its active findings, and returns the text together with what
 # it covers.
+function Write-ProfileOnlyScript {
+    # Debloat and telemetry alone (no fix of the findings): the settings depend on the role of the
+    # machine only, so the window and the guided menu write this machine's script without a snapshot.
+    # The caller gives the role (it reads it from the machine); this writes the file as HostBadger.ps1
+    # does and returns it with its number of actions (no file when there is nothing to do).
+    param([string]$HostName, [string]$Role, [string]$OutDir, [string]$ToolVersion, [switch]$Debloat, [switch]$Privacy, [switch]$NoApps)
+    $r = New-RemediationScript -HostName $HostName -Role $Role -Findings @() -Config $null -CollectedUtc ((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) -ToolVersion $ToolVersion -Debloat:$Debloat -Privacy:$Privacy -NoApps:$NoApps -OnlyProfile
+    $file = ''
+    if ($r.ActionCount -gt 0) {
+        if (-not (Test-Path -LiteralPath $OutDir)) { New-Item -ItemType Directory -Path $OutDir -Force | Out-Null }
+        $file = Join-Path $OutDir ('remediate_' + ($HostName -replace '[^\w\-]', '_') + '.ps1')
+        # With a BOM so Windows PowerShell 5.1 reads it as UTF-8.
+        [System.IO.File]::WriteAllText($file, $r.Text, (New-Object System.Text.UTF8Encoding($true)))
+    }
+    return [PSCustomObject]@{ File = $file; Actions = $r.ActionCount }
+}
+
 function New-RemediationScript {
     param([string]$HostName, [string]$Role, $Findings, $Config, [string]$CollectedUtc, [string]$ToolVersion, [string]$ProfileName = '', [switch]$Debloat, [switch]$Privacy, [switch]$NoApps, [switch]$OnlyProfile)
     # OnlyProfile: the safe fixes of the findings stay out (debloat and telemetry only).
     if ($OnlyProfile) { $Findings = @() }
     $mine = @($Findings | Where-Object { $_.Host -eq $HostName })
+    $total = $mine.Count
     $body = New-Object System.Collections.Generic.List[string]
     $seen = @{}
     $targets = @{}
     $fixable = 0
     $notFixable = New-Object System.Collections.Generic.List[object]
     $actions = 0
+    $uxLeft = New-Object System.Collections.Generic.List[string]
+    if ((Get-TierName $ProfileName) -eq 'Essential') {
+        $uxLeft.AddRange([string[]]@($mine | Where-Object { Test-UxFix $_ } | ForEach-Object { "$($_.Type): $($_.Object)" -replace '[\r\n]', ' ' } | Where-Object { $_ }))
+        $mine = @($mine | Where-Object { -not (Test-UxFix $_) })
+    }
     $groups = @($mine | Group-Object Type | Sort-Object { - ($_.Group | ForEach-Object { $script:SeverityRank[$_.Severity] } | Measure-Object -Maximum).Maximum }, Name)
     foreach ($g in $groups) {
         $lines = New-Object System.Collections.Generic.List[string]
@@ -927,6 +966,11 @@ function New-RemediationScript {
         $meta = $script:CheckCatalog[$g.Name]
         [void]$body.Add("# ---- $($g.Name): $($meta.Title) ($done of $(@($g.Group).Count) finding(s))")
         foreach ($l in $lines) { [void]$body.Add($l) }
+        [void]$body.Add('')
+    }
+    if ($uxLeft.Count -gt 0) {
+        [void]$body.Add('# ---- left out by the Essential profile (they change what the user sees or does; Recommended applies them):')
+        foreach ($u in $uxLeft) { [void]$body.Add("#      $u") }
         [void]$body.Add('')
     }
     # The profile: its settings whether or not a finding asked for them (the script reads each current
@@ -974,5 +1018,5 @@ function New-RemediationScript {
     }
     $text = $text.Replace('{{PROFILE}}', $profText)
     $text = $text.Replace('{{ACTIONS}}', ($body -join "`r`n"))
-    return [PSCustomObject]@{ Host = $HostName; Text = $text; FixableFindings = $fixable; ActionCount = $actions; ProfileActions = $profileActions; NoUndoActions = $profileNoUndo; NotFixable = $notFixable.ToArray(); TotalFindings = $mine.Count }
+    return [PSCustomObject]@{ Host = $HostName; Text = $text; FixableFindings = $fixable; ActionCount = $actions; ProfileActions = $profileActions; NoUndoActions = $profileNoUndo; NotFixable = $notFixable.ToArray(); UxLeftOut = $uxLeft.ToArray(); TotalFindings = $total }
 }

@@ -44,6 +44,12 @@
       "certificates",
       "wifi",
       "browserExtensions",
+      "loadPoints",
+      "tamper",
+      "localGroups",
+      "shares",
+      "dns",
+      "surface",
       "updatesPending"
     ],
     "collectionErrors": []
@@ -101,6 +107,8 @@
     ],
     "exclusionExtensions": [],
     "exclusionProcesses": [],
+    "asrExclusions": [],
+    "asrRuleExclusions": [],
     "asrRules": [
       {
         "id": "9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2",
@@ -1065,6 +1073,62 @@
       "smartNameResolutionOff": 1,
       "lockedUserInfo": 3,
       "kerberosArmor": 1
+    },
+    "credsspDelegation": {
+      "encryptionOracle": 0,
+      "AllowDefaultCredentials": {
+        "on": null,
+        "servers": []
+      },
+      "AllowDefCredentialsWhenNTLMOnly": {
+        "on": null,
+        "servers": []
+      },
+      "AllowSavedCredentials": {
+        "on": null,
+        "servers": []
+      },
+      "AllowSavedCredentialsWhenNTLMOnly": {
+        "on": null,
+        "servers": []
+      },
+      "AllowFreshCredentials": {
+        "on": 1,
+        "servers": [
+          "TERMSRV/rds01.corp.example"
+        ]
+      },
+      "AllowFreshCredentialsWhenNTLMOnly": {
+        "on": null,
+        "servers": []
+      }
+    },
+    "winrmClient": {
+      "trustedHosts": "",
+      "policyTrustedHosts": null,
+      "policyTrustedHostsList": ""
+    },
+    "remoteSessionControl": {
+      "shadowPolicy": 1,
+      "shadowLocal": 1,
+      "offerPolicy": 0,
+      "offerFullControl": null,
+      "solicitedPolicy": 0,
+      "solicitedLocal": 0
+    },
+    "dsrmAdminLogonBehavior": null,
+    "sudo": {
+      "enabled": null,
+      "policy": null
+    },
+    "developerMode": {
+      "allowDevelopment": 0,
+      "policyAllowDevelopment": null
+    },
+    "recall": {
+      "feature": 2,
+      "disableAiDataAnalysis": null,
+      "allowRecallEnablement": null
     }
   },
   "stig": {
@@ -4136,5 +4200,285 @@
         ]
       }
     ]
+  },
+  "loadPoints": {
+    "networkProviders": [
+      {
+        "name": "RDPNP",
+        "dll": "C:\\Windows\\System32\\drprov.dll",
+        "exists": true,
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "LanmanWorkstation",
+        "dll": "C:\\Windows\\System32\\ntlanman.dll",
+        "exists": true,
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      }
+    ],
+    "credentialProviders": [
+      {
+        "kind": "provider",
+        "clsid": "{60b78e88-ead8-445c-9cfd-0b87f74ea6cd}",
+        "name": "PasswordProvider",
+        "dll": "C:\\Windows\\system32\\credprovs.dll",
+        "exists": true,
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      }
+    ],
+    "appCertDlls": [],
+    "sessionManagerExecute": [
+      {
+        "value": "BootExecute",
+        "command": "autocheck autochk *"
+      }
+    ],
+    "timeProviders": [
+      {
+        "name": "NtpClient",
+        "dll": "C:\\Windows\\system32\\w32time.dll",
+        "enabled": 1,
+        "exists": true,
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      }
+    ],
+    "printProcessors": [
+      {
+        "environment": "Windows x64",
+        "name": "winprint",
+        "driver": "winprint.dll",
+        "exists": true,
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      }
+    ],
+    "dotnetProfiler": null,
+    "aeDebug": [],
+    "serviceHooks": [],
+    "hiddenServices": [],
+    "hiddenTasks": [],
+    "logonScripts": [],
+    "psProfiles": [],
+    "officeTestMachine": [],
+    "officeProfiles": [],
+    "userHivesRead": 1,
+    "ssh": {
+      "installed": false,
+      "adminKeys": null,
+      "userKeys": []
+    },
+    "bitsJobs": [],
+    "bitsJobCount": 2,
+    "accessibility": [
+      {
+        "name": "sethc.exe",
+        "originalName": "sethc.exe.mui",
+        "internalName": "sethc.exe",
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "utilman.exe",
+        "originalName": "utilman2.exe.mui",
+        "internalName": "utilman2.exe",
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "osk.exe",
+        "originalName": "osk.exe.mui",
+        "internalName": "osk.exe",
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "narrator.exe",
+        "originalName": "SR.exe.mui",
+        "internalName": "SR.exe",
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "magnify.exe",
+        "originalName": "ScreenMagnifier.exe.mui",
+        "internalName": "ScreenMagnifier.exe",
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "displayswitch.exe",
+        "originalName": "DisplaySwitch.mui",
+        "internalName": "DisplaySwitch",
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "atbroker.exe",
+        "originalName": "ATBroker.exe.mui",
+        "internalName": "ATBroker.exe",
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      }
+    ],
+    "missingTargets": []
+  },
+  "tamper": {
+    "miniNt": false,
+    "eventLogStart": 2,
+    "autologgers": [
+      {
+        "name": "EventLog-Security",
+        "start": 1
+      },
+      {
+        "name": "EventLog-System",
+        "start": 1
+      },
+      {
+        "name": "EventLog-Application",
+        "start": 1
+      }
+    ],
+    "securityAuditingProvider": 1,
+    "systemStartOptions": "NOEXECUTE=OPTIN",
+    "hosts": {
+      "read": true,
+      "total": 0,
+      "entries": []
+    },
+    "winHttpProxy": null,
+    "trustedPublishers": [
+      {
+        "thumbprint": "1A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D",
+        "store": "gpo",
+        "subject": "CN=Corp Code Signing, O=Corp",
+        "notAfterUtc": "2028-01-01T00:00:00Z"
+      }
+    ]
+  },
+  "localGroups": {
+    "groups": [
+      {
+        "sid": "S-1-5-32-551",
+        "name": "Backup Operators",
+        "members": []
+      },
+      {
+        "sid": "S-1-5-32-555",
+        "name": "Remote Desktop Users",
+        "members": [
+          {
+            "path": "CORP/Helpdesk",
+            "sid": "S-1-5-21-1111111111-2222222222-3333333333-1120",
+            "class": "Group"
+          }
+        ]
+      }
+    ],
+    "samRead": true,
+    "rids": [
+      {
+        "keyRid": 500,
+        "fRid": 500
+      },
+      {
+        "keyRid": 501,
+        "fRid": 501
+      }
+    ]
+  },
+  "dns": {
+    "dohPolicy": 2,
+    "autoDoh": null,
+    "wellKnown": [
+      "1.1.1.1",
+      "8.8.8.8"
+    ],
+    "adapters": [
+      {
+        "name": "Intel(R) Ethernet Connection I219-LM",
+        "dhcp": true,
+        "servers": [
+          "10.0.0.10",
+          "10.0.0.11",
+          "fec0:0:0:ffff::1"
+        ],
+        "doh": []
+      },
+      {
+        "name": "Corp VPN Adapter",
+        "dhcp": false,
+        "servers": [
+          "9.9.9.9"
+        ],
+        "doh": [
+          {
+            "server": "9.9.9.9",
+            "flags": 2,
+            "template": true
+          }
+        ]
+      }
+    ]
+  },
+  "shares": [
+    {
+      "name": "Docs",
+      "path": "D:\\Docs",
+      "defaultPermissions": false,
+      "access": [
+        {
+          "sid": "S-1-1-0",
+          "mask": 1179817
+        }
+      ],
+      "ntfsWriters": []
+    }
+  ],
+  "surface": {
+    "printers": {
+      "local": 1,
+      "shared": 0
+    },
+    "features": {
+      "Microsoft-Windows-Subsystem-Linux": 2,
+      "VirtualMachinePlatform": 2
+    },
+    "wslDistributions": [],
+    "userHivesRead": 1,
+    "officeAddins": [
+      {
+        "app": "Outlook",
+        "progId": "UCAddin.LyncAddin.1",
+        "scope": "machine",
+        "loadBehavior": 3,
+        "kind": "com",
+        "manifest": "",
+        "dll": {
+          "path": "C:\\Program Files\\Microsoft Office\\root\\Office16\\UCADDIN.DLL",
+          "exists": true,
+          "signer": "Microsoft Corporation",
+          "status": "Valid"
+        }
+      }
+    ],
+    "credentialFiles": [],
+    "systemRestore": {
+      "disableSR": null,
+      "disableConfig": null
+    },
+    "tpm": {
+      "present": true,
+      "enabled": true,
+      "activated": true
+    },
+    "helloPinUsers": 1,
+    "helloForBusiness": null,
+    "firewallUserApps": [],
+    "namedPipes": null
   }
 }

@@ -65,7 +65,7 @@ $script:GuiCatalogs = [ordered]@{
     Ext     = @{ Label = 'Malicious browser extensions'; Suffix = 'extensions'; Online = 'ExtensionsOnline'; File = 'ExtensionsFile'; Site = 'raw.githubusercontent.com'; Shipped = 'data\malicious-extensions.json' }
 }
 # The settings modes of a catalog (as in menu 8), for the Settings window.
-$script:CatalogModes = [ordered]@{ kept = 'Newest kept copy, else the shipped one or none'; auto = 'Kept copy under a week old, else download'; online = 'Download at every analysis'; off = 'Never download: shipped copy or none' }
+$script:CatalogModes = [ordered]@{ auto = 'Kept copy under a week old, else download'; kept = 'Newest kept copy whatever its age, else the shipped one or none'; online = 'Download at every analysis'; off = 'Never download: shipped copy or none' }
 
 # Fix script levels: the profile tiers of data\remediation-profiles.json, with their own description.
 $script:Tiers = try { ([System.IO.File]::ReadAllText((Join-Path $root 'data\remediation-profiles.json')) | ConvertFrom-Json).tiers } catch { $null }
@@ -105,14 +105,109 @@ $resources = @'
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="#FBE7B5"/></Trigger>
-              <Trigger Property="IsEnabled" Value="False"><Setter TargetName="b" Property="Opacity" Value="0.45"/></Trigger>
+              <Trigger Property="IsPressed" Value="True"><Setter TargetName="b" Property="RenderTransform"><Setter.Value><TranslateTransform X="2" Y="2"/></Setter.Value></Setter></Trigger>
+              <!-- Disabled: dashed-looking grey ink, no shadow, so it does not read as pressable. -->
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="b" Property="Background" Value="#EFEBE2"/>
+                <Setter TargetName="b" Property="BorderBrush" Value="#B9B2A5"/>
+                <Setter Property="Foreground" Value="#8C857A"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+      <Style.Triggers>
+        <Trigger Property="IsEnabled" Value="False"><Setter Property="Effect" Value="{x:Null}"/></Trigger>
+        <Trigger Property="IsPressed" Value="True"><Setter Property="Effect" Value="{x:Null}"/></Trigger>
+      </Style.Triggers>
+    </Style>
+    <Style x:Key="Primary" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+      <Setter Property="Background" Value="#F2B632"/>
+    </Style>
+    <!-- Something that changes or stops: a red tint while it can be pressed. -->
+    <Style x:Key="Danger" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+      <Setter Property="Background" Value="#FBD9D2"/>
+    </Style>
+    <!-- Secondary actions (file pickers, settings): lighter, so the main action stands out. -->
+    <Style x:Key="Ghost" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+      <Setter Property="BorderThickness" Value="2"/>
+      <Setter Property="Padding" Value="10,4"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Effect" Value="{x:Null}"/>
+    </Style>
+    <!-- Slim scroll bars in the colors of the page, instead of the grey Windows ones. -->
+    <Style x:Key="ThumbInk" TargetType="Thumb">
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Thumb"><Border x:Name="t" Background="#8C857A" CornerRadius="0"/>
+            <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="t" Property="Background" Value="#161513"/></Trigger></ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="ScrollBar">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ScrollBar">
+            <Border Background="#E8E2D4" Width="8">
+              <Track x:Name="PART_Track" IsDirectionReversed="True">
+                <Track.Thumb><Thumb Style="{StaticResource ThumbInk}"/></Track.Thumb>
+              </Track>
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+      <Style.Triggers>
+        <Trigger Property="Orientation" Value="Horizontal">
+          <Setter Property="Template">
+            <Setter.Value>
+              <ControlTemplate TargetType="ScrollBar">
+                <Border Background="#E8E2D4" Height="8">
+                  <Track x:Name="PART_Track" IsDirectionReversed="False">
+                    <Track.Thumb><Thumb Style="{StaticResource ThumbInk}"/></Track.Thumb>
+                  </Track>
+                </Border>
+              </ControlTemplate>
+            </Setter.Value>
+          </Setter>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+    <!-- A choice drawn as a card (the fix levels): the whole card is the click target, the chosen one is inked. -->
+    <Style x:Key="OptionCard" TargetType="RadioButton">
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Margin" Value="0,0,0,8"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <Border x:Name="b" Background="#FFFDF8" BorderBrush="#CFC8BA" BorderThickness="2" Padding="12,8">
+              <DockPanel>
+                <Border x:Name="dot" DockPanel.Dock="Left" Width="16" Height="16" Margin="0,2,12,0" VerticalAlignment="Top" BorderBrush="#161513" BorderThickness="2" CornerRadius="8" Background="#FFFDF8">
+                  <Ellipse x:Name="fill" Width="6" Height="6" Fill="#161513" Visibility="Collapsed"/>
+                </Border>
+                <ContentPresenter/>
+              </DockPanel>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="#FFF6DE"/></Trigger>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="b" Property="Background" Value="#FBE7B5"/>
+                <Setter TargetName="b" Property="BorderBrush" Value="#161513"/>
+                <Setter TargetName="fill" Property="Visibility" Value="Visible"/>
+              </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
     </Style>
-    <Style x:Key="Primary" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-      <Setter Property="Background" Value="#F2B632"/>
+    <!-- A warning box: red bar on the left, light red paper. -->
+    <Style x:Key="Callout" TargetType="Border">
+      <Setter Property="Background" Value="#FBEAE7"/>
+      <Setter Property="BorderBrush" Value="#B3261E"/>
+      <Setter Property="BorderThickness" Value="6,0,0,0"/>
+      <Setter Property="Padding" Value="14,10"/>
+      <Setter Property="Margin" Value="0,0,0,8"/>
     </Style>
     <Style TargetType="TextBox">
       <Setter Property="BorderBrush" Value="#161513"/>
@@ -231,9 +326,9 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
               <TextBlock x:Name="AdminText" FontWeight="Bold"/>
             </Border>
             <Button x:Name="ElevateBtn" Content="Restart as administrator"/>
-            <Button x:Name="SettingsBtn" Content="Settings"/>
-            <Button x:Name="SafetyBtn" Content="Safety review" ToolTip="Test-HostBadgerSafety.ps1 reads the scripts (it runs nothing) and lists every command they use, where they write and where they may connect."/>
-            <Button x:Name="UpdateCheckBtn" Content="Check for updates" Margin="0"/>
+            <Button x:Name="SettingsBtn" Style="{StaticResource Ghost}" Content="Settings"/>
+            <Button x:Name="SafetyBtn" Style="{StaticResource Ghost}" Content="Safety review" ToolTip="Test-HostBadgerSafety.ps1 reads the scripts (it runs nothing) and lists every command they use, where they write and where they may connect."/>
+            <Button x:Name="UpdateCheckBtn" Style="{StaticResource Ghost}" Content="Check for updates" Margin="0"/>
           </StackPanel>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
             <TextBlock x:Name="UpdateText" VerticalAlignment="Center" Foreground="#5F5A51" Margin="0,0,12,0" TextWrapping="Wrap" MaxWidth="520"/>
@@ -267,9 +362,10 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
                     <Grid.ColumnDefinitions><ColumnDefinition Width="164"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <TextBlock Text="Save the snapshot in" Style="{StaticResource Label}"/>
                     <TextBox x:Name="CollectDirBox" Grid.Column="1" Margin="0,4"/>
-                    <Button x:Name="CollectDirBtn" Grid.Column="2" Content="Folder..." Margin="12,4,0,4"/>
+                    <Button x:Name="CollectDirBtn" Style="{StaticResource Ghost}" Grid.Column="2" Content="Folder..." Margin="12,4,0,4"/>
                   </Grid>
                   <CheckBox x:Name="SkipAclChk" Content="Skip file permissions (faster, fewer checks)"/>
+                  <CheckBox x:Name="PipesChk" Content="Read named pipe permissions (each pipe is opened for a moment; about 15 seconds)" ToolTip="Finds the named pipes of other programs that everyone can write to. Each pipe is opened for reading and closed at once; nothing is sent or read through it. Busy pipes are skipped."/>
                   <WrapPanel>
                     <TextBlock Text="Encryption" Style="{StaticResource Label}"/>
                     <RadioButton x:Name="EncNone" GroupName="Enc" Content="None" IsChecked="True"/>
@@ -280,7 +376,7 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
                     <StackPanel Orientation="Horizontal">
                       <RadioButton x:Name="EncCert" GroupName="Enc" Content="Certificate" Margin="0,4,8,4"/>
                       <TextBox x:Name="EncCertBox" Width="200" Margin="0,4"/>
-                      <Button x:Name="EncCertBtn" Content="File..." Margin="8,4,0,4"/>
+                      <Button x:Name="EncCertBtn" Style="{StaticResource Ghost}" Content="File..." Margin="8,4,0,4"/>
                     </StackPanel>
                   </WrapPanel>
                   <TextBlock Style="{StaticResource Muted}" Text="Certificate: the public certificate (.cer file) of whoever will open the snapshot, or the thumbprint of a certificate in this machine's store. Only the public key is used here; the snapshot opens only where the matching private key is (certificate store, or the .pfx given to the analysis)."/>
@@ -293,8 +389,8 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
                     <TextBlock Text="Snapshot file or folder" Style="{StaticResource Label}"/>
                     <TextBox x:Name="SnapshotBox" Grid.Column="1" Margin="0,4"/>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="12,4,0,4">
-                      <Button x:Name="SnapFileBtn" Content="File..."/>
-                      <Button x:Name="SnapFolderBtn" Content="Folder..." Margin="0"/>
+                      <Button x:Name="SnapFileBtn" Style="{StaticResource Ghost}" Content="File..."/>
+                      <Button x:Name="SnapFolderBtn" Style="{StaticResource Ghost}" Content="Folder..." Margin="0"/>
                     </StackPanel>
                     <TextBlock x:Name="SnapshotNote" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource Muted}"/>
                     <TextBlock Grid.Row="2" Text="Password (.hbx)" Style="{StaticResource Label}"/>
@@ -321,6 +417,8 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
                   <CheckBox x:Name="PerHostChk" Content="One report per host (when the run has several hosts)" IsChecked="True" ToolTip="Besides the fleet report, one report per host. With a single host nothing more is written: it would be a copy of the report."/>
                 </WrapPanel>
                 <CheckBox x:Name="AcnChk" Content="NIS2: add the ACN basic measures (Italy only: Determinazione 379907/2025, D.Lgs. 138/2024)"/>
+                <CheckBox x:Name="RemChk" Content="Also save a fix script for each host, with the changes chosen in the Fix tab (to run on that host; nothing is applied)" ToolTipService.ShowOnDisabled="True" Margin="0,4,18,4"/>
+                <TextBlock x:Name="RemOutText" Style="{StaticResource Muted}" Margin="0,0,0,0" TextWrapping="Wrap"/>
               </StackPanel>
             </Border>
 
@@ -352,11 +450,20 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
                   <TextBlock Grid.Row="3" Text="Approved browser extensions" Style="{StaticResource Label}"/>
                   <TextBox x:Name="ExtBox" Grid.Row="3" Grid.Column="1" Margin="0,4"/>
                   <TextBlock Grid.Row="4" Text="Exceptions file" Style="{StaticResource Label}"/>
-                  <TextBox x:Name="ExceptionsBox" Grid.Row="4" Grid.Column="1" Margin="0,4"/>
-                  <TextBlock Grid.Row="5" Text="Policy file" Style="{StaticResource Label}"/>
-                  <TextBox x:Name="PolicyBox" Grid.Row="5" Grid.Column="1" Margin="0,4"/>
+                  <DockPanel Grid.Row="4" Grid.Column="1">
+                    <Button x:Name="ExceptionsFileBtn" Style="{StaticResource Ghost}" DockPanel.Dock="Right" Content="File..." Margin="8,4,0,4"/>
+                    <TextBox x:Name="ExceptionsBox" Margin="0,4"/>
+                  </DockPanel>
+                  <TextBlock Grid.Row="5" Text="Policy file" Style="{StaticResource Label}" ToolTip="{Binding ToolTip, ElementName=PolicyBox}"/>
+                  <DockPanel Grid.Row="5" Grid.Column="1">
+                    <Button x:Name="PolicyFileBtn" Style="{StaticResource Ghost}" DockPanel.Dock="Right" Content="File..." Margin="8,4,0,4"/>
+                    <TextBox x:Name="PolicyBox" Margin="0,4" ToolTip="A JSON file listing the checks your organization turns off, each with its reason (examples\policy.example.json). Those checks are not judged on any host, are left out of the score, and the report lists them with the reason."/>
+                  </DockPanel>
                   <TextBlock Grid.Row="6" Text="Compare with (earlier CSV)" Style="{StaticResource Label}"/>
-                  <TextBox x:Name="CompareBox" Grid.Row="6" Grid.Column="1" Margin="0,4"/>
+                  <DockPanel Grid.Row="6" Grid.Column="1">
+                    <Button x:Name="CompareFileBtn" Style="{StaticResource Ghost}" DockPanel.Dock="Right" Content="File..." Margin="8,4,0,4"/>
+                    <TextBox x:Name="CompareBox" Margin="0,4"/>
+                  </DockPanel>
                 </Grid>
               </StackPanel>
             </Border>
@@ -369,20 +476,22 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
             <DockPanel LastChildFill="False">
               <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
                 <Button x:Name="RunBtn" Content="Analyze" Style="{StaticResource Primary}" ToolTipService.ShowOnDisabled="True"/>
+                <Button x:Name="StopBtn" Style="{StaticResource Danger}" Content="Stop" IsEnabled="False" ToolTip="Stops the step that is running."/>
                 <Button x:Name="OpenBtn" Content="Open the last report" IsEnabled="False" Margin="0"/>
               </StackPanel>
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <TextBlock Text="AI SUMMARY" FontFamily="Cascadia Mono, Consolas" FontSize="11" FontWeight="Bold" Foreground="#5F5A51" VerticalAlignment="Center" Margin="0,0,10,0"/>
                 <Button x:Name="AiDryBtn" Content="AI: dry run"/>
                 <Button x:Name="AiSendBtn" Content="AI: send to Gemini" Margin="0" ToolTipService.ShowOnDisabled="True"/>
               </StackPanel>
             </DockPanel>
             <DockPanel Margin="0,8,0,0">
-              <Button x:Name="AiPickBtn" DockPanel.Dock="Right" Content="Other report..." Margin="8,0,0,0" VerticalAlignment="Center"/>
+              <Button x:Name="AiPickBtn" Style="{StaticResource Ghost}" DockPanel.Dock="Right" Content="Other report..." Margin="8,0,0,0" VerticalAlignment="Center"/>
               <TextBlock x:Name="AiTargetText" Foreground="#5F5A51" VerticalAlignment="Center" TextWrapping="Wrap"/>
             </DockPanel>
             <DockPanel LastChildFill="False" Margin="0,10,0,0">
               <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
-                <ProgressBar x:Name="Busy" Width="120" Height="10" IsIndeterminate="False" Margin="0,0,10,0" Foreground="#E2372A" Background="#E8E2D4" BorderBrush="#161513"/>
+                <ProgressBar x:Name="Busy" Width="120" Height="10" IsIndeterminate="False" Visibility="Hidden" Margin="0,0,10,0" Foreground="#E2372A" Background="#E8E2D4" BorderBrush="#161513"/>
                 <TextBlock x:Name="StatusText" Foreground="#5F5A51"/>
               </StackPanel>
               <TextBlock x:Name="AiInfoText" DockPanel.Dock="Right" Foreground="#5F5A51" VerticalAlignment="Center"/>
@@ -428,15 +537,18 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
           <StackPanel>            <Border Style="{StaticResource Card}">
               <StackPanel>
                 <TextBlock Text="Fix" Style="{StaticResource H2}"/>
-                <TextBlock x:Name="RemWarn" TextWrapping="Wrap" Margin="0,0,0,4"/>
+                <Border Style="{StaticResource Callout}">
+                  <StackPanel>
+                    <TextBlock Text="This button changes this machine" FontWeight="Bold" Foreground="#B3261E" Margin="0,0,0,4"/>
+                    <TextBlock x:Name="RemWarn" TextWrapping="Wrap" LineHeight="20"/>
+                  </StackPanel>
+                </Border>
                 <StackPanel x:Name="RemPanel" Margin="0,4,0,0">
                   <TextBlock Text="What the fixes change" Style="{StaticResource H3}" Margin="0,4,0,4"/>
                   <StackPanel x:Name="ProfilePanel"/>
                   <TextBlock Text="Also" Style="{StaticResource H3}"/>
                   <CheckBox x:Name="DebloatChk" Content="Debloat: preinstalled Store apps (workstations), unused consumer services and Windows components (Xbox, Fax, Steps Recorder...). Strict includes it"/>
                   <CheckBox x:Name="PrivacyChk" Content="Disable telemetry: the privacy and telemetry settings of every level (Strict includes them)"/>
-                  <CheckBox x:Name="RemChk" Content="Write the fix scripts with each analysis (one per host, nothing applied)" FontWeight="SemiBold" Margin="0,10,18,4"/>
-                  <TextBlock x:Name="RemOutText" Style="{StaticResource Muted}" Margin="0,4,0,0"/>
                 </StackPanel>
               </StackPanel>
             </Border>
@@ -444,11 +556,22 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
         </ScrollViewer>
         <Border Grid.Row="1" Style="{StaticResource Card}" Padding="14,12" Margin="0,0,8,0">
           <StackPanel>
+            <Border x:Name="ApplyPanel" Style="{StaticResource Callout}" Visibility="Collapsed" Margin="0,0,0,12">
+              <StackPanel>
+                <TextBlock x:Name="ApplyHead" FontWeight="Bold" Foreground="#B3261E" Margin="0,0,0,4"/>
+                <TextBlock x:Name="ApplyText" TextWrapping="Wrap" LineHeight="20" Foreground="#3A1714"/>
+                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                  <Button x:Name="ApplyYesBtn" Content="Apply them" Style="{StaticResource Danger}"/>
+                  <Button x:Name="ApplyNoBtn" Content="Don't apply" Style="{StaticResource Ghost}" Margin="0"/>
+                </StackPanel>
+              </StackPanel>
+            </Border>
             <StackPanel Orientation="Horizontal">
-              <Button x:Name="FixBtn" Content="Fix this machine" Background="#FBD9D2" ToolTipService.ShowOnDisabled="True" Margin="0"/>
+              <Button x:Name="FixBtn" Content="Fix this machine" Style="{StaticResource Danger}" ToolTipService.ShowOnDisabled="True"/>
+              <Button x:Name="FixStopBtn" Style="{StaticResource Danger}" Content="Stop" IsEnabled="False" ToolTip="Stops the step that is running." Margin="0"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,10,0,0">
-              <ProgressBar x:Name="FixBusy" Width="120" Height="10" IsIndeterminate="False" Margin="0,0,10,0" Foreground="#E2372A" Background="#E8E2D4" BorderBrush="#161513"/>
+              <ProgressBar x:Name="FixBusy" Width="120" Height="10" IsIndeterminate="False" Visibility="Hidden" Margin="0,0,10,0" Foreground="#E2372A" Background="#E8E2D4" BorderBrush="#161513"/>
               <TextBlock x:Name="FixStatusText" Foreground="#5F5A51"/>
             </StackPanel>
           </StackPanel>
@@ -475,7 +598,7 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
             <DockPanel>
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                 <Button x:Name="ResOpenBtn" Content="Open the HTML report" IsEnabled="False"/>
-                <Button x:Name="ResPickBtn" Content="Other report..." Margin="0"/>
+                <Button x:Name="ResPickBtn" Style="{StaticResource Ghost}" Content="Other report..." Margin="0"/>
               </StackPanel>
               <Border x:Name="ScoreBadge" DockPanel.Dock="Left" BorderBrush="#161513" BorderThickness="3" Background="#E8E2D4" Width="96" Margin="0,0,16,0" Padding="4,2" Visibility="Collapsed" Effect="{StaticResource HardSm}">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -826,7 +949,11 @@ $script:Rs.ThreadOptions = 'ReuseThread'
 $script:Rs.Open()
 # A relative path of the form resolves where the window works, not in the folder of the process.
 [void]$script:Rs.SessionStateProxy.Path.SetLocation($PWD.ProviderPath)
+# The step a script is at (Step-Spinner writes it, the timer shows it: Downloading..., Analyzing...).
+$script:TaskStatus = [hashtable]::Synchronized(@{ Text = '' })
+$script:Rs.SessionStateProxy.SetVariable('HostBadgerStatus', $script:TaskStatus)
 $script:Task = $null
+$script:Stopping = $false
 $script:LastReport = ''
 $script:LastSnapshot = ''
 $script:Kept = $false
@@ -842,6 +969,8 @@ $script:FixReuseMinutes = 30
 function Set-Busy {
     param([bool]$On, [string]$Text = '')
     $ui.Busy.IsIndeterminate = $On; $ui.FixBusy.IsIndeterminate = $On
+    # The bars show only while something runs: an empty bar at rest looks like a stalled one.
+    $vis = if ($On) { 'Visible' } else { 'Hidden' }; $ui.Busy.Visibility = $vis; $ui.FixBusy.Visibility = $vis
     $ui.StatusText.Text = $Text; $ui.FixStatusText.Text = $Text
     foreach ($b in 'UpdateCheckBtn', 'UpdateBtn', 'ElevateBtn', 'SettingsBtn', 'SafetyBtn') { $ui[$b].IsEnabled = -not $On }
     foreach ($b in 'AiDryBtn', 'AiPickBtn', 'ResPickBtn') { $ui[$b].IsEnabled = -not $On }
@@ -854,6 +983,7 @@ function Start-GuiTask {
     # Its text output goes to the log; objects with a Kind go to Done.
     param([string]$Label, [scriptblock]$Work, [object[]]$Arguments, [scriptblock]$Done)
     if ($script:Task) { return }
+    if ($script:ApplyPending) { Show-ApplyPanel $false; Add-Log 'Fix: not applied, nothing changed.' }
     $ps = [powershell]::Create()
     $ps.Runspace = $script:Rs
     [void]$ps.AddScript($Work.ToString())
@@ -862,7 +992,9 @@ function Start-GuiTask {
     $in.Complete()
     $out = New-Object 'System.Management.Automation.PSDataCollection[psobject]'
     $handle = $ps.BeginInvoke($in, $out)
-    $script:Task = @{ Label = $Label; Ps = $ps; Handle = $handle; Out = $out; Seen = 0; ErrSeen = 0; Done = $Done; Results = (New-Object System.Collections.Generic.List[object]); Lines = (New-Object System.Collections.Generic.List[string]) }
+    $script:TaskStatus['Text'] = ''
+    $script:Stopping = $false
+    $script:Task = @{ Label = $Label; Ps = $ps; Handle = $handle; Out = $out; Seen = 0; ErrSeen = 0; Done = $Done; Status = ''; Results = (New-Object System.Collections.Generic.List[object]); Lines = (New-Object System.Collections.Generic.List[string]) }
     Add-Log ''
     Add-Log "--- $Label ---"
     Set-Busy $true $Label
@@ -886,14 +1018,32 @@ function Read-GuiTask {
     $t = $script:Task
     if (-not $t) { return }
     Read-TaskOutput $t
+    $st = "$($script:TaskStatus['Text'])"
+    if ($st -and $st -ne $t.Status -and -not $script:Stopping) { $t.Status = $st; $ui.StatusText.Text = $st; $ui.FixStatusText.Text = $st }
     if (-not $t.Handle.IsCompleted) { return }
     $script:Timer.Stop()
     try { [void]$t.Ps.EndInvoke($t.Handle) } catch { Add-Log "Stopped: $($_.Exception.Message)" }
     Read-TaskOutput $t
     $t.Ps.Dispose()
     $script:Task = $null
+    # Stopped: what would have followed (the analysis after a collection, the fix preview) does not run.
+    if ($script:Stopping) { $script:Stopping = $false; Add-Log "--- $($t.Label): stopped ---"; Set-Busy $false 'Stopped'; Update-Outputs; return }
     Set-Busy $false 'Ready'
     if ($t.Done) { & $t.Done $t }
+}
+function Stop-GuiTask {
+    # Stops the running step without waiting (BeginStop): the timer then sees it end. HostBadger.ps1
+    # closes its run log in its finally block.
+    $t = $script:Task
+    if (-not $t -or $script:Stopping) { return }
+    if ($t.Label -like 'Applying*') {
+        $warn = "The fixes are being applied: stopping now leaves only part of them (the rollback file holds what was already changed).`n`nStop anyway?"
+        if ("$([System.Windows.MessageBox]::Show($warn, 'HostBadger', 'YesNo', 'Warning', 'No'))" -ne 'Yes') { return }
+    }
+    $script:Stopping = $true
+    $ui.StatusText.Text = 'Stopping...'; $ui.FixStatusText.Text = 'Stopping...'
+    Update-Actions
+    try { [void]$t.Ps.BeginStop($null, $null) } catch { Add-Log "Not stopped: $($_.Exception.Message)" }
 }
 $script:Timer = New-Object System.Windows.Threading.DispatcherTimer
 $script:Timer.Interval = [TimeSpan]::FromMilliseconds(250)
@@ -904,6 +1054,26 @@ $script:RunScript = {
     param([string]$Path, [hashtable]$Params)
     $env:HOSTBADGER_NO_SPINNER = '1'
     & $Path @Params *>&1 | ForEach-Object { "$_" }
+}
+# The fix script of debloat and telemetry alone (no fix of the findings): it needs the role of this
+# machine, not a snapshot. The libraries load into a module of their own, so nothing they define stays
+# in the runspace the analyses run in.
+$script:ProfileFixWork = {
+    param([string]$Root, [string]$OutDir, [hashtable]$Opt)
+    $mod = New-Object System.Management.Automation.PSModuleInfo $true
+    & $mod {
+        param([string]$Root, [string]$OutDir, [hashtable]$Opt)
+        . (Join-Path $Root 'lib\Common.ps1')
+        . (Join-Path $Root 'lib\Checks.ps1')
+        . (Join-Path $Root 'lib\Remediation.ps1')
+        $pt = "$((Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\ProductOptions' -Name ProductType -ErrorAction SilentlyContinue).ProductType)"
+        $role = switch ($pt) { 'LanmanNT' { 'dc' } 'ServerNT' { 'server' } default { 'workstation' } }
+        $ver = if ([System.IO.File]::ReadAllText((Join-Path $Root 'HostBadger.ps1')) -match "\`$script:HostBadgerVersion = '([\d.]+)'") { $Matches[1] } else { '?' }
+        $r = Write-ProfileOnlyScript -HostName $env:COMPUTERNAME -Role $role -OutDir $OutDir -ToolVersion $ver -Debloat:$Opt.Debloat -Privacy:$Opt.Privacy
+        if (-not $r.File) { "Nothing to write for a $role."; return }
+        "Fix script: $($r.File) ($($r.Actions) setting(s) for a $role)"
+        [pscustomobject]@{ Kind = 'profilefix'; File = $r.File }
+    } $Root $OutDir $Opt
 }
 
 # ---------------- Outputs: links to what the last analysis and collection wrote.
@@ -1301,7 +1471,7 @@ function Show-ResultsOverview {
     }
     $heads = @('Host', 'Role', 'Score') + @(if ($withChange) { 'Change' }) + @('Findings', 'Critical', 'High', 'Medium', 'Low', 'Not evaluated', 'Collected', 'Collected as')
     Add-OvTable -Headers $heads -Rows @($rows)
-    Add-OvText 'The score counts each check that fired once, at its worst severity (Critical 20, High 8, Medium 3, Low 1), and is capped at 35 with a Critical and 65 with a High. The DISA STIG rules are compliance and stay out of it.' -Muted
+    Add-OvText 'The score counts each check that fired once, at its worst severity (Critical 20, High 8, Medium 3, Low 1, the Low ones 10 at most), and is capped at 35 with a Critical and 65 with a High. The DISA STIG rules are compliance and stay out of it.' -Muted
 
     if ($hs.Count -eq 1) {
         $x = $hs[0]
@@ -1468,8 +1638,14 @@ function Select-OtherReport {
 
 # ---------------- Settings: the guided menu's global settings fill the form.
 function Read-Settings {
+    # Version 1 files had "kept" as the catalogs' default: their "kept" is read as "auto", as the menu does.
     if (-not (Test-Path -LiteralPath $script:SettingsPath)) { return $null }
-    try { return ([System.IO.File]::ReadAllText($script:SettingsPath) | ConvertFrom-Json) } catch { return $null }
+    try { $s = [System.IO.File]::ReadAllText($script:SettingsPath) | ConvertFrom-Json } catch { return $null }
+    if ([int]"0$($s.version)" -lt 2) {
+        foreach ($cn in $script:GuiCatalogs.Keys) { if ($s.PSObject.Properties[$cn] -and "$($s.$cn)" -eq 'kept') { $s.$cn = 'auto' } }
+        if ($s.PSObject.Properties['version']) { $s.version = 2 } else { $s | Add-Member -NotePropertyName version -NotePropertyValue 2 }
+    }
+    return $s
 }
 function Write-Settings {
     # Changes some keys of the settings file, keeping the others (the guided menu's included).
@@ -1477,7 +1653,7 @@ function Write-Settings {
     $s = [ordered]@{}
     $old = Read-Settings
     if ($old) { foreach ($p in $old.PSObject.Properties) { $s[$p.Name] = $p.Value } }
-    if (-not $s.Contains('version')) { $s['version'] = 1 }
+    $s['version'] = 2
     foreach ($k in $Values.Keys) { $s[$k] = $Values[$k] }
     $s['savedUtc'] = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm') + ' UTC'
     $dir = Split-Path -Parent $script:SettingsPath
@@ -1531,7 +1707,7 @@ function Initialize-Form {
     $last = Find-LatestReport $repDir
     if ($last) { $script:LastReport = $last.FullName }
     if ($s) {
-        $ui.SkipAclChk.IsChecked = [bool]$s.SkipAcl; $ui.UpdatesChk.IsChecked = [bool]$s.CheckUpdates
+        $ui.SkipAclChk.IsChecked = [bool]$s.SkipAcl; $ui.UpdatesChk.IsChecked = [bool]$s.CheckUpdates; $ui.PipesChk.IsChecked = [bool]$s.NamedPipes
         $ui.PerHostChk.IsChecked = [bool]$s.PerHost; $ui.StigChk.IsChecked = -not [bool]$s.SkipStig
         $ui.ShowCisChk.IsChecked = -not [bool]$s.HideCis; $ui.ShowStigChk.IsChecked = -not [bool]$s.HideStig
         $ui.AcnChk.IsChecked = [bool]$s.Nis2Acn; $ui.JsonlChk.IsChecked = [bool]$s.Jsonl; $ui.RemChk.IsChecked = [bool]$s.Remediation
@@ -1551,7 +1727,7 @@ function Initialize-Form {
     foreach ($k in $script:Profiles.Keys) {
         $p = $script:Profiles[$k]
         $rb = New-Object System.Windows.Controls.RadioButton
-        $rb.GroupName = 'Profile'; $rb.Tag = $k; $rb.Margin = '0,3,0,3'; $rb.VerticalContentAlignment = 'Top'
+        $rb.GroupName = 'Profile'; $rb.Tag = $k; $rb.Style = $window.FindResource('OptionCard')
         $sp = New-Object System.Windows.Controls.StackPanel
         $t1 = New-Object System.Windows.Controls.TextBlock; $t1.Text = $p.Title; $t1.FontWeight = 'SemiBold'
         $t2 = New-Object System.Windows.Controls.TextBlock; $t2.Text = $p.Text; $t2.TextWrapping = 'Wrap'; $t2.Foreground = New-Brush '#5F5A51'; $t2.FontSize = 13
@@ -1619,13 +1795,16 @@ function Update-CatalogChoices {
         foreach ($i in $items) { $ci = New-Object System.Windows.Controls.ComboBoxItem; $ci.Tag = $i[0]; $ci.Content = $i[1]; [void]$box.Items.Add($ci) }
         $box.ToolTip = if ($kept) { $kept.FullName } else { $null }
         $box.Tag = $(if ($kept) { $kept.FullName } else { '' })
-        # What to select: the earlier choice, else the saved mode, else the kept copy, the shipped one, none.
+        # What to select: the earlier choice, else the saved mode, else (auto, the default) the kept copy
+        # when it is at most a week old and a download otherwise.
         $want = $was
-        if (-not $want -and $s) {
-            switch ("$($s.$cn)") {
+        if (-not $want) {
+            $mode = if ($s) { "$($s.$cn)" } else { '' }
+            switch ($mode) {
                 'online' { $want = 'online' }
                 'off' { $want = $(if ($c.Shipped) { 'shipped' } else { 'none' }) }
-                'auto' { $want = $(if ($kept -and ((Get-Date) - $kept.LastWriteTime).TotalDays -le 7) { 'kept' } else { 'online' }) }
+                'kept' { $want = 'kept' }
+                default { $want = $(if ($kept -and ((Get-Date) - $kept.LastWriteTime).TotalDays -le 7) { 'kept' } else { 'online' }) }
             }
         }
         if (-not $want -or ($want -eq 'kept' -and -not $kept)) { $want = $(if ($kept) { 'kept' } elseif ($c.Shipped) { 'shipped' } else { 'none' }) }
@@ -1650,9 +1829,12 @@ function Update-Actions {
     $ui.RunBtn.IsEnabled = (-not $busy) -and $srcOk
     $ui.RunBtn.ToolTip = if ($srcOk) { 'Changes nothing on any machine.' } else { 'Choose a snapshot file or folder that exists (File... or Folder...).' }
     $ui.FixBtn.IsEnabled = (-not $busy) -and $fixOk
+    $ui.ApplyYesBtn.IsEnabled = (-not $busy) -and [bool]$script:ApplyPending; $ui.ApplyNoBtn.IsEnabled = $ui.ApplyYesBtn.IsEnabled
+    $ui.StopBtn.IsEnabled = $busy -and -not $script:Stopping; $ui.FixStopBtn.IsEnabled = $ui.StopBtn.IsEnabled
     $ui.FixBtn.ToolTip = if ($fixOk) { 'Collect and analyze this machine, preview its fix script, then apply it after a warning (administrator).' } else { 'Choose what the fixes change first (above): a level, or "No fix of the findings" with Debloat or Disable telemetry.' }
     $ui.RemChk.IsEnabled = $fixOk
-    $ui.RemChk.ToolTip = if ($fixOk) { $null } else { 'Nothing to write: choose a level, or Debloat or Disable telemetry.' }
+    $ui.RemOutText.Visibility = if ($fixOk -and $ui.RemChk.IsChecked) { 'Visible' } else { 'Collapsed' }
+    $ui.RemChk.ToolTip = if ($fixOk) { 'Each time Analyze runs, remediate_<host>.ps1 is written next to the report, one per analyzed host, with the changes chosen in the Fix tab. Copy it to that host and run it there as administrator: it only shows what it would change until run with -Apply, and it writes a rollback file. Analyze itself never runs it.' } else { 'Nothing to write: in the Fix tab choose a level, or Debloat or Disable telemetry.' }
     # Sending needs the key; the dry run does not.
     $ui.AiSendBtn.IsEnabled = (-not $busy) -and [bool]$env:GEMINI_API_KEY
     $ui.AiSendBtn.ToolTip = if ($env:GEMINI_API_KEY) { $null } else { 'Set the Gemini API key in Settings first. AI: dry run writes the prompt without it.' }
@@ -1668,11 +1850,10 @@ function Update-RemPanel {
     # Analyze never changes anything (it writes the scripts when asked). Fix this machine, whatever the
     # source chosen above, collects and analyzes this machine, previews and applies after a warning.
     Update-Actions
-    $ui.RemWarn.Text = "Fix this machine (button below) CHANGES THIS MACHINE, whatever the Analyze tab has under What to analyze: it collects and analyzes it (with the collection options of This machine there; a collection made in this window in the last $($script:FixReuseMinutes) minutes with the same options is used again), previews its fix script and applies it only after a warning and Yes$(if ($script:IsAdmin) { '' } else { ' (needs administrator: Restart as administrator first)' }), with a System Restore point first (Windows PowerShell 5.1) and a rollback file of every value changed. Changes marked NOT REVERSIBLE (removed apps, LSA protection) cannot be undone by it. Analyze changes nothing; for other hosts tick Write the fix scripts with each analysis, analyze, and run each script on its host."
-    $ui.RemWarn.Foreground = New-Brush '#B3261E'; $ui.RemWarn.FontWeight = 'SemiBold'
+    $ui.RemWarn.Text = "Fix this machine (button below) CHANGES THIS MACHINE, whatever the Analyze tab has under What to analyze: it collects and analyzes it (with the collection options of This machine there; a collection made in this window in the last $($script:FixReuseMinutes) minutes with the same options is used again; with No fix of the findings nothing is collected, the script holds the debloat and telemetry settings for the role of this machine), previews its fix script in the log and applies it only when you press Apply under the preview$(if ($script:IsAdmin) { '' } else { ' (needs administrator: Restart as administrator first)' }), with a System Restore point first (Windows PowerShell 5.1) and a rollback file of every value changed. Changes marked NOT REVERSIBLE (removed apps, LSA protection) cannot be undone by it. Analyze changes nothing; for other hosts tick Also save a fix script for each host (Report, in the Analyze tab), analyze, and run each script on its host."
+    $ui.RemWarn.Foreground = New-Brush '#3A1714'
     $rep = Get-FullPath $ui.ReportBox.Text.Trim()
-    $ui.RemOutText.Text = "Written to $(($rep -replace '\.html?$', ''))_fixes: one remediate_<HOST>.ps1 per host. Preview: .\remediate_<HOST>.ps1   Apply, as administrator on that host: .\remediate_<HOST>.ps1 -Apply"
-}
+    $ui.RemOutText.Text = "Written to $(($rep -replace '\.html?$', ''))_fixes: one remediate_<HOST>.ps1 per host. Preview: .\remediate_<HOST>.ps1   Apply, as administrator on that host: .\remediate_<HOST>.ps1 -Apply"}
 
 function Get-AnalysisParams {
     # The form as the parameters of HostBadger.ps1 (the same ones the guided menu passes). ForFix: the fix
@@ -1726,7 +1907,7 @@ function Get-ParamsSignature {
 }
 
 function Get-CollectOptions {
-    "SkipAcl=$([bool]$ui.SkipAclChk.IsChecked);CheckUpdates=$([bool]$ui.UpdatesChk.IsChecked)"
+    "SkipAcl=$([bool]$ui.SkipAclChk.IsChecked);CheckUpdates=$([bool]$ui.UpdatesChk.IsChecked);NamedPipes=$([bool]$ui.PipesChk.IsChecked)"
 }
 
 function Save-FormChoices {
@@ -1735,7 +1916,7 @@ function Save-FormChoices {
     $lvl = Get-ProfileChoice
     $prof = if ($lvl -ne 'None') { $lvl } elseif ($ui.DebloatChk.IsChecked -and $ui.PrivacyChk.IsChecked) { 'DebloatTelemetry' } else { '' }
     $v = @{
-        SkipAcl = [bool]$ui.SkipAclChk.IsChecked; CheckUpdates = [bool]$ui.UpdatesChk.IsChecked
+        SkipAcl = [bool]$ui.SkipAclChk.IsChecked; CheckUpdates = [bool]$ui.UpdatesChk.IsChecked; NamedPipes = [bool]$ui.PipesChk.IsChecked
         PerHost = [bool]$ui.PerHostChk.IsChecked; SkipStig = -not [bool]$ui.StigChk.IsChecked; HideCis = -not [bool]$ui.ShowCisChk.IsChecked; HideStig = -not [bool]$ui.ShowStigChk.IsChecked
         Nis2Acn = [bool]$ui.AcnChk.IsChecked; Jsonl = [bool]$ui.JsonlChk.IsChecked; Remediation = [bool]$ui.RemChk.IsChecked
         RemediationProfile = $prof; RemediationOnlyProfile = ($lvl -eq 'None'); RemediationDebloat = [bool]$ui.DebloatChk.IsChecked; RemediationPrivacy = [bool]$ui.PrivacyChk.IsChecked
@@ -1744,10 +1925,12 @@ function Save-FormChoices {
         ExceptionsFile = $ui.ExceptionsBox.Text.Trim(); PolicyFile = $ui.PolicyBox.Text.Trim()
     }
     # A catalog keeps its saved mode unless the form now asks for something else (a download, or none).
+    # A kept copy picked in the form stays "auto" (the default) unless the saved mode is "kept".
     $old = Read-Settings
     foreach ($cn in $script:GuiCatalogs.Keys) {
+        $oldMode = if ($old -and "$($old.$cn)") { "$($old.$cn)" } else { 'auto' }
         $m = switch (Get-CatalogChoice $cn) { 'online' { 'online' } 'none' { 'off' } 'shipped' { 'off' } default { 'kept' } }
-        if ($old -and "$($old.$cn)" -eq 'auto' -and $m -ne 'off') { $m = 'auto' }
+        if ($m -ne 'off' -and ($oldMode -eq 'auto' -or ($m -eq 'kept' -and $oldMode -ne 'kept'))) { $m = 'auto' }
         $v[$cn] = $m
     }
     try { Write-Settings $v } catch { Add-Log "The choices of the form were not saved: $($_.Exception.Message)" }
@@ -1806,10 +1989,10 @@ function New-SettingsWindow {
         $box.Margin = '0,4'
         foreach ($m in $script:CatalogModes.Keys) {
             $ci = New-Object System.Windows.Controls.ComboBoxItem; $ci.Tag = $m
-            $ci.Content = if ($m -eq 'off') { "Never download: $(if ($c.Shipped) { 'the shipped copy' } else { 'not used' })" } elseif ($m -eq 'kept') { "Newest kept copy, else $(if ($c.Shipped) { 'the shipped copy' } else { 'not used' })" } else { $script:CatalogModes[$m] }
+            $ci.Content = if ($m -eq 'off') { "Never download: $(if ($c.Shipped) { 'the shipped copy' } else { 'not used' })" } elseif ($m -eq 'kept') { "Newest kept copy whatever its age, else $(if ($c.Shipped) { 'the shipped copy' } else { 'not used' })" } else { $script:CatalogModes[$m] }
             [void]$box.Items.Add($ci)
         }
-        $cur = if ($s -and "$($s.$cn)" -in $script:CatalogModes.Keys) { "$($s.$cn)" } else { 'kept' }
+        $cur = if ($s -and "$($s.$cn)" -in $script:CatalogModes.Keys) { "$($s.$cn)" } else { 'auto' }
         $box.SelectedItem = @($box.Items | Where-Object { $_.Tag -eq $cur })[0]
         [System.Windows.Controls.Grid]::SetRow($box, $row); [System.Windows.Controls.Grid]::SetColumn($box, 1)
         [void]$su.SetCatalogGrid.Children.Add($lbl); [void]$su.SetCatalogGrid.Children.Add($box)
@@ -1967,6 +2150,14 @@ function Invoke-Run {
         if ("$answer" -eq 'Yes') { Invoke-Elevate }
         return
     }
+    if (-not $Fix -and $ui.SrcMachine.IsChecked -and -not $script:IsAdmin) {
+        # A snapshot collected without administrator rights misses what only an administrator can read
+        # (security and audit policy among others): those checks come out "not evaluated".
+        $answer = [System.Windows.MessageBox]::Show("HostBadger is not running as administrator.`n`nThe collection of this machine cannot read everything (the security and audit policy among others): the checks that need it are listed as not evaluated, and the score covers less.`n`nYes: restart the window as administrator (Windows asks to confirm; the form is kept).`nNo: collect and analyze anyway, with what a standard user can read.`nCancel: do nothing.", 'HostBadger: not administrator', 'YesNoCancel', 'Warning', 'Yes')
+        if ("$answer" -eq 'Yes') { Invoke-Elevate; return }
+        if ("$answer" -ne 'No') { return }
+    }
+    if ($Fix -and (Get-ProfileChoice) -eq 'None') { Invoke-ProfileFix; return }
     if ($Fix -and (Test-RecentCollection)) {
         # This machine was collected here a few minutes ago with the same options: no second collection.
         # The preview reads every setting again, so a value changed since then is not set twice.
@@ -2022,9 +2213,35 @@ function Invoke-FixPreview {
         $would = @($t.Lines | Where-Object { $_ -match '^WOULD ' })
         $noUndo = @($would | Where-Object { $_ -match 'NOT REVERSIBLE' })
         if ($would.Count -eq 0) { Add-Log 'Fix: this machine already has every setting of the script.'; return }
-        $msg = "WARNING: $($would.Count) change(s) to THIS machine, listed in the log$(if ($noUndo.Count) { ", $($noUndo.Count) of them NOT REVERSIBLE (removed apps come back only from the Microsoft Store)" }).`n`nA System Restore point is made first (Windows PowerShell 5.1 on a Windows client) and every previous value is saved in a rollback file. Some changes take effect after a restart.`n`nYes: apply them now.`nNo (the button already selected, so Enter answers No): change nothing."
-        if ("$([System.Windows.MessageBox]::Show($msg, 'HostBadger: apply the fixes', 'YesNo', 'Warning', 'No'))" -ne 'Yes') { Add-Log 'Fix: not applied, nothing changed.'; return }
-        Invoke-FixApply
+        # The question sits in the Fix tab, not in a dialog, so the preview in the log can be read first.
+        $ui.ApplyHead.Text = "Apply $($would.Count) change(s) to THIS machine?"
+        $ui.ApplyText.Text = "Each one is a WOULD line in the log$(if ($noUndo.Count) { "; $($noUndo.Count) of them are NOT REVERSIBLE (removed apps come back only from the Microsoft Store)" }). A System Restore point is made first (Windows PowerShell 5.1 on a Windows client) and every previous value is saved in a rollback file. Some changes take effect after a restart."
+        $ui.ApplyYesBtn.Content = "Apply $($would.Count) change(s)"
+        Show-ApplyPanel $true
+        Add-Log 'Fix: read the preview, then Apply or Don''t apply (in the Fix tab).'
+    }
+}
+function Show-ApplyPanel {
+    # The apply question of the last preview: any other step started meanwhile withdraws it.
+    param([bool]$On)
+    $script:ApplyPending = $On
+    $ui.ApplyPanel.Visibility = if ($On) { 'Visible' } else { 'Collapsed' }
+    Update-Actions
+}
+function Invoke-ProfileFix {
+    # No fix of the findings: debloat and telemetry depend only on the role of this machine, so the
+    # script is written at once, without collecting or analyzing it. The preview still reads every
+    # setting before it would change it.
+    $out = (Get-AnalysisParams -ForFix)['OutHtml']
+    $dir = ($out -replace '\.html?$', '') + '_fixes'
+    $opt = @{ Debloat = [bool]$ui.DebloatChk.IsChecked; Privacy = [bool]$ui.PrivacyChk.IsChecked }
+    $script:ProfileFixDir = $dir
+    Add-Log 'Fix: no fix of the findings, so this machine is not collected or analyzed: the script holds the chosen debloat and telemetry settings for its role.'
+    Start-GuiTask -Label 'Writing the fix script' -Work $script:ProfileFixWork -Arguments @($root, $dir, $opt) -Done {
+        param($t)
+        Set-Busy $false 'Ready'
+        if (@($t.Results | Where-Object { $_.Kind -eq 'profilefix' }).Count -eq 0) { Add-Log 'Fix: the script was not written (see the log).'; return }
+        Invoke-FixPreview -Dir $script:ProfileFixDir
     }
 }
 function Invoke-FixApply {
@@ -2046,6 +2263,7 @@ function Invoke-Collect {
     if (-not $p.OutDir) { $p.OutDir = Get-SnapshotDir }
     if ($ui.SkipAclChk.IsChecked) { $p['SkipAcl'] = $true }
     if ($ui.UpdatesChk.IsChecked) { $p['CheckUpdates'] = $true }
+    if ($ui.PipesChk.IsChecked) { $p['NamedPipes'] = $true }
     if ($ui.EncPass.IsChecked) {
         $pw = Get-PlainSecret $ui.EncPassBox
         if (-not $pw) { [void][System.Windows.MessageBox]::Show('Type the password for the snapshot.', 'HostBadger'); return }
@@ -2155,9 +2373,25 @@ $ui.SnapshotBox.Add_TextChanged({ Update-Source })
 # Typing a password or a certificate means that encryption: without it the box would be ignored.
 $ui.EncPassBox.Add_GotFocus({ $ui.EncPass.IsChecked = $true })
 $ui.EncCertBox.Add_GotFocus({ $ui.EncCert.IsChecked = $true })
+function Select-FormFile {
+    # File... of a path field: opens where the field points (else the report folder) and fills it.
+    param($Box, [string]$Filter)
+    $d = New-Object Microsoft.Win32.OpenFileDialog; $d.Filter = $Filter
+    $cur = $Box.Text.Trim()
+    $start = if ($cur) { Split-Path -Parent (Get-FullPath $cur) } else { Get-ReportDir }
+    if ($start -and (Test-Path -LiteralPath $start -PathType Container)) { $d.InitialDirectory = $start }
+    if ($d.ShowDialog()) { $Box.Text = $d.FileName }
+}
+$ui.ExceptionsFileBtn.Add_Click({ Select-FormFile $ui.ExceptionsBox 'Exceptions (JSON)|*.json|All files|*.*' })
+$ui.PolicyFileBtn.Add_Click({ Select-FormFile $ui.PolicyBox 'Organization policy (JSON)|*.json|All files|*.*' })
+$ui.CompareFileBtn.Add_Click({ Select-FormFile $ui.CompareBox 'Findings of an earlier report (CSV)|*.csv|All files|*.*' })
 $ui.EncCertBtn.Add_Click({ $d = New-Object Microsoft.Win32.OpenFileDialog; $d.Filter = 'Certificates|*.cer;*.crt;*.pem|All files|*.*'; if ($d.ShowDialog()) { $ui.EncCertBox.Text = $d.FileName; $ui.EncCert.IsChecked = $true } })
 $ui.RunBtn.Add_Click({ Invoke-Run })
 $ui.FixBtn.Add_Click({ Invoke-Run -Fix })
+$ui.StopBtn.Add_Click({ Stop-GuiTask })
+$ui.FixStopBtn.Add_Click({ Stop-GuiTask })
+$ui.ApplyYesBtn.Add_Click({ Show-ApplyPanel $false; Invoke-FixApply })
+$ui.ApplyNoBtn.Add_Click({ Show-ApplyPanel $false; Add-Log 'Fix: not applied, nothing changed.' })
 $ui.SafetyBtn.Add_Click({ Start-GuiTask -Label 'Safety review' -Work $script:RunScript -Arguments @((Join-Path $root 'Test-HostBadgerSafety.ps1'), @{}) -Done { } })
 $ui.OpenBtn.Add_Click({ if ($script:LastReport -and (Test-Path -LiteralPath $script:LastReport)) { Invoke-Item -LiteralPath $script:LastReport } })
 
@@ -2223,7 +2457,7 @@ if ($NoShow) {
     "Fix button: nothing chosen $fixNothing, no level $fixNone, no level with debloat $fixDebloat, a level $fixLevel"
     # The fixes have their own tab, with the log of Analyze repeated there.
     $fixTab = $ui.FixBtn; while ($fixTab -and $fixTab -isnot [System.Windows.Controls.TabItem]) { $fixTab = [System.Windows.LogicalTreeHelper]::GetParent($fixTab) }
-    "Fix tab: button in $($fixTab.Header), options in $(if ([System.Windows.LogicalTreeHelper]::GetParent($ui.RemPanel)) { $p = $ui.RemPanel; while ($p -and $p -isnot [System.Windows.Controls.TabItem]) { $p = [System.Windows.LogicalTreeHelper]::GetParent($p) }; $p.Header }), log repeated $($ui.FixLogBox.Text.Length -gt 0 -and $ui.FixLogBox.Text -eq $ui.LogBox.Text)"
+    "Fix tab: button in $($fixTab.Header), options in $(if ([System.Windows.LogicalTreeHelper]::GetParent($ui.RemPanel)) { $p = $ui.RemPanel; while ($p -and $p -isnot [System.Windows.Controls.TabItem]) { $p = [System.Windows.LogicalTreeHelper]::GetParent($p) }; $p.Header }), scripts option in $($p = $ui.RemChk; while ($p -and $p -isnot [System.Windows.Controls.TabItem]) { $p = [System.Windows.LogicalTreeHelper]::GetParent($p) }; $p.Header), log repeated $($ui.FixLogBox.Text.Length -gt 0 -and $ui.FixLogBox.Text -eq $ui.LogBox.Text)"
     # Fix this machine reuses a recent collection with the same options, and its analysis while the
     # choices are the same (the paths of the files do not count).
     $script:LastSnapshot = $PSCommandPath; $script:LastSnapshotOpts = Get-CollectOptions
@@ -2235,6 +2469,10 @@ if ($NoShow) {
     $ap2['AllowedAdmins'] = @('someone'); $otherChoice = (Get-ParamsSignature $ap2) -eq $sig
     $script:LastSnapshot = ''; $script:LastSnapshotAt = $null
     "Fix reuse: recent $recent, older $old, other options $otherOpts, same choices elsewhere $samePaths, other choices $otherChoice"
+    # The apply question is a panel of the Fix tab (the log stays readable), withdrawn by any other step.
+    Show-ApplyPanel $true; $askOn = "$($ui.ApplyPanel.Visibility) $($ui.ApplyYesBtn.IsEnabled)"
+    Show-ApplyPanel $false; $askOff = "$($ui.ApplyPanel.Visibility) $($ui.ApplyYesBtn.IsEnabled)"
+    "Apply question: shown $askOn, withdrawn $askOff"
     # The Results tab on the demo report: every finding read, the categories listed, a finding detailed.
     Show-Results (Join-Path $root 'examples\demo_report.html')
     $ui.ResCisChk.IsChecked = $true; $ui.ResStigChk.IsChecked = $true; Update-ResultsView
@@ -2249,5 +2487,7 @@ if ($NoShow) {
     $script:Rs.Dispose()
     return
 }
+# The last report is read once the window is drawn, so the Results tab shows its count from the start.
+$window.Add_ContentRendered({ Show-Results $script:LastReport })
 [void]$window.ShowDialog()
 $script:Rs.Dispose()

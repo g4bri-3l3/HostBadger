@@ -5,7 +5,8 @@ $script:SeverityRank = @{ Critical = 4; High = 3; Medium = 2; Low = 1 }
 # Progress cursor for the steps that take time. PowerShell cannot draw while it is busy, so the cursor
 # moves each time the script reports a step (a snapshot read, a host analyzed, a file written). It is
 # drawn only on an interactive console; redirected output (a log, the regression) gets nothing. Any
-# other message must call Stop-Spinner first so it starts on a clean line.
+# other message must call Stop-Spinner first so it starts on a clean line. The window (no console)
+# puts a synchronized hashtable in $global:HostBadgerStatus and shows its Text as the current step.
 $script:SpinFrames = @('|', '/', '-', '\')
 $script:SpinIndex = 0
 $script:SpinLast = 0
@@ -18,6 +19,7 @@ function Step-Spinner {
         # HOSTBADGER_NO_SPINNER turns it off (the regression, which runs the scripts in its own console).
         try { $script:SpinEnabled = [bool]([Environment]::UserInteractive -and -not [Console]::IsOutputRedirected -and -not $env:HOSTBADGER_NO_SPINNER) } catch { }
     }
+    if ($global:HostBadgerStatus -is [hashtable]) { $global:HostBadgerStatus['Text'] = $Message }
     if (-not $script:SpinEnabled) { return }
     $now = [Environment]::TickCount
     if (($now - $script:SpinLast) -lt 90 -and $script:SpinWidth -gt 0) { return }

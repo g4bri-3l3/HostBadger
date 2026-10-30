@@ -55,6 +55,11 @@
     set by policy (WUServer) or, without one, Microsoft Update (HTTPS to
     *.update.microsoft.com). Off by default; without it the pending updates are
     simply not part of the snapshot.
+.PARAMETER NamedPipes
+    Also read who may write to each named pipe, to find the ones everyone can
+    write to. Each pipe is opened for reading for a moment (one of its
+    instances is taken, then given back at once; busy ones are skipped), so it
+    is off by default; without it that check is not evaluated.
 .PARAMETER EncryptPassword
     Encrypt the snapshot with this password: AES-256 with an HMAC-SHA256, keys
     from PBKDF2. The output is hostsnapshot_<host>_<time>.hbx and nothing is
@@ -76,11 +81,12 @@ param(
     [switch]$SkipAcl,
     [switch]$CheckUpdates,
     [string]$EncryptPassword = '',
-    [string]$EncryptCertificate = ''
+    [string]$EncryptCertificate = '',
+    [switch]$NamedPipes
 )
 
 $ErrorActionPreference = 'Stop'
-$script:CollectorVersion = '2.2'
+$script:CollectorVersion = '2.3'
 $script:SchemaVersion = 1
 $script:Errors = New-Object System.Collections.Generic.List[object]
 $script:Sections = New-Object System.Collections.Generic.List[string]
@@ -100,6 +106,8 @@ function Step-Spinner {
         $script:SpinEnabled = $false
         try { $script:SpinEnabled = [bool]([Environment]::UserInteractive -and -not [Console]::IsOutputRedirected -and -not $env:HOSTBADGER_NO_SPINNER) } catch { }
     }
+    # The window (Start-HostBadgerGui.ps1, no console) shows the current step from this table.
+    if ($global:HostBadgerStatus -is [hashtable]) { $global:HostBadgerStatus['Text'] = $Message }
     if (-not $script:SpinEnabled) { return }
     $now = [Environment]::TickCount
     if (($now - $script:SpinLast) -lt 90 -and $script:SpinWidth -gt 0) { return }
@@ -617,6 +625,8 @@ $defender = Invoke-Section 'defender' {
         exclusionPaths            = @()
         exclusionExtensions       = @()
         exclusionProcesses        = @()
+        asrExclusions             = @()
+        asrRuleExclusions         = @()
         asrRules                  = @()
         puaProtection             = $null
         networkProtection         = $null
@@ -644,6 +654,13 @@ $defender = Invoke-Section 'defender' {
             $d.exclusionPaths = $paths
             $d.exclusionExtensions = @($p.ExclusionExtension | Where-Object { $_ })
             $d.exclusionProcesses = @($p.ExclusionProcess | Where-Object { $_ })
+            # Exclusions from the attack surface reduction rules only: for all of them, and per rule
+            # (newer platforms: one entry per rule, its paths separated by |).
+            $d.asrExclusions = @($p.AttackSurfaceReductionOnlyExclusions | Where-Object { $_ -and "$_" -notmatch "^N/A" })
+            if ($p.PSObject.Properties["AttackSurfaceReductionRules_RuleSpecificExclusions"]) {
+                $rid = @($p.AttackSurfaceReductionRules_RuleSpecificExclusions_Id); $rex = @($p.AttackSurfaceReductionRules_RuleSpecificExclusions)
+                $d.asrRuleExclusions = @(for ($i = 0; $i -lt $rex.Count; $i++) { if ($rex[$i]) { [ordered]@{ rule = $(if ($i -lt $rid.Count) { "$($rid[$i])".ToLower() } else { "" }); paths = @("$($rex[$i])" -split "\|" | Where-Object { $_ }) } } })
+            }
         }
         $ids = @($p.AttackSurfaceReductionRules_Ids)
         $acts = @($p.AttackSurfaceReductionRules_Actions)
@@ -774,7 +791,7 @@ $network = Invoke-Section 'network' {
         $rs = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters' 'RequireSecuritySignature'
         $n.smbClientSigningRequired = $(if ($null -eq $rs) { $null } else { [int]$rs -eq 1 })
     }
-    foreach ($a in @(Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True')) {
+    foreach ($nic in @(Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True')) {
         $n.netbios += [ordered]@{ adapter = "$($a.Description)"; tcpipNetbiosOptions = $a.TcpipNetbiosOptions }
     }
     try {
@@ -1299,6 +1316,562 @@ $persistence = Invoke-Section 'persistence' {
     $p
 }
 
+# ------------------------------------------------------------------ more load points
+# The lesser-known places Windows starts code from, and the tricks that hide a scheduled task, a service
+# or an account from the usual tools. Registry values, file signers and counts only: a PowerShell
+# profile, a logon script or an authorized_keys file is counted, never copied. Read only.
+function Get-KeyValue {
+    # A value of a key already opened (Get-ChildItem / Get-Item), or $null.
+    param($Key, [string]$Name)
+    try { return $Key.GetValue($Name) } catch { return $null }
+}
+function Get-ProfileUser {
+    # The user a loaded hive (HKU\<SID>) belongs to: the leaf of its profile folder.
+    param([string]$Sid)
+    $p = "$(Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$Sid" 'ProfileImagePath')"
+    if ($p) { return (Split-Path -Path $p -Leaf) }
+    return $Sid
+}
+function Get-IniScripts {
+    # The scripts a local Group Policy scripts.ini or psscripts.ini lists ([Startup] 0CmdLine=...).
+    param([string]$Path, [string]$Scope, [bool]$PowerShell)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
+    $section = ''; $cmd = [ordered]@{}; $par = @{}
+    foreach ($line in @(Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue)) {
+        $l = "$line".Trim()
+        if ($l -match '^\[(.+)\]$') { $section = $Matches[1]; continue }
+        if ($l -match '^(\d+)CmdLine=(.*)$') { $cmd["$section|$($Matches[1])"] = $Matches[2] }
+        elseif ($l -match '^(\d+)Parameters=(.*)$') { $par["$section|$($Matches[1])"] = $Matches[2] }
+    }
+    foreach ($k in $cmd.Keys) {
+        if (-not "$($cmd[$k])".Trim()) { continue }
+        [ordered]@{ scope = $Scope; event = $k.Split('|')[0]; powershell = $PowerShell; command = Protect-CommandLine "$($cmd[$k])"; parameters = Protect-CommandLine "$($par[$k])"; user = '' }
+    }
+}
+$loadPoints = Invoke-Section 'loadPoints' {
+    $lp = [ordered]@{
+        networkProviders = @(); credentialProviders = @(); appCertDlls = @(); sessionManagerExecute = @(); timeProviders = @(); printProcessors = @()
+        dotnetProfiler = $null; aeDebug = @(); serviceHooks = @(); hiddenServices = @(); hiddenTasks = @(); logonScripts = @(); psProfiles = @()
+        officeTestMachine = @(); officeProfiles = @(); userHivesRead = 0; ssh = $null; bitsJobs = @(); bitsJobCount = $null; accessibility = @(); missingTargets = @()
+    }
+    $ccs = 'HKLM:\SYSTEM\CurrentControlSet'
+    # Network providers (NPPSpy): every DLL in the provider order gets the user name and the password
+    # in clear at each interactive logon.
+    foreach ($n in @("$(Get-RegValue "$ccs\Control\NetworkProvider\Order" 'ProviderOrder')".Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
+        $dll = "$(Get-RegValue "$ccs\Services\$n\NetworkProvider" 'ProviderPath')"
+        $si = Get-SignerInfo (Resolve-SystemDll $dll)
+        $lp.networkProviders += [ordered]@{ name = $n; dll = $dll; exists = $si.exists; signer = $si.signer; status = $si.status }
+    }
+    # Credential providers and their filters: the DLLs of the logon screen, which see what is typed there.
+    $auth = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication'
+    foreach ($kind in @(@('provider', 'Credential Providers'), @('filter', 'Credential Provider Filters'))) {
+        foreach ($k in @(Get-ChildItem -LiteralPath "$auth\$($kind[1])" -ErrorAction SilentlyContinue)) {
+            $dll = "$(Get-RegValue "HKLM:\SOFTWARE\Classes\CLSID\$($k.PSChildName)\InprocServer32" '(default)')"
+            $si = Get-SignerInfo (Resolve-SystemDll $dll)
+            $lp.credentialProviders += [ordered]@{ kind = $kind[0]; clsid = $k.PSChildName; name = "$(Get-KeyValue $k '')"; dll = $dll; exists = $si.exists; signer = $si.signer; status = $si.status }
+        }
+    }
+    # AppCertDlls: loaded into every process that calls CreateProcess.
+    foreach ($v in @(Get-RegSubkeyValues "$ccs\Control\Session Manager\AppCertDlls")) {
+        $si = Get-SignerInfo (Resolve-SystemDll $v.value)
+        $lp.appCertDlls += [ordered]@{ name = $v.name; dll = $v.value; exists = $si.exists; signer = $si.signer; status = $si.status }
+    }
+    # Programs the session manager starts before Windows is up (BootExecute is "autocheck autochk *").
+    foreach ($vn in 'BootExecute', 'SetupExecute', 'Execute', 'PlatformExecute') {
+        foreach ($c in @(Get-RegValue "$ccs\Control\Session Manager" $vn)) {
+            if ("$c".Trim()) { $lp.sessionManagerExecute += [ordered]@{ value = $vn; command = Protect-CommandLine "$c".Trim() } }
+        }
+    }
+    # Time providers: DLLs the Windows Time service loads as LocalService or SYSTEM.
+    foreach ($k in @(Get-ChildItem -LiteralPath "$ccs\Services\W32Time\TimeProviders" -ErrorAction SilentlyContinue)) {
+        $dll = "$(Get-KeyValue $k 'DllName')"
+        $si = Get-SignerInfo (Resolve-SystemDll $dll)
+        $lp.timeProviders += [ordered]@{ name = $k.PSChildName; dll = $dll; enabled = Get-KeyValue $k 'Enabled'; exists = $si.exists; signer = $si.signer; status = $si.status }
+    }
+    # Print processors: DLLs the spooler loads as SYSTEM, from spool\prtprocs\<environment>.
+    $ppDirs = @{ 'Windows x64' = 'x64'; 'Windows NT x86' = 'W32X86'; 'Windows ARM64' = 'ARM64'; 'Windows IA64' = 'IA64' }
+    foreach ($pe in @(Get-ChildItem -LiteralPath "$ccs\Control\Print\Environments" -ErrorAction SilentlyContinue)) {
+        foreach ($k in @(Get-ChildItem -LiteralPath (Join-Path $pe.PSPath 'Print Processors') -ErrorAction SilentlyContinue)) {
+            $drv = "$(Get-KeyValue $k 'Driver')"
+            $path = Resolve-SystemDll $drv
+            if ($drv -and $drv -notmatch '[\\/]' -and $ppDirs.ContainsKey($pe.PSChildName)) {
+                $spool = Join-Path "$env:SystemRoot\System32\spool\prtprocs\$($ppDirs[$pe.PSChildName])" $drv
+                if (Test-Path -LiteralPath $spool -PathType Leaf) { $path = $spool }
+            }
+            $si = Get-SignerInfo $path
+            $lp.printProcessors += [ordered]@{ environment = $pe.PSChildName; name = $k.PSChildName; driver = $drv; exists = $si.exists; signer = $si.signer; status = $si.status }
+        }
+    }
+    # A .NET profiler set for the whole machine: its DLL is loaded into every .NET process.
+    $prof = [ordered]@{}
+    foreach ($vn in 'COR_ENABLE_PROFILING', 'COR_PROFILER', 'COR_PROFILER_PATH', 'COR_PROFILER_PATH_64', 'CORECLR_ENABLE_PROFILING', 'CORECLR_PROFILER', 'CORECLR_PROFILER_PATH') {
+        $v = Get-RegValue "$ccs\Control\Session Manager\Environment" $vn
+        if ($null -ne $v -and "$v".Trim()) { $prof[$vn] = "$v".Trim() }
+    }
+    if ($prof.Count -gt 0) {
+        $dll = if ($prof['COR_PROFILER_PATH_64']) { $prof['COR_PROFILER_PATH_64'] } elseif ($prof['COR_PROFILER_PATH']) { $prof['COR_PROFILER_PATH'] } elseif ($prof['CORECLR_PROFILER_PATH']) { $prof['CORECLR_PROFILER_PATH'] }
+        elseif ($prof['COR_PROFILER']) { "$(Get-RegValue "HKLM:\SOFTWARE\Classes\CLSID\$($prof['COR_PROFILER'])\InprocServer32" '(default)')" } else { '' }
+        $si = Get-SignerInfo (Resolve-SystemDll $dll)
+        $lp.dotnetProfiler = [ordered]@{ values = $prof; dll = $dll; exists = $si.exists; signer = $si.signer; status = $si.status }
+    }
+    # The debugger Windows starts when a program crashes (Auto = 1: without asking).
+    foreach ($root in @('HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AeDebug', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows NT\CurrentVersion\AeDebug')) {
+        $dbg = "$(Get-RegValue $root 'Debugger')".Trim()
+        if (-not $dbg) { continue }
+        $exe = Get-ExecutablePath $dbg
+        $si = Get-SignerInfo $exe
+        $lp.aeDebug += [ordered]@{ wow64 = ($root -like '*WOW6432Node*'); debugger = Protect-CommandLine $dbg; auto = Get-RegValue $root 'Auto'; exists = $si.exists; signer = $si.signer; status = $si.status }
+    }
+    # Services, from the registry: a ServiceDll outside System32, a recovery action that runs a
+    # program, and services hidden from the service manager's list (a deny entry on reading them, or a
+    # key the service manager does not know).
+    $scmNames = @{}; foreach ($s in @($services | Where-Object { $_ })) { $scmNames["$($s.name)".ToLower()] = $true }
+    $hideBits = [int64](0x1 -bor 0x4 -bor 0x8 -bor 0x20000 -bor 0x10000000) -bor [int64]2147483648
+    foreach ($k in @(Get-ChildItem -LiteralPath "$ccs\Services" -ErrorAction SilentlyContinue)) {
+        $type = Get-KeyValue $k 'Type'
+        # Win32 services only (own or shared process); per-user service templates and their instances are not listed by name.
+        if ($null -eq $type -or ([int]$type -band 0x30) -eq 0 -or ([int]$type -band 0xC0) -ne 0) { continue }
+        $image = "$(Get-KeyValue $k 'ImagePath')"
+        if (-not $image -or "$(Get-KeyValue $k 'DeleteFlag')" -eq '1') { continue }
+        $name = $k.PSChildName
+        $sdll = "$(Get-RegValue (Join-Path $k.PSPath 'Parameters') 'ServiceDll')"
+        if (-not $sdll) { $sdll = "$(Get-KeyValue $k 'ServiceDll')" }
+        $sdllPath = if ($sdll) { [Environment]::ExpandEnvironmentVariables($sdll.Trim().Trim('"')) } else { '' }
+        $outside = [bool]($sdllPath -and $sdllPath -notmatch '(?i)^[a-z]:\\windows\\(system32|syswow64)\\')
+        $fcmd = "$(Get-KeyValue $k 'FailureCommand')".Trim()
+        $runs = $false
+        $fa = Get-KeyValue $k 'FailureActions'
+        if ($fcmd -and $fa -is [byte[]] -and $fa.Length -ge 20) {
+            # SERVICE_FAILURE_ACTIONS: the number of actions at offset 12, then 8 bytes per action (type 3 = run a command).
+            $na = [BitConverter]::ToInt32($fa, 12)
+            for ($i = 0; $i -lt $na -and (24 + 8 * $i) -le $fa.Length; $i++) { if ([BitConverter]::ToInt32($fa, 20 + 8 * $i) -eq 3) { $runs = $true } }
+        }
+        if ($outside -or $runs) {
+            $si = if ($outside) { Get-SignerInfo $sdllPath } else { $null }
+            $lp.serviceHooks += [ordered]@{ name = $name; start = Get-KeyValue $k 'Start'; serviceDll = $(if ($outside) { $sdllPath } else { '' }); exists = $(if ($si) { $si.exists } else { $null }); signer = $(if ($si) { $si.signer } else { $null }); status = $(if ($si) { $si.status } else { $null }); failureCommand = $(if ($runs) { Protect-CommandLine $fcmd } else { '' }) }
+        }
+        $denied = @()
+        try {
+            $sk = Get-Item -LiteralPath (Join-Path $k.PSPath 'Security') -ErrorAction Stop
+            $bytes = $sk.GetValue('Security')
+            if ($bytes) {
+                $sd = New-Object System.Security.AccessControl.RawSecurityDescriptor -ArgumentList ([byte[]]$bytes), 0
+                foreach ($ace in @($sd.DiscretionaryAcl)) { if ("$($ace.AceType)" -eq 'AccessDenied' -and ([int64]$ace.AccessMask -band $hideBits)) { $denied += $ace.SecurityIdentifier.Value } }
+            }
+        }
+        catch { }
+        $notListed = $scmNames.Count -gt 0 -and -not $scmNames.ContainsKey($name.ToLower())
+        if ($denied.Count -gt 0 -or $notListed) { $lp.hiddenServices += [ordered]@{ name = $name; imagePath = Protect-CommandLine $image; deniedTo = @($denied | Select-Object -Unique); notListed = $notListed } }
+    }
+    # Scheduled tasks hidden from schtasks and the Task Scheduler (Tarrask): a task key without its
+    # security descriptor (SD), or with Index 0.
+    $tree = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree'
+    if (Test-Path -LiteralPath $tree) {
+        $treeErr = $null
+        foreach ($k in @(Get-ChildItem -LiteralPath $tree -Recurse -ErrorAction SilentlyContinue -ErrorVariable treeErr)) {
+            $vn = @($k.GetValueNames())
+            if ($vn -notcontains 'Id') { continue }
+            $noSd = $vn -notcontains 'SD'
+            $idx0 = $vn -contains 'Index' -and "$(Get-KeyValue $k 'Index')" -eq '0'
+            if ($noSd -or $idx0) {
+                # A task whose XML is gone is a leftover of a removed task (Windows upgrades leave many, with Index 0): it does not run.
+                $tp = ($k.Name -replace '^.*\\TaskCache\\Tree', '')
+                $lp.hiddenTasks += [ordered]@{ path = $tp; noSecurityDescriptor = $noSd; indexZero = $idx0; xmlExists = (Test-Path -LiteralPath (Join-Path "$env:SystemRoot\System32\Tasks" $tp.TrimStart('\')) -PathType Leaf) }
+            }
+        }
+        if ($treeErr) { Add-CollectionError -Section 'loadPoints.tasks' -Message "TaskCache not fully readable: $($treeErr[0].Exception.Message)" }
+    }
+    else { Add-CollectionError -Section 'loadPoints.tasks' -Message 'TaskCache\Tree not readable' }
+    # Local Group Policy scripts (startup, shutdown, logon, logoff), and logon scripts set per user.
+    $gp = "$env:SystemRoot\System32\GroupPolicy"
+    foreach ($sc in @(@('Machine', 'scripts.ini', $false), @('Machine', 'psscripts.ini', $true), @('User', 'scripts.ini', $false), @('User', 'psscripts.ini', $true))) {
+        $lp.logonScripts += @(Get-IniScripts (Join-Path $gp "$($sc[0])\Scripts\$($sc[1])") $sc[0] $sc[2] | Where-Object { $_ })
+    }
+    # Office hooks: the "Office test" DLL key, machine-wide and per user.
+    foreach ($root in @('HKLM:\SOFTWARE\Microsoft\Office test\Special\Perf', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office test\Special\Perf')) {
+        $v = "$(Get-RegValue $root '(default)')".Trim()
+        if ($v) { $lp.officeTestMachine += [ordered]@{ wow64 = ($root -like '*WOW6432Node*'); dll = $v } }
+    }
+    foreach ($hive in @(Get-ChildItem -LiteralPath 'Registry::HKEY_USERS' -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^S-1-5-21-[\d-]+$' })) {
+        $hu = "Registry::HKEY_USERS\$($hive.PSChildName)"
+        $user = Get-ProfileUser $hive.PSChildName
+        $lp.userHivesRead = $lp.userHivesRead + 1
+        $ls = "$(Get-RegValue "$hu\Environment" 'UserInitMprLogonScript')".Trim()
+        if ($ls) { $lp.logonScripts += [ordered]@{ scope = 'User'; event = 'UserInitMprLogonScript'; powershell = $false; command = Protect-CommandLine $ls; parameters = ''; user = $user } }
+        $o = [ordered]@{ user = $user; officeTest = "$(Get-RegValue "$hu\Software\Microsoft\Office test\Special\Perf" '(default)')".Trim(); homePages = @(); xll = @(); accessVbom = @() }
+        foreach ($ver in '16.0', '15.0', '14.0') {
+            $ob = "$hu\Software\Microsoft\Office\$ver"
+            foreach ($app in 'Word', 'Excel', 'PowerPoint') {
+                $pol = Get-RegValue "$hu\Software\Policies\Microsoft\Office\$ver\$app\Security" 'AccessVBOM'
+                $loc = Get-RegValue "$ob\$app\Security" 'AccessVBOM'
+                if ("$pol" -eq '1' -or ($null -eq $pol -and "$loc" -eq '1')) { $o.accessVbom += "$app $ver$(if ("$pol" -eq '1') { ' (policy)' })" }
+            }
+            if (-not (Test-Path -LiteralPath $ob)) { continue }
+            foreach ($k in @(Get-ChildItem -LiteralPath "$ob\Outlook\WebView" -ErrorAction SilentlyContinue)) {
+                $u = "$(Get-KeyValue $k 'URL')".Trim()
+                if ($u) { $o.homePages += [ordered]@{ folder = $k.PSChildName; url = $u } }
+            }
+            $tu = "$(Get-RegValue "$ob\Outlook\Today" 'URL')".Trim()
+            if ($tu) { $o.homePages += [ordered]@{ folder = 'Outlook Today'; url = $tu } }
+            foreach ($v in @(Get-RegSubkeyValues "$ob\Excel\Options")) {
+                if ($v.name -match '^OPEN\d*$' -and $v.value -match '(?i)\.xll') { $o.xll += (($v.value -replace '^\s*/R\s+', '').Trim().Trim('"')) }
+            }
+        }
+        if ($o.officeTest -or $o.homePages.Count -or $o.xll.Count -or $o.accessVbom.Count) { $lp.officeProfiles += $o }
+    }
+    # PowerShell profiles for every user: they run in every PowerShell session, administrators' and SYSTEM's included.
+    $psDirs = @("$env:SystemRoot\System32\WindowsPowerShell\v1.0", "$env:SystemRoot\SysWOW64\WindowsPowerShell\v1.0") + @(Get-ChildItem -LiteralPath "$env:ProgramFiles\PowerShell" -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+    foreach ($d in $psDirs) {
+        foreach ($f in 'profile.ps1', 'Microsoft.PowerShell_profile.ps1', 'Microsoft.PowerShellISE_profile.ps1', 'Microsoft.VSCode_profile.ps1') {
+            $p = Join-Path $d $f
+            if (Test-Path -LiteralPath $p -PathType Leaf) { $lp.psProfiles += [ordered]@{ path = $p; length = (Get-Item -LiteralPath $p).Length; writableBy = @(Get-LowPrivWriters $p) } }
+        }
+    }
+    # OpenSSH server: the keys that log on as an administrator, and per profile (counted, not kept).
+    if (Test-Path -LiteralPath "$ccs\Services\sshd") {
+        $count = { param($f) @(Get-Content -LiteralPath $f -ErrorAction SilentlyContinue | Where-Object { "$_" -match '^\s*[^#\s]' -and "$_" -match '(ssh-|ecdsa-|sk-)' }).Count }
+        $ssh = [ordered]@{ installed = $true; adminKeys = $null; userKeys = @() }
+        $af = "$env:ProgramData\ssh\administrators_authorized_keys"
+        if (Test-Path -LiteralPath $af -PathType Leaf) { $ssh.adminKeys = [ordered]@{ path = $af; keys = (& $count $af); writableBy = @(Get-LowPrivWriters $af) } }
+        foreach ($pf in @(Get-ProfileFolders)) {
+            $uf = Join-Path $pf '.ssh\authorized_keys'
+            if (Test-Path -LiteralPath $uf -PathType Leaf) { $ssh.userKeys += [ordered]@{ user = (Split-Path -Path $pf -Leaf); keys = (& $count $uf) } }
+        }
+        $lp.ssh = $ssh
+    }
+    else { $lp.ssh = [ordered]@{ installed = $false; adminKeys = $null; userKeys = @() } }
+    # BITS jobs of every user that run a program when they finish (needs administrator rights).
+    try {
+        $jobs = @(Get-BitsTransfer -AllUsers -ErrorAction Stop)
+        $lp.bitsJobCount = $jobs.Count
+        foreach ($j in $jobs) {
+            $cmd = (@($j.NotifyCmdLine) | Where-Object { "$_".Trim() }) -join ' '
+            if ($cmd) { $lp.bitsJobs += [ordered]@{ name = "$($j.DisplayName)"; owner = "$($j.OwnerAccount)"; state = "$($j.JobState)"; notifyCmdLine = Protect-CommandLine $cmd; createdUtc = ConvertTo-IsoUtc $j.CreationTime } }
+        }
+    }
+    catch { Add-CollectionError -Section 'loadPoints.bits' -Message $_.Exception.Message }
+    # The accessibility programs the logon screen starts: what each file really is (a copy of cmd.exe
+    # keeps Microsoft's signature, so the version resource tells).
+    foreach ($n in 'sethc.exe', 'utilman.exe', 'osk.exe', 'narrator.exe', 'magnify.exe', 'displayswitch.exe', 'atbroker.exe') {
+        $p = Join-Path "$env:SystemRoot\System32" $n
+        if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { continue }
+        $vi = $null
+        try { $vi = (Get-Item -LiteralPath $p).VersionInfo } catch { }
+        $si = Get-SignerInfo $p
+        $lp.accessibility += [ordered]@{ name = $n; originalName = "$(if ($vi) { $vi.OriginalFilename })"; internalName = "$(if ($vi) { $vi.InternalName })"; signer = $si.signer; status = $si.status }
+    }
+    # Programs a service, a task or a Run key starts that no longer exist, where a user may create them.
+    if (-not $SkipAcl) {
+        $targets = @()
+        foreach ($s in @($services | Where-Object { $_ })) { $targets += , @('service', "$($s.name)", "$($s.executable)") }
+        foreach ($t in @($tasks | Where-Object { $_ })) { foreach ($a in @($t.actions | Where-Object { $_ })) { $targets += , @('task', "$($t.path)$($t.name)", "$($a.executable)") } }
+        foreach ($r in @($autoruns | Where-Object { $_ })) { $targets += , @('autorun', "$($r.location) $($r.name)", "$($r.executable)") }
+        foreach ($tg in $targets) {
+            $exe = $tg[2]
+            if ($exe -notmatch '^[A-Za-z]:\\.+' -or (Test-Path -LiteralPath $exe)) { continue }
+            $dir = Split-Path -Path $exe -Parent; $level = 0
+            while ($dir -and -not (Test-Path -LiteralPath $dir)) { $dir = Split-Path -Path $dir -Parent; $level++ }
+            if (-not $dir) { continue }
+            $creators = @(Get-FolderCreators $dir $(if ($level -eq 0) { 'file' } else { 'folder' }) | Where-Object { $_ })
+            if ($creators.Count -gt 0) { $lp.missingTargets += [ordered]@{ source = $tg[0]; name = $tg[1]; executable = $exe; existingFolder = $dir; missingLevels = $level; creators = $creators } }
+        }
+    }
+    $lp
+}
+
+# ------------------------------------------------------------------ defense evasion
+# What blinds the host's own logging and protections or steers its traffic, as an intruder leaves it:
+# event logging switched off underneath, kernel code integrity relaxed at boot, update and security
+# addresses rewritten in the hosts file, a machine-wide proxy, publishers trusted to install without
+# asking. Read only; the hosts file is read, not changed.
+$tamper = Invoke-Section 'tamper' {
+    $ccs = 'HKLM:\SYSTEM\CurrentControlSet'
+    $al = @()
+    foreach ($n in 'EventLog-Security', 'EventLog-System', 'EventLog-Application', 'DefenderApiLogger', 'DefenderAuditLogger') {
+        $k = "$ccs\Control\WMI\Autologger\$n"
+        if (Test-Path -LiteralPath $k) { $al += [ordered]@{ name = $n; start = Get-RegValue $k 'Start' } }
+    }
+    $hostsFile = "$env:SystemRoot\System32\drivers\etc\hosts"
+    $entries = @(); $total = 0
+    $hostsRead = Test-Path -LiteralPath $hostsFile -PathType Leaf
+    if ($hostsRead) {
+        foreach ($line in @(Get-Content -LiteralPath $hostsFile -ErrorAction SilentlyContinue)) {
+            $l = ("$line" -replace '#.*$', '').Trim()
+            $parts = @($l -split '\s+' | Where-Object { $_ })
+            if ($parts.Count -lt 2) { continue }
+            foreach ($hn in $parts[1..($parts.Count - 1)]) {
+                $total++
+                if ($entries.Count -lt 500) { $entries += [ordered]@{ address = $parts[0]; name = $hn.ToLower() } }
+            }
+        }
+    }
+    # WinHTTP proxy (netsh winhttp show proxy): flags 1 direct, 3 a proxy; the proxy and the bypass list.
+    $proxy = $null
+    $wb = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\Connections' 'WinHttpSettings'
+    if ($wb -is [byte[]] -and $wb.Length -ge 16) {
+        try {
+            $plen = [BitConverter]::ToInt32($wb, 12)
+            $px = if ($plen -gt 0 -and 16 + $plen -le $wb.Length) { [Text.Encoding]::ASCII.GetString($wb, 16, $plen) } else { '' }
+            $off = 16 + [Math]::Max(0, $plen)
+            $blen = if ($off + 4 -le $wb.Length) { [BitConverter]::ToInt32($wb, $off) } else { 0 }
+            $by = if ($blen -gt 0 -and $off + 4 + $blen -le $wb.Length) { [Text.Encoding]::ASCII.GetString($wb, $off + 4, $blen) } else { '' }
+            $proxy = [ordered]@{ flags = [BitConverter]::ToInt32($wb, 8); proxy = $px; bypass = $by }
+        }
+        catch { }
+    }
+    # Publishers trusted to install software and drivers without asking (Trusted Publishers store).
+    $pubs = @()
+    foreach ($st in @(@('machine', 'HKLM:\SOFTWARE\Microsoft\SystemCertificates\TrustedPublisher\Certificates'), @('gpo', 'HKLM:\SOFTWARE\Policies\Microsoft\SystemCertificates\TrustedPublisher\Certificates'), @('enterprise', 'HKLM:\SOFTWARE\Microsoft\EnterpriseCertificates\TrustedPublisher\Certificates'))) {
+        foreach ($k in @(Get-ChildItem -LiteralPath $st[1] -ErrorAction SilentlyContinue)) {
+            $tp = $k.PSChildName.ToUpper()
+            if ($tp -notmatch '^[0-9A-F]{40}$') { continue }
+            $c = $null
+            try { $c = Get-Item -LiteralPath "Cert:\LocalMachine\TrustedPublisher\$tp" -ErrorAction Stop } catch { }
+            $pubs += [ordered]@{ thumbprint = $tp; store = $st[0]; subject = $(if ($c) { "$($c.Subject)" } else { '' }); notAfterUtc = $(if ($c) { ConvertTo-IsoUtc $c.NotAfter } else { $null }) }
+        }
+    }
+    [ordered]@{
+        # A MiniNt key makes the event log service believe it runs in Windows PE, and it stops writing.
+        miniNt                   = Test-Path -LiteralPath "$ccs\Control\MiniNt"
+        eventLogStart            = Get-RegValue "$ccs\Services\EventLog" 'Start'
+        autologgers              = $al
+        securityAuditingProvider = Get-RegValue "$ccs\Control\WMI\Autologger\EventLog-Security\{54849625-5478-4994-a5ba-3e3b0328c30d}" 'Enabled'
+        systemStartOptions       = "$(Get-RegValue "$ccs\Control" 'SystemStartOptions')".Trim()
+        hosts                    = [ordered]@{ read = $hostsRead; total = $total; entries = $entries }
+        winHttpProxy             = $proxy
+        trustedPublishers        = $pubs
+    }
+}
+
+# ------------------------------------------------------------------ privileged local groups
+# The built-in groups that are administrators in all but name (Backup Operators read every file and
+# the SAM, Hyper-V Administrators own the virtual machines...), by SID through ADSI as for the
+# Administrators group. And RID hijacking: a local account whose SAM record (the F value, not the
+# password hashes, which are in V and are never read) carries another account's RID, usually 500.
+# The SAM is readable by SYSTEM only.
+function Get-GroupMembersBySid {
+    param([string]$Sid)
+    $name = (New-Object System.Security.Principal.SecurityIdentifier($Sid)).Translate([System.Security.Principal.NTAccount]).Value.Split('\')[-1]
+    $grp = [ADSI]"WinNT://./$name,group"
+    foreach ($m in @($grp.psbase.Invoke('Members'))) {
+        $path = "$($m.GetType().InvokeMember('ADsPath', 'GetProperty', $null, $m, $null))"
+        $sidBytes = $m.GetType().InvokeMember('objectSid', 'GetProperty', $null, $m, $null)
+        $msid = $null
+        try { $msid = (New-Object System.Security.Principal.SecurityIdentifier($sidBytes, 0)).Value } catch { }
+        $cls = "$($m.GetType().InvokeMember('Class', 'GetProperty', $null, $m, $null))"
+        [ordered]@{ path = ($path -replace '^WinNT://', ''); sid = $msid; class = $cls }
+    }
+}
+$localGroups = Invoke-Section 'localGroups' {
+    $groups = @()
+    foreach ($g in @(@('S-1-5-32-551', 'Backup Operators'), @('S-1-5-32-550', 'Print Operators'), @('S-1-5-32-549', 'Server Operators'), @('S-1-5-32-548', 'Account Operators'), @('S-1-5-32-578', 'Hyper-V Administrators'), @('S-1-5-32-580', 'Remote Management Users'), @('S-1-5-32-555', 'Remote Desktop Users'), @('S-1-5-32-562', 'Distributed COM Users'))) {
+        try { $groups += [ordered]@{ sid = $g[0]; name = $g[1]; members = @(Get-GroupMembersBySid $g[0] | Where-Object { $_ }) } }
+        catch {
+            # A group this edition of Windows does not have (Hyper-V Administrators on Home) is not an error.
+            $inner = $_.Exception; while ($inner.InnerException) { $inner = $inner.InnerException }
+            if ($inner -isnot [System.Security.Principal.IdentityNotMappedException]) { Add-CollectionError -Section 'localGroups.members' -Message "$($g[1]): $($inner.Message)" }
+        }
+    }
+    $rids = @(); $samRead = $false
+    try {
+        foreach ($k in @(Get-ChildItem -LiteralPath 'HKLM:\SAM\SAM\Domains\Account\Users' -ErrorAction Stop | Where-Object { $_.PSChildName -match '^[0-9A-Fa-f]{8}$' })) {
+            $f = $k.GetValue('F')
+            if ($f -is [byte[]] -and $f.Length -ge 0x34) { $rids += [ordered]@{ keyRid = [Convert]::ToInt32($k.PSChildName, 16); fRid = [BitConverter]::ToInt32($f, 0x30) } }
+        }
+        $samRead = $true
+    }
+    catch {
+        $why = if ($isSystem) { "SAM not readable ($($_.Exception.Message))" } else { 'the SAM is readable by SYSTEM only (administrators are denied too, as expected)' }
+        Add-CollectionError -Section 'localGroups.sam' -Message "${why}: RID hijacking not checked; collect as SYSTEM (RMM, EDR, scheduled task) to include it"
+    }
+    [ordered]@{ groups = $groups; samRead = $samRead; rids = $rids }
+}
+
+# ------------------------------------------------------------------ shared folders
+# The disk shares (not the administrative ones), who may write through the share (its permissions, in
+# the registry; none set means Everyone may read) and who may create files in the folder (NTFS).
+$shares = Invoke-Section 'shares' {
+    foreach ($sh in @(Get-CimInstance -ClassName Win32_Share -Filter 'Type=0')) {
+        $name = "$($sh.Name)"; $path = "$($sh.Path)"
+        $access = @(); $default = $true
+        try {
+            $bytes = (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Shares\Security' -Name $name -ErrorAction Stop).$name
+            if ($bytes) {
+                $default = $false
+                $sd = New-Object System.Security.AccessControl.RawSecurityDescriptor -ArgumentList ([byte[]]$bytes), 0
+                foreach ($ace in @($sd.DiscretionaryAcl)) { if ("$($ace.AceType)" -eq 'AccessAllowed') { $access += [ordered]@{ sid = $ace.SecurityIdentifier.Value; mask = [int64]$ace.AccessMask } } }
+            }
+        }
+        catch { }
+        $ntfs = @()
+        if ($path -and -not $SkipAcl -and (Test-Path -LiteralPath $path -PathType Container)) { $ntfs = @(Get-FolderCreators $path 'file' | Where-Object { $_ }) }
+        [ordered]@{ name = $name; path = $path; defaultPermissions = $default; access = $access; ntfsWriters = $ntfs }
+    }
+}
+
+# ------------------------------------------------------------------ DNS resolvers
+# The DNS servers each network adapter uses, and whether Windows talks to them over HTTPS (DoH): the
+# policy, automatic upgrade for the servers Windows knows, and the servers set per adapter. The DoH
+# template itself (it can carry a personal profile id) is not kept, only that one is set. Read only.
+$dns = Invoke-Section 'dns' {
+    $dc = 'HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache'
+    $known = @(Get-ChildItem -LiteralPath "$dc\Parameters\DohWellKnownServers" -ErrorAction SilentlyContinue | ForEach-Object { $_.PSChildName.ToLower() })
+    $adapters = @()
+    foreach ($nic in @(Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True')) {
+        $guid = "$($nic.SettingID)"
+        $servers = @(@($nic.DNSServerSearchOrder) | Where-Object { "$_".Trim() } | ForEach-Object { "$_".Trim() })
+        $v6 = "$(Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters\Interfaces\$guid" 'NameServer')"
+        $servers += @($v6 -split '[,\s]+' | Where-Object { $_ })
+        $doh = @()
+        foreach ($fam in 'Doh', 'Doh6') {
+            foreach ($k in @(Get-ChildItem -LiteralPath "$dc\InterfaceSpecificParameters\$guid\DohInterfaceSettings\$fam" -ErrorAction SilentlyContinue)) {
+                $doh += [ordered]@{ server = $k.PSChildName.ToLower(); flags = Get-KeyValue $k 'DohFlags'; template = [bool]"$(Get-KeyValue $k 'DohTemplate')".Trim() }
+            }
+        }
+        if ($servers.Count -gt 0) { $adapters += [ordered]@{ name = "$($nic.Description)"; dhcp = [bool]$nic.DHCPEnabled; servers = @($servers | Select-Object -Unique); doh = $doh } }
+    }
+    [ordered]@{
+        dohPolicy  = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient' 'DoHPolicy'
+        autoDoh    = Get-RegValue "$dc\Parameters" 'EnableAutoDoh'
+        wellKnown  = $known
+        adapters   = $adapters
+    }
+}
+
+# ------------------------------------------------------------------ attack surface
+# Smaller doors: printers behind a running spooler, Linux and virtual machines the host EDR does not
+# see into, Office add-ins, saved credentials (files counted, never opened), the System Restore policy,
+# the TPM behind Windows Hello, inbound firewall rules for programs in user folders and, only with
+# -NamedPipes, the named pipes that everyone may write to. Read only.
+$surface = Invoke-Section 'surface' {
+    # Local printers, the virtual ones Windows installs left out (only counts are kept).
+    $virtualDrivers = 'Microsoft Print To PDF|Microsoft XPS Document Writer|Send to Microsoft OneNote|Microsoft Shared Fax Driver|Microsoft enhanced Point and Print'
+    $real = 0; $sharedPrinters = 0
+    foreach ($k in @(Get-ChildItem -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Print\Printers' -ErrorAction SilentlyContinue)) {
+        $drv = "$(Get-KeyValue $k 'Printer Driver')"; $port = "$(Get-KeyValue $k 'Port')"
+        if ($drv -match "(?i)^($virtualDrivers)" -or $port -match '(?i)^(PORTPROMPT:|nul:|XPSPort:|SHRFAX:)') { continue }
+        $real++
+        if (([int]"0$(Get-KeyValue $k 'Attributes')") -band 0x8) { $sharedPrinters++ }
+    }
+    # Optional features (InstallState 1 enabled, 2 disabled; a feature this Windows lacks is absent).
+    $feat = [ordered]@{}
+    try {
+        foreach ($of in @(Get-CimInstance -ClassName Win32_OptionalFeature -Filter "Name='Microsoft-Hyper-V-All' OR Name='Containers-DisposableClientVM' OR Name='Microsoft-Windows-Subsystem-Linux' OR Name='VirtualMachinePlatform'")) { $feat["$($of.Name)"] = [int]$of.InstallState }
+    }
+    catch { Add-CollectionError -Section 'surface.features' -Message $_.Exception.Message }
+    # WSL distributions registered per user (loaded hives only), Office add-ins per user and machine.
+    $wsl = @(); $addins = @(); $hives = 0
+    $apps = @('Word', 'Excel', 'PowerPoint', 'Outlook', 'Access', 'MS Project', 'Visio', 'OneNote')
+    $roots = @(@('machine', 'HKLM:\SOFTWARE\Microsoft\Office', 'HKLM:\SOFTWARE\Classes', ''), @('machine', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office', 'HKLM:\SOFTWARE\Classes\WOW6432Node', ''))
+    foreach ($hive in @(Get-ChildItem -LiteralPath 'Registry::HKEY_USERS' -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^S-1-5-21-[\d-]+$' })) {
+        $hives++
+        $hu = "Registry::HKEY_USERS\$($hive.PSChildName)"
+        $user = Get-ProfileUser $hive.PSChildName
+        foreach ($d in @(Get-ChildItem -LiteralPath "$hu\Software\Microsoft\Windows\CurrentVersion\Lxss" -ErrorAction SilentlyContinue)) {
+            $dn = "$(Get-KeyValue $d 'DistributionName')"
+            if ($dn) { $wsl += [ordered]@{ user = $user; name = $dn; version = Get-KeyValue $d 'Version' } }
+        }
+        $roots += , @($user, "$hu\Software\Microsoft\Office", "Registry::HKEY_USERS\$($hive.PSChildName)_Classes", "$hu\Software\Classes")
+    }
+    foreach ($r in $roots) {
+        foreach ($app in $apps) {
+            foreach ($k in @(Get-ChildItem -LiteralPath "$($r[1])\$app\Addins" -ErrorAction SilentlyContinue)) {
+                $lb = Get-KeyValue $k 'LoadBehavior'
+                # LoadBehavior 0 (or none) is an add-in turned off.
+                if (-not ([int]"0$lb")) { continue }
+                $manifest = "$(Get-KeyValue $k 'Manifest')".Trim()
+                $a = [ordered]@{ app = $app; progId = $k.PSChildName; scope = $r[0]; loadBehavior = [int]$lb; kind = $(if ($manifest) { 'vsto' } else { 'com' }); manifest = ($manifest -replace '\|vstolocal$', ''); dll = $null }
+                if (-not $manifest) {
+                    # ProgID -> CLSID -> InprocServer32; a .NET add-in names mscoree.dll and its own CodeBase.
+                    $clsid = ''
+                    foreach ($cr in @($r[2], $r[3], 'HKLM:\SOFTWARE\Classes') | Where-Object { $_ }) { if (-not $clsid) { $clsid = "$(Get-RegValue "$cr\$($k.PSChildName)\CLSID" '(default)')".Trim() } }
+                    if ($clsid) {
+                        foreach ($cr in @($r[2], $r[3], 'HKLM:\SOFTWARE\Classes', 'HKLM:\SOFTWARE\Classes\WOW6432Node') | Where-Object { $_ }) {
+                            $ip = "$cr\CLSID\$clsid\InprocServer32"
+                            $dll = "$(Get-RegValue $ip '(default)')".Trim().Trim('"')
+                            if (-not $dll) { continue }
+                            if ($dll -match '(?i)mscoree\.dll$') { $cb = "$(Get-RegValue $ip 'CodeBase')".Trim(); if ($cb) { $dll = $cb -replace '^(?i)file:///', '' -replace '/', '\' } }
+                            $a.dll = Get-SignerInfo ([Environment]::ExpandEnvironmentVariables($dll))
+                            break
+                        }
+                    }
+                }
+                $addins += $a
+            }
+        }
+    }
+    # Windows credentials saved in Credential Manager: the files per profile, counted, never opened.
+    $credFiles = @()
+    foreach ($pf in @(Get-ProfileFolders)) {
+        $n = 0
+        foreach ($sub in 'AppData\Local\Microsoft\Credentials', 'AppData\Roaming\Microsoft\Credentials') { $n += @(Get-ChildItem -LiteralPath (Join-Path $pf $sub) -Force -File -ErrorAction SilentlyContinue).Count }
+        if ($n -gt 0) { $credFiles += [ordered]@{ user = (Split-Path -Path $pf -Leaf); count = $n } }
+    }
+    # TPM (Windows Hello keeps its keys there when it has one) and who has a Hello PIN.
+    $tpm = $null
+    try {
+        $t = Get-CimInstance -Namespace 'root\cimv2\Security\MicrosoftTpm' -ClassName Win32_Tpm -ErrorAction Stop
+        $tpm = [ordered]@{ present = [bool]$t; enabled = $(if ($t) { [bool]$t.IsEnabled_InitialValue } else { $false }); activated = $(if ($t) { [bool]$t.IsActivated_InitialValue } else { $false }) }
+    }
+    catch {
+        if ($_.Exception.Message -match '(?i)invalid namespace|0x8004100e') { $tpm = [ordered]@{ present = $false; enabled = $false; activated = $false } }
+        else { Add-CollectionError -Section 'surface.tpm' -Message "TPM not readable: $($_.Exception.Message)" }
+    }
+    $pinUsers = @(Get-ChildItem -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI\NgcPin\Credentials' -ErrorAction SilentlyContinue).Count
+    # Inbound allow rules for a program in a folder its user can write (local and Group Policy store).
+    $userPath = '(?i)(\\Users\\[^\\]+\\(AppData|Downloads|Desktop|Documents)\\|\\Users\\Public\\|\\Windows\\Temp\\|%(USERPROFILE|LOCALAPPDATA|APPDATA|TEMP|TMP)%)'
+    $fwUser = @()
+    foreach ($store in @(@('local', 'HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules'), @('gpo', 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules'))) {
+        foreach ($rv in @(Get-RegSubkeyValues $store[1])) {
+            $v = "$($rv.value)"
+            if ($v -notmatch '\|Action=Allow\|' -or $v -notmatch '\|Active=TRUE\|' -or $v -notmatch '\|Dir=In\|' -or $v -notmatch '\|App=([^|]+)') { continue }
+            $app = $Matches[1]
+            if ($app -notmatch $userPath -or $fwUser.Count -ge 200) { continue }
+            $prof = @([regex]::Matches($v, '\|Profile=([^|]+)') | ForEach-Object { $_.Groups[1].Value })
+            $fwUser += [ordered]@{ program = $app; store = $store[0]; profiles = $prof; anyRemote = ($v -notmatch '\|RA[46]='); protocol = $(if ($v -match '\|Protocol=(\d+)') { [int]$Matches[1] } else { $null }) }
+        }
+    }
+    # Named pipes that Everyone, anonymous, authenticated or local users may write to. Opening a pipe
+    # takes one of its instances for a moment, so this runs only when asked (-NamedPipes): each is
+    # opened for reading, its permissions read, and closed at once; busy ones are skipped.
+    $pipes = $null
+    if ($NamedPipes) {
+        $pipes = [ordered]@{ total = 0; read = 0; writable = @() }
+        $bs = [string][char]92
+        $names = @([System.IO.Directory]::GetFiles("$bs$bs.${bs}pipe$bs") | ForEach-Object { $_.Substring(9) })
+        $pipes.total = $names.Count
+        foreach ($pn in $names) {
+            $ps = $null
+            try {
+                $ps = New-Object System.IO.Pipes.NamedPipeClientStream -ArgumentList '.', $pn, ([System.IO.Pipes.PipeDirection]::In), ([System.IO.Pipes.PipeOptions]::None), ([System.Security.Principal.TokenImpersonationLevel]::Identification)
+                $ps.Connect(50)
+                $sec = if ($ps.PSObject.Methods['GetAccessControl']) { $ps.GetAccessControl() } else { [System.IO.Pipes.PipesAclExtensions]::GetAccessControl($ps) }
+                $pipes.read++
+                $who = @(foreach ($ace in $sec.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
+                        if ("$($ace.AccessControlType)" -eq 'Allow' -and ([int]$ace.PipeAccessRights -band 0x2) -and @('S-1-1-0', 'S-1-5-7', 'S-1-5-11', 'S-1-5-32-545') -contains $ace.IdentityReference.Value) { $ace.IdentityReference.Value }
+                    })
+                if ($who.Count -and $pipes.writable.Count -lt 300) { $pipes.writable += [ordered]@{ name = $pn; sids = @($who | Select-Object -Unique) } }
+            }
+            catch { }
+            finally { if ($ps) { $ps.Dispose() } }
+        }
+    }
+    [ordered]@{
+        printers          = [ordered]@{ local = $real; shared = $sharedPrinters }
+        features          = $feat
+        wslDistributions  = $wsl
+        userHivesRead     = $hives
+        officeAddins      = $addins
+        credentialFiles   = $credFiles
+        systemRestore     = [ordered]@{ disableSR = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\SystemRestore' 'DisableSR'; disableConfig = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\SystemRestore' 'DisableConfig' }
+        tpm               = $tpm
+        helloPinUsers     = $pinUsers
+        helloForBusiness  = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\PassportForWork' 'Enabled'
+        firewallUserApps  = $fwUser
+        namedPipes        = $pipes
+    }
+}
+
 # ------------------------------------------------------------------ trusted root certificates
 # The root certificates of the machine store that someone added (the Root store, Group Policy and
 # Enterprise), not the ones Windows downloads from Microsoft's trusted root program (AuthRoot). Each is
@@ -1527,7 +2100,51 @@ $hardening = Invoke-Section 'hardening' {
         foreach ($k in $offNames.Keys) { $vals[$k] = Get-RegValue ("Registry::HKEY_USERS\$($hive.PSChildName)\$offPol\" + $offNames[$k][0]) $offNames[$k][1] }
         $offProfiles += $vals
     }
+    # Credential delegation (CredSSP) by policy: each list of servers that get the user's credentials
+    # (default = the logged-on user's, without asking; "*" = any server), and the Encryption Oracle
+    # Remediation of CVE-2018-0886 (CIS 18.9.4.1: 0, force updated clients).
+    $cdp = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CredentialsDelegation'
+    $credssp = [ordered]@{ encryptionOracle = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\CredSSP\Parameters' 'AllowEncryptionOracle' }
+    foreach ($pn in 'AllowDefaultCredentials', 'AllowDefCredentialsWhenNTLMOnly', 'AllowSavedCredentials', 'AllowSavedCredentialsWhenNTLMOnly', 'AllowFreshCredentials', 'AllowFreshCredentialsWhenNTLMOnly') {
+        $credssp[$pn] = [ordered]@{ on = Get-RegValue $cdp $pn; servers = @(Get-RegSubkeyValues "$cdp\$pn" | ForEach-Object { "$($_.value)".Trim() } | Where-Object { $_ }) }
+    }
+    $recallState = $null
+    try { foreach ($of in @(Get-CimInstance -ClassName Win32_OptionalFeature -Filter "Name='Recall'")) { $recallState = [int]$of.InstallState } } catch { }
+    $tsPolicy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services'
     [ordered]@{
+        credsspDelegation        = $credssp
+        # WinRM client hosts trusted without Kerberos ("*" sends NTLM credentials to any host).
+        winrmClient              = [ordered]@{
+            trustedHosts           = "$(Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WSMAN\Client' 'trusted_hosts')".Trim()
+            policyTrustedHosts     = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Client' 'TrustedHosts'
+            policyTrustedHostsList = "$(Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Client' 'TrustedHostsList')".Trim()
+        }
+        # Watching or controlling another user's session: Remote Desktop shadowing (1 full control
+        # with consent, 2 without, 3 view with consent, 4 without) and Remote Assistance offered
+        # without being asked (CIS 18.9.35.1) or asked for (CIS 18.9.35.2).
+        remoteSessionControl     = [ordered]@{
+            shadowPolicy      = Get-RegValue $tsPolicy 'Shadow'
+            shadowLocal       = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' 'Shadow'
+            offerPolicy       = Get-RegValue $tsPolicy 'fAllowUnsolicited'
+            offerFullControl  = Get-RegValue $tsPolicy 'fAllowUnsolicitedFullControl'
+            solicitedPolicy   = Get-RegValue $tsPolicy 'fAllowToGetHelp'
+            solicitedLocal    = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\Remote Assistance' 'fAllowToGetHelp'
+        }
+        # Domain controller: when the Directory Services Restore Mode administrator may log on (2 = always, over the network too).
+        dsrmAdminLogonBehavior   = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' 'DsrmAdminLogonBehavior'
+        # Windows sudo: 1 new window, 2 input disabled, 3 inline.
+        sudo                     = [ordered]@{ enabled = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Sudo' 'Enabled'; policy = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Sudo' 'Enabled' }
+        # Developer mode: apps installed from any source, unsigned packages included.
+        developerMode            = [ordered]@{
+            allowDevelopment       = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' 'AllowDevelopmentWithoutDevLicense'
+            policyAllowDevelopment = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Appx' 'AllowDevelopmentWithoutDevLicense'
+        }
+        # Windows Recall (Copilot+ PCs): the optional feature (1 enabled) and the policies that keep it off.
+        recall                   = [ordered]@{
+            feature               = $recallState
+            disableAiDataAnalysis = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableAIDataAnalysis'
+            allowRecallEnablement = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'AllowRecallEnablement'
+        }
         schannel                 = [ordered]@{ protocols = $schProtocols; ciphers = $schCiphers; cipherSuitePolicy = $(if ($null -eq $suitePolicy) { $null } else { "$suitePolicy" }) }
         exploitProtection        = $exploit
         # Virtualization-based security policy (CIS 18.9.5.x): UEFI memory attributes table for HVCI,
@@ -2599,7 +3216,7 @@ $snapshot = [ordered]@{
         runningAsSystem  = $isSystem
         runningAsAdmin   = $isAdmin
         psVersion        = "$($PSVersionTable.PSVersion)"
-        options          = [ordered]@{ skipAcl = [bool]$SkipAcl; checkUpdates = [bool]$CheckUpdates; encryption = $(if ($script:EncCert) { 'certificate' } elseif ($EncryptPassword) { 'password' } else { 'none' }) }
+        options          = [ordered]@{ skipAcl = [bool]$SkipAcl; checkUpdates = [bool]$CheckUpdates; namedPipes = [bool]$NamedPipes; encryption = $(if ($script:EncCert) { 'certificate' } elseif ($EncryptPassword) { 'password' } else { 'none' }) }
         # ToArray(): @() over a List inside a hashtable throws "Argument types do not match".
         sectionsCollected = $script:Sections.ToArray()
         collectionErrors = $script:Errors.ToArray()
@@ -2633,6 +3250,12 @@ $snapshot = [ordered]@{
     writablePaths        = $writablePaths
     credentialExposure   = $credExposure
     persistence          = $persistence
+    loadPoints           = $loadPoints
+    tamper               = $tamper
+    localGroups          = $localGroups
+    shares               = @($shares | Where-Object { $_ })
+    dns                  = $dns
+    surface              = $surface
     certificates         = $certificates
     wifi                 = @($wifi | Where-Object { $_ })
     browserExtensions    = $browserExtensions

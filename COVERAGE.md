@@ -1,6 +1,6 @@
 # HostBadger coverage
 
-Every check in `lib\Checks.ps1`, generated from the catalog (181 checks, of which 13 cover the 1475 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
+Every check in `lib\Checks.ps1`, generated from the catalog (223 checks, of which 13 cover the 1475 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
 
 The CIS column gives the rule number in the *CIS Microsoft Windows 11 Enterprise Benchmark v3.0.0* and its profile level (L1 corporate, L2 high security); the descriptions are HostBadger's own. A check is a read-only comparison of the host's setting with the rule; it is not a certification of conformity, and the benchmark covers many more settings (most of the administrative templates, for instance) than HostBadger reads. On Windows 10 and on Windows Server 2022, 2019 and 2016 the findings quote the same setting in that version's CIS benchmark instead (Windows 10 Enterprise v3.0.0, Server 2022 and 2019 v4.0.0, Server 2016 v3.0.0). Checks marked *Server* follow a rule that only the server benchmarks have.
 
@@ -31,6 +31,11 @@ The last column says whether HostBadger can write a remediation script for the c
 | `powershell_history_secrets` | Medium | T1552.001 |  | W, S, DC | no | PowerShell history holds what looks like a password |
 | `service_domain_account` | Medium | T1003.004 |  | W, S, DC | no | Service or task runs as a domain account with a stored password |
 | `kerberos_rc4_allowed` | Medium | T1558.003 | 2.3.11.4 (L1) | W, S, DC | no | Kerberos allows RC4 or DES |
+| `credssp_encryption_oracle_weak` | High | T1557 | 18.9.4.1 (L1) | W, S, DC | no | CredSSP accepts unpatched clients and servers (CVE-2018-0886) |
+| `credential_delegation_any_server` | High | T1550 |  | W, S, DC | no | Credentials delegated to any server |
+| `dsrm_network_logon` | High | T1078.003 |  | DC | no | Directory Services Restore Mode administrator can log on normally |
+| `credential_manager_saved` | Low | T1555.004 |  | W, S, DC | no | Windows credentials saved in Credential Manager |
+| `windows_hello_software_keys` | Medium | T1556 |  | W | no | Windows Hello keys kept without a TPM |
 | `local_admin_password_shared` | High | T1550.002 |  | W, S | no | Local account password probably shared with other hosts |
 
 ## Antivirus
@@ -55,6 +60,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `asr_other_rules_not_blocking` | Low | T1204.002 |  | W, S, DC | no | Other attack surface reduction rules not in block mode |
 | `defender_protection_features_off` | Medium | T1562.001 | 18.10.42.5.2, 18.10.42.10.1, 18.10.42.10.4 (L1/L2) | W, S, DC | no | Defender protection feature turned off |
 | `defender_server_baseline_gaps` | Low | T1562.001 | Server 18.10.43.13.1, 18.10.43.17 (L1) | S, DC | no | Server Defender policy differs from the CIS Windows Server baseline |
+| `defender_asr_exclusion_broad` | Medium | T1562.001 |  | W, S, DC | no | Attack surface reduction rule exclusion |
 
 ## Disk and Boot
 
@@ -68,6 +74,8 @@ The last column says whether HostBadger can write a remediation script for the c
 | `bitlocker_policy_gaps` | Low | T1005 | 18.10.9.1.1 - 18.10.9.3.15 (BitLocker profile) | W, S, DC | no | BitLocker policy differs from the CIS BitLocker profile |
 | `secure_boot_off` | Medium | T1542.003 |  | W, S, DC | no | Secure Boot off |
 | `bitlocker_unlock_exposure` | Low | T1005 | 18.9.33.6.3, 18.9.33.6.4, 2.3.7.3 (BL) | W | no | BitLocker key reachable on an unattended machine |
+| `boot_integrity_weakened` | High | T1553.006 |  | W, S, DC | no | Windows started with test signing, integrity checks or DEP off |
+| `shadow_copies_disabled` | Medium | T1490 |  | W, S, DC | no | Shadow copies or System Restore turned off |
 
 ## Network Exposure
 
@@ -102,6 +110,12 @@ The last column says whether HostBadger can write a remediation script for the c
 | `webclient_webdav_enabled` | Low | T1187 |  | W, S, DC | no | WebClient (WebDAV) service is enabled |
 | `wpad_not_disabled` | Low | T1557.001 |  | W, S, DC | no | WPAD auto-discovery is not disabled |
 | `lolbin_outbound_not_blocked` | Low | T1105 |  | W, S, DC | no | System tools used to download payloads can reach the network |
+| `hosts_file_redirect` | High | T1562.001 |  | W, S, DC | no | Hosts file blocks or redirects update or security services |
+| `winhttp_proxy_set` | Low | T1090 |  | W, S, DC | no | Machine-wide WinHTTP proxy set |
+| `trusted_publisher_added` | Medium | T1553 |  | W, S, DC | no | Publisher certificate added to Trusted Publishers |
+| `dns_cleartext_resolver` | Medium | T1557 | 18.6.4.1 (L1) | W, S, DC | no | DNS queries go to a public resolver in clear |
+| `share_writable_by_everyone` | High | T1080 |  | W, S, DC | no | Shared folder writable by everyone |
+| `firewall_inbound_user_program` | Low | T1562.004 |  | W, S, DC | no | Firewall lets in connections to a program in a user folder |
 | `root_ca_added` | Medium | T1553.004 |  | W, S, DC | no | Root certificate added outside the Microsoft trusted root program |
 | `wifi_profile_insecure` | Medium | T1557 |  | W, S, DC | no | Saved Wi-Fi network without encryption or with WEP |
 
@@ -112,6 +126,8 @@ The last column says whether HostBadger can write a remediation script for the c
 | `rdp_nla_disabled` | High | T1021.001 | 18.10.56.3.9.4 (L1) | W, S, DC | yes | RDP without Network Level Authentication |
 | `rdp_enabled_workstation` | Low | T1021.001 | 18.10.56.3.2.1 (L2) | W | no | RDP enabled on a workstation |
 | `rdp_policy_gaps` | Low | T1021.001 | 18.10.56.3.9.1 - 18.10.56.3.9.5, 18.10.56.3.3.3 (L1) | W, S, DC | yes | Remote Desktop policy weaker than the baseline |
+| `winrm_trusted_hosts_any` | Medium | T1021.006 |  | W, S, DC | no | WinRM client trusts every host |
+| `remote_session_takeover` | Medium | T1563.002 | 18.9.35.1, 18.9.35.2 (L1) | W, S, DC | no | Sessions can be watched or taken over remotely |
 | `remote_access_tool` | Medium | T1219 |  | W, S, DC | no | Remote access tool installed |
 
 ## Local Accounts
@@ -134,6 +150,9 @@ The last column says whether HostBadger can write a remediation script for the c
 | `password_policy_weak` | Medium | T1110 | 1.1.1 - 1.1.5, 1.1.7 (L1) | W, S | no | Local password policy weaker than the baseline |
 | `account_lockout_weak` | Medium | T1110 | 1.2.1, 1.2.2, 1.2.4 (L1) | W, S | no | Account lockout missing or too lenient |
 | `deny_logon_rights_missing` | Low | T1078.001 | 2.2.16 - 2.2.20 (L1) | W, S, DC | no | Guests or local accounts not denied network or remote logon |
+| `local_account_rid_hijack` | High | T1098 |  | W, S, DC | no | Local account carries another account's RID (RID hijacking) |
+| `local_account_hidden_name` | Medium | T1564.002 |  | W, S | no | Local account named like a computer account |
+| `local_privileged_group_member` | High | T1078.003 |  | W, S, DC | no | Built-in group that equals administrator has members |
 
 ## Privilege Escalation
 
@@ -154,6 +173,9 @@ The last column says whether HostBadger can write a remediation script for the c
 | `service_permissions_weak` | High | T1543.003 |  | W, S, DC | no | Service permissions let non-administrators change or delete it |
 | `print_point_and_print_weak` | Medium | T1068 | 18.7.8, 18.7.10, 18.7.11 (L1) | W, S, DC | no | Point and Print allows driver installation without elevation |
 | `printer_drivers_by_users` | Low | T1068 | 2.3.4.1 (L2) | W, S, DC | yes | Users may install printer drivers |
+| `autostart_target_missing` | High | T1574 |  | W, S, DC | no | Program started automatically is missing, and users may create it |
+| `print_spooler_no_printers` | Medium | T1068 |  | S | no | Print Spooler running on a server with no printer |
+| `named_pipe_writable_by_everyone` | Low | T1559 |  | W, S, DC | no | Named pipe that everyone can write to |
 
 ## Persistence
 
@@ -161,6 +183,19 @@ The last column says whether HostBadger can write a remediation script for the c
 |---|---|---|---|---|---|---|
 | `persistence_wmi_subscription` | High | T1546.003 |  | W, S, DC | no | WMI event subscription runs a command or a script |
 | `persistence_registry_hijack` | High | T1546.012 |  | W, S, DC | no | Code planted in a Windows load point |
+| `persistence_credential_capture` | High | T1556.008 |  | W, S, DC | no | Logon component that sees passwords is not Windows' own |
+| `persistence_dll_load_point` | High | T1546 |  | W, S, DC | no | Code started by a lesser-known Windows load point |
+| `persistence_service_hook` | High | T1543.003 |  | W, S, DC | no | Service loads a DLL from outside Windows or runs a program when it fails |
+| `service_hidden` | High | T1564 |  | W, S, DC | no | Service hidden from the service list |
+| `scheduled_task_hidden` | High | T1053.005 |  | W, S, DC | no | Scheduled task hidden from the Task Scheduler |
+| `persistence_logon_script` | Medium | T1037.001 |  | W, S, DC | no | Logon or startup script set on the host |
+| `persistence_powershell_profile` | Low | T1546.013 |  | W, S, DC | no | PowerShell profile for every user |
+| `persistence_office_hooks` | High | T1137 |  | W, S, DC | no | Office loads or shows something at every start |
+| `persistence_ssh_authorized_keys` | Medium | T1098.004 |  | W, S, DC | no | SSH keys give a logon to this host |
+| `persistence_bits_job` | High | T1197 |  | W, S, DC | no | BITS job runs a program when it finishes |
+| `accessibility_binary_replaced` | High | T1546.008 |  | W, S, DC | no | Logon screen accessibility program replaced |
+| `autostart_suspicious_command` | High | T1059 |  | W, S, DC | no | Something that starts by itself runs a downloader or an encoded command |
+| `office_addin_unsigned` | Medium | T1137.006 |  | W, S, DC | no | Office add-in that is not signed |
 
 ## Logging
 
@@ -175,6 +210,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `powershell_transcription_off` | Low | T1562.002 | 18.10.86.2 (L2) | W, S, DC | yes | PowerShell transcription off |
 | `ntlm_audit_off` | Low | T1557.001 | 2.3.11.11, 2.3.11.12 (L1) | W, S, DC | no | NTLM traffic not audited |
 | `powershell_module_logging_off` | Low | T1059.001 |  | W, S, DC | no | PowerShell module logging off |
+| `event_logging_suppressed` | High | T1562.002 |  | W, S, DC | no | Event logging switched off underneath |
 | `log_forwarding_missing` | Low | T1070.001 |  | W, S, DC | no | Event logs are not sent anywhere |
 | `sysmon_missing` | Low | T1562.002 |  | W, S, DC | no | No process telemetry: neither Sysmon nor an EDR |
 
@@ -217,6 +253,12 @@ The last column says whether HostBadger can write a remediation script for the c
 | `netfx3_enabled` | Low | T1562.010 |  | W, S, DC | no | .NET Framework 3.5 (2.0 and 3.0) is enabled |
 | `ie11_enabled` | Medium | T1189 |  | W, S, DC | no | Internet Explorer 11 is enabled |
 | `office_macro_settings_weak` | Medium | T1566.001 |  | W, S, DC | no | Office macro settings not enforced by policy |
+| `office_vba_object_model_trusted` | Medium | T1137 |  | W, S, DC | no | Office trusts programmatic access to the VBA project |
+| `sudo_inline_enabled` | Low | T1548.002 |  | W, S | no | Windows sudo runs elevated commands inline |
+| `developer_mode_enabled` | Low | T1553 |  | W, S | no | Developer mode on |
+| `recall_snapshots_enabled` | Medium | T1113 |  | W | no | Windows Recall can save snapshots of the screen |
+| `wsl_distribution_installed` | Low | T1564.006 |  | W, S, DC | no | Linux distribution installed under WSL |
+| `client_hypervisor_enabled` | Low | T1564.006 |  | W | no | Hyper-V or Windows Sandbox turned on on a workstation |
 | `machine_sid_duplicate` | Medium | T1078.003 |  | W, S | no | Machine SID shared with other hosts |
 | `config_drift` | Low | T1112 |  | W, S, DC | no | Settings differ from the rest of the fleet |
 

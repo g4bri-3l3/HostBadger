@@ -6,6 +6,160 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
+## [2.3] - 2026-10-30
+### Changed
+- Remediation profile *Essential* now changes nothing the user sees or does.
+  The fixes of the findings that would (CTRL+ALT+DEL required, last user name
+  hidden at logon, screen lock after inactivity, UAC turned on or prompting
+  more, AutoPlay off, scripts opened as text, fewer cached logons, network
+  passwords no longer saved, firewall notifications off, PowerShell
+  transcripts in Documents, RDP password prompt and drive redirection) are
+  listed in the script as left out and applied from *Recommended* on. Game
+  recording, the Xbox services, SSDP/UPnP discovery, media sharing and online
+  speech recognition moved from Essential to Recommended.
+- `credential_guard_off` is not evaluated on Windows Home, which has no
+  Credential Guard (Enterprise and Education only): the score of a Home PC no
+  longer counts a gap its edition cannot close. Still judged on Pro.
+- Window: the Results tab shows the number of findings of the last report as
+  soon as the window opens, not only after the tab was clicked.
+- Catalogs: a kept copy over a week old is no longer used by default. In the
+  guided menu Enter downloads a fresh one (U still uses the kept copy), the
+  window selects **Download now** for it, and the default mode of every
+  catalog in the global settings (menu 8, window Settings) is now *auto*: the
+  kept copy if it is at most a week old, else a download. *Kept* (whatever its
+  age) is still there for who wants it. Settings saved by earlier versions had
+  *kept* as their default, so their *kept* is read as *auto*.
+- Window: the status line follows the step the run is at (*Downloading the
+  CISA KEV catalog*, *Reading snapshots*, *Analyzing host 2 of 5*, *Building
+  the HTML report*, *Collecting services*...) instead of saying *Analyzing* or
+  *Collecting* for the whole run. These are the steps the console spinner
+  already shows.
+- Score: the Low checks add 10 to the penalty at most (they added 1 each), so
+  a host with many minor gaps and few serious ones is no longer graded like a
+  weak one. Scores rise where more than ten Low checks fired: a score history
+  shows a step at the first 2.3 run.
+- Window and guided menu: fixing this machine with debloat and telemetry only
+  (*No fix of the findings* in the window, choice D of menu 6) no longer
+  collects and analyzes it: those settings depend only on its role, so the
+  script is written at once and previewed. In the window the question that
+  follows the preview is now a panel in the Fix tab (*Apply N change(s)* /
+  *Don't apply*), not a dialog, so the preview in the log can be read and
+  scrolled before answering; starting any other step withdraws it.
+- A cleaner look, same layout and fields. Window: secondary buttons drawn as
+  outlines, Stop and Fix this machine in red, flat buttons that press down and
+  grey out when disabled, slim scroll bars, the fix levels as option cards,
+  the warning about changing this machine in a red callout, and progress bars
+  that keep their place when idle. Guided menu: a framed banner, the options in
+  three groups (collect and analyze, fix this machine, tools) with the keys
+  highlighted, the account the menu runs as, and clearer step headers.
+
+### Added
+- Window: **Stop**, next to Analyze and to Fix this machine, stops the step
+  that is running (a download, a collection, an analysis); what would have
+  followed it (the analysis after a collection, the fix preview) is not run.
+  Stopping fixes while they are applied asks first, as closing the window
+  does.
+- Window: collecting this machine without administrator rights opens a
+  warning first (the checks that need them come out not evaluated): restart
+  as administrator, go on anyway, or cancel.
+- Window: **File...** buttons for the exceptions file, the policy file and the
+  earlier CSV to compare with (Your organization).
+- Window: the option that saves a fix script per host with each analysis moved
+  from the Fix tab to Report, in the Analyze tab, as **Also save a fix script
+  for each host** (with the changes chosen in the Fix tab; nothing applied).
+  The policy file has a tooltip saying what it is.
+- 32 checks (213 in all), on what attackers leave behind and few audits read.
+  Collector sections `loadPoints`, `tamper`, `localGroups`, `shares` and `dns`, and
+  new `hardening` fields; a snapshot from an older collector lists the checks
+  as not evaluated.
+  - Persistence: `persistence_credential_capture` (network providers that get
+    every logon password, NPPSpy; credential providers and filters not signed
+    by Microsoft), `persistence_dll_load_point` (AppCertDlls, Session Manager
+    BootExecute / SetupExecute / Execute, time providers, print processors, a
+    machine-wide .NET profiler, the AeDebug crash debugger),
+    `persistence_service_hook` (a ServiceDll outside System32, a recovery
+    command), `service_hidden` (deny entries that hide a service, a service key
+    the service manager does not list), `scheduled_task_hidden` (Tarrask: no SD
+    value while the task XML is still there; Index 0 and keys of removed tasks
+    are not reported, Windows upgrades leave many), `persistence_logon_script`
+    (local Group Policy scripts,
+    UserInitMprLogonScript), `persistence_powershell_profile` (all-users
+    profiles, High when users can write them), `persistence_office_hooks`
+    (Office test key, Outlook home pages, XLL add-ins),
+    `persistence_ssh_authorized_keys` (counted, never read),
+    `persistence_bits_job` (a notification command line),
+    `accessibility_binary_replaced` (Sticky Keys and the other logon screen
+    tools compared by their version resource, since a copy of cmd.exe keeps
+    Microsoft's signature), `autostart_suspicious_command` (encoded or
+    downloading commands in services, tasks, Run keys, WMI consumers and IFEO;
+    a hidden window alone does not count, Windows' own tasks use it) and
+    `autostart_target_missing` (a service, task or Run key whose missing
+    program users may create).
+  - Accounts and groups: `local_account_rid_hijack` (the F value of the SAM
+    only, read as SYSTEM; never the hashes), `local_account_hidden_name`
+    (names ending in $), `local_privileged_group_member` (Backup, Print,
+    Server, Account Operators, Hyper-V Administrators; the remote access
+    groups when everyone is in them).
+  - Evasion: `event_logging_suppressed` (MiniNt, Event Log service disabled,
+    EventLog-* and Defender autologgers off, the security auditing provider
+    off), `boot_integrity_weakened` (TESTSIGNING, DISABLE_INTEGRITY_CHECKS,
+    DEBUG, DEP off), `hosts_file_redirect` (update, Defender, SmartScreen and
+    EDR names), `winhttp_proxy_set`, `trusted_publisher_added`.
+  - Settings: `credssp_encryption_oracle_weak` (CIS 18.9.4.1),
+    `credential_delegation_any_server`, `winrm_trusted_hosts_any`,
+    `remote_session_takeover` (shadowing without consent, CIS 18.9.35.1 and
+    18.9.35.2), `dsrm_network_logon` (domain controllers),
+    `sudo_inline_enabled`, `developer_mode_enabled`,
+    `recall_snapshots_enabled`.
+  - Network: `share_writable_by_everyone` (share permissions and NTFS both),
+    `dns_cleartext_resolver` (a public resolver used without DNS over HTTPS,
+    or the DoH policy prohibiting it, CIS 18.6.4.1; internal resolvers are not
+    judged; the DoH template, which can name a personal profile, is not kept).
+- Collector: `Get-BitsTransfer -AllUsers` (read only) for the BITS jobs.
+  `Get-AuthenticodeSignature` also names the signer of network and credential
+  providers, AppCertDlls, time providers, print processors, ServiceDlls, the
+  .NET profiler, the crash debugger and the logon screen tools.
+- AI step: the names the new sections carry (shares, BITS jobs and owners,
+  group members, providers, logon script paths, Outlook home pages, the
+  WinHTTP proxy, trusted publishers) are tokenized.
+- 10 checks on smaller doors (223 checks in all), from a new collector section
+  `surface` and two new `defender` fields:
+  - `print_spooler_no_printers`: the spooler running on a member server with
+    no printer but the virtual ones Windows installs.
+  - `wsl_distribution_installed` (Low, Medium on servers) and
+    `client_hypervisor_enabled` (Hyper-V or Windows Sandbox on a
+    workstation): code there is out of the host EDR's sight.
+  - `named_pipe_writable_by_everyone`: a vendor pipe that Everyone,
+    anonymous, authenticated or local users may write to (Medium with
+    anonymous); Windows' own RPC pipes are left out. Read only when the
+    collector runs with the new `-NamedPipes` (in the window: *Read named pipe
+    permissions* under This machine), since opening a pipe takes one
+    of its instances for a moment; without it the check is off, not "not
+    evaluated".
+  - `office_addin_unsigned`: a COM add-in whose DLL has no valid signature
+    (High from a user folder), or a VSTO add-in from a web address.
+  - `credential_manager_saved`: Credential Manager files per profile, counted
+    and never opened (more than 10 on a workstation, any on a server).
+  - `defender_asr_exclusion_broad`: exclusions from all ASR rules or from one
+    (High for a user-writable folder, a drive, a wildcard or a script host).
+  - `shadow_copies_disabled`: the Volume Shadow Copy service disabled, or
+    System Restore turned off by policy on a workstation.
+  - `windows_hello_software_keys`: a Hello PIN or Hello for Business without
+    a working TPM.
+  - `firewall_inbound_user_program`: inbound allow rules for a program in a
+    user folder (Medium on the Public profile from any address), one finding
+    per program.
+  The AI step tokenizes the new names (WSL distributions, add-ins, pipes,
+  programs, ASR exclusions).
+- README: "How it compares" gains rows for the Italian NIS2 rules (ACN basic
+  measures), the Essential Eight, MITRE ATT&CK, signs of persistence and
+  tampering, fleet checks and the interface.
+
+### Fixed
+- The banner of the analyzer and of the guided menu still said v2.2.
+- Global settings: the browser extensions catalog was missing from the menu's
+  defaults, so its saved mode was never read.
+
 ## [2.2] - 2026-10-28
 ### Changed
 - Window: **Search missing updates** moved to the Catalogs card, next to the

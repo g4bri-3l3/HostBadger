@@ -22,7 +22,7 @@ is weak. It works in two steps. A single PowerShell script takes a
 Lines for a SIEM. Hand it one snapshot or a folder with hundreds and you get
 the whole fleet in one report, or one report per host.
 
-- **181 checks** and about 1,600 settings: 168 hand-written checks plus 1475 DISA
+- **223 checks** and about 1,600 settings: 210 hand-written checks plus 1475 DISA
   STIG registry rules, with the CIS Windows 11 benchmark as the baseline, and
   the drivers matched against 2,198 known vulnerable or malicious driver files
   (LOLDrivers).
@@ -124,6 +124,13 @@ should.
   documented as malicious; extensions loaded in developer mode or from a file,
   extensions that can read every site, and, with `-AllowedExtensions`, the
   ones the organization did not approve. See "Browser extensions" below.
+- **Smaller doors**: Print Spooler on servers with no printer, Linux
+  distributions under WSL and Hyper-V or Windows Sandbox on workstations (out
+  of the EDRs sight), unsigned Office add-ins, credentials saved in Credential
+  Manager (counted), attack surface reduction exclusions, shadow copies or
+  System Restore turned off, Windows Hello keys without a TPM, firewall rules
+  that let in programs from user folders and, with the collectors
+  `-NamedPipes`, vendor named pipes everyone can write to.
 - **System hardening**: autoplay, automatic logon, screen lock, SmartScreen and
   the other CIS Windows 11 baseline settings.
 
@@ -224,7 +231,9 @@ should.
 - **Remediation profiles** (`-RemediationProfile Essential | Recommended |
   Strict`): a ready-made hardening level on top of the fixes of the findings,
   each setting quoting its CIS rule or Essential Eight requirement, from
-  "safe on any machine" to CIS Level 2 plus opinionated hardening and the
+  "safe on any machine, nothing the user notices" (Essential leaves out
+  CTRL+ALT+DEL, hiding the last user name, screen lock, extra prompts and
+  the Xbox services) to CIS Level 2 plus opinionated hardening and the
   removal of preinstalled apps. What cannot be undone is marked NOT
   REVERSIBLE before you apply it.
 - **Optional AI summary** with Gemini: host names, accounts, paths and
@@ -258,12 +267,18 @@ own pages before relying on it, especially for licensing and editions.
 | CIS benchmarks | Yes: Windows 10/11 and Server 2016-2022 rule numbers | Yes: Windows 10/11, Server 2012 R2-2025 lists | No (Microsoft baselines) | No | Yes, full | Yes | Add-on |
 | DISA STIG | Registry rules only (1,475, fourteen products) | Some lists (Windows 10, Server 2019, Defender, Firewall) | No | Yes, full SCAP content | Check with CIS | Yes | Add-on |
 | Microsoft security baselines | Partly, through CIS/STIG overlap | Yes | Yes | No | No | Yes | Yes |
+| Italian NIS2 rules (ACN basic measures, Determinazione 379907/2025) | Yes, opt-in (`-Nis2Acn`): the measures a host gives evidence for, in ACNs wording | No | No | No | No | Check with the vendor (generic NIS2 mappings, not the ACN measures) | Check with the vendor |
+| ACSC Essential Eight | Maturity level per strategy, from what a host shows | No | No | No | No | Check with the vendor | No |
+| MITRE ATT&CK and the attacks a finding enables | Every check | No | No | No | No | Partly | Partly |
+| Signs of persistence and tampering | Load points, hidden services and tasks, RID hijack, replaced accessibility tools, suppressed event logs, hosts redirects, added root CAs, remote access tools, malicious browser extensions | No | No | No | No | Partly | Through Defender for Endpoint (EDR), not the configuration view |
+| Checks across the fleet | Shared local administrator passwords, duplicate machine SIDs, configuration drift within a role | No | No | No | No | No | No |
 | Software and vulnerabilities | End of support, behind latest release, CVEs by installed version with CVSS, KEV and EPSS (about 20 mapped products), vulnerable drivers | No | No | No | No | Yes, full CVE scanning | Yes |
 | Collection | One read-only script, through any tool that runs a .ps1 (EDR, RMM, SCCM/Intune, GPO, remoting) | Run on the host | Local or exported GPOs | Local or remote | Local or remote | Agent or credentialed scan | Defender sensor |
 | Offline analysis of saved snapshots | Yes | No | Yes (GPO backups) | No | No | No | No (cloud) |
 | Fleet report | HTML, CSV, JSON Lines | Per host (CSV) | Per comparison | Per host | Yes | Console | Console |
 | Value found next to value required | Yes | Yes | Yes | Yes | Yes | Yes | Partly |
-| Fixes | Reversible scripts with rollback; applied only from the guided menu, on the local machine, after YES | Can apply the settings (HailMary), GPO export | No | No | No | No | Recommendations |
+| Fixes | Reversible scripts with rollback, plus optional hardening, debloat and telemetry profiles; applied only on the local machine, from the guided menu after YES or the window after a preview | Can apply the settings (HailMary), GPO export | No | No | No | No | Recommendations |
+| Interface | Guided console menu and a window (WPF), or plain parameters | PowerShell module | Window | Window | Window and command line | Web console | Web portal |
 | AI summary | Optional (Gemini), names tokenized and a leak check before anything is sent | No | No | No | No | Vendor cloud AI, licensed separately | Microsoft Security Copilot, licensed separately |
 | What the code can do, checked from the code | Yes (`Test-HostBadgerSafety.ps1`) | No | No | No | No | No | No |
 
@@ -291,11 +306,13 @@ PowerShell window that stays open at the end. The catalogs an analysis
 downloads (CISA KEV, LOLDrivers, endoflife.date, Chocolatey, NVD/EPSS, browser
 extensions) are kept
 next to the report, and the next analysis offers the newest kept copy as the
-default, with its date, or a fresh download. When you analyze, it looks for snapshots by
+default, with its date, or a fresh download; a kept copy over a week old is
+downloaded again on Enter. When you analyze, it looks for snapshots by
 itself (in a `snapshots` folder, then in the current folder) and lets you take
 them all or pick one by number. It can also write one remediation script per
 host (previewing until `-Apply`, with a rollback), and, as administrator,
-remediate this machine: it collects and analyzes it, shows what the fix script
+remediate this machine: it collects and analyzes it (not with debloat and
+telemetry only, which depend on its role alone), shows what the fix script
 would change, creates a System Restore point where Windows has one and applies
 it only after you type YES; another option puts the values back from the
 rollback file. It asks for a remediation profile (Essential, Recommended,
@@ -310,8 +327,9 @@ restore).
 
 The answers that are the same at every run can be saved once with **Global
 settings** (menu 8, in `output\hostbadger-settings.json`): report folder, DISA
-STIG and CIS, each catalog (the kept copy, the kept copy if under a week old
-else a download, a download every run, or none), JSON Lines, remediation
+STIG and CIS, each catalog (by default the kept copy if under a week old else
+a download; or the kept copy whatever its age, a download every run, or none),
+JSON Lines, remediation
 scripts, exceptions file, allowed administrators, expected EDR, the AI step
 (ask, no, dry run, send, confirm first) and, for a collection, snapshot folder,
 file ACLs, missing updates (the Windows Update service contacts the WSUS
@@ -338,11 +356,14 @@ Analyze is on the left, on one page:
   and changes nothing.
 - **Report**: where to save the new report, STIG and CIS, JSON Lines, one
   report per host (written only when the run has two hosts or more), NIS2 ACN
-  measures.
+  measures, and **Also save a fix script for each host**: one script per host
+  next to the report, with the changes chosen in the Fix tab, nothing applied
+  (for other hosts: copy each to its host and run it there).
 - **Catalogs**: each offers the newest kept copy when there is one, the copy
   shipped with HostBadger (LOLDrivers, browser extensions, the lifecycle
   table: used offline), a download now, or not used for the catalogs
-  HostBadger does not ship.
+  HostBadger does not ship. Unless Settings says otherwise, a kept copy under
+  a week old is selected, else the download.
 - **Your organization**: allowed administrators, expected EDR, approved
   remote tools and extensions, exceptions and policy files, an earlier CSV to
   compare with.
@@ -352,16 +373,18 @@ fixes of the findings, Essential, Recommended, Strict, or none of them), each
 with what it changes, plus two independent options: **Debloat** (the
 preinstalled apps and the unused consumer services and components) and
 **Disable telemetry** (the privacy and telemetry settings of every level).
-Strict includes both. **Write the fix scripts with each analysis** writes one
-script per host next to the report when Analyze runs, nothing applied (for
-other hosts: run each on its host). **Fix this machine**, at the bottom of
+Strict includes both. The same choices go into the fix scripts Analyze saves
+when the Report option asks for them. **Fix this machine**, at the bottom of
 the tab, collects and analyzes this machine whatever source the Analyze tab
 has (a collection of this machine made in the window less than 30 minutes
 before, with the same collection options, is used again, and so is its
-analysis when the choices have not changed), then previews its fix script in the log (on the right of the tab, the
-same as the one of Analyze); a warning gives the number of changes and of
-those NOT REVERSIBLE, and only Yes applies them (No is selected, so Enter
-changes nothing; administrator, else it
+analysis when the choices have not changed; with *No fix of the findings*
+nothing is collected: debloat and telemetry depend only on the role of the
+machine), then previews its fix script in the log (on the right of the tab, the
+same as the one of Analyze); a panel above the button gives the number of
+changes and of those NOT REVERSIBLE, and only its **Apply** button applies
+them, while the log can still be read (starting another step withdraws it;
+administrator, else it
 offers to restart as administrator; System Restore point first in Windows
 PowerShell 5.1, rollback file next to the script, linked in Outputs, with the
 command that undoes it).
@@ -369,8 +392,14 @@ command that undoes it).
 The header has Settings, the **Safety review** and Check for updates.
 **Restart as administrator** reopens the window elevated in the same folder
 (Windows asks to confirm), with the settings, the kept catalogs and the
-choices of the form as they were. Closing the window while a step runs asks
-first (a fix stopped halfway leaves part of its changes).
+choices of the form as they were. Collecting this machine without
+administrator rights opens a warning first (the checks that need them come
+out not evaluated): Yes restarts as administrator, No goes on anyway. The
+status line under the buttons names the step the run is at (a download, a
+host being analyzed, the report being built). **Stop**, next to Analyze and
+to Fix this machine, stops the running step (what would have followed it is
+not run; stopping fixes being applied asks first). Closing the window while a
+step runs asks first (a fix stopped halfway leaves part of its changes).
 
 On the right, **Outputs** links the last report (and the per-host ones), its
 run log, CSV, JSON Lines, fix scripts, AI prompt and answer, the report
@@ -414,8 +443,8 @@ the report. The charts stay in the HTML report (**Open the HTML report**).
 **Settings** holds what is the same at every run, in the same
 `output\hostbadger-settings.json` as menu 8: snapshot and report folders, the
 Gemini model and the number of attempts, whether the DISA STIG findings go to
-Gemini, what each catalog proposes (kept copy, kept copy if under a week old
-else a download, a download every run, never), and the encryption of a new
+Gemini, what each catalog proposes (kept copy if under a week old else a
+download, the default; kept copy whatever its age, a download every run, never), and the encryption of a new
 snapshot. The Gemini and NVD API keys are kept for the window, or, if you tick
 Remember, as the `GEMINI_API_KEY` / `NVD_API_KEY` environment variables of
 your Windows account; a key is never written in the settings file. Each run
@@ -757,10 +786,19 @@ or, without one, when they have the same title.
 - **Read only.** The collector reads the registry, CIM classes, the Defender,
   SMB, firewall, BitLocker, local account and scheduled task cmdlets, and file
   ACLs (`Get-Acl`), and it reads each driver file to compute its SHA-256
-  (`Get-FileHash`), and the Authenticode signer of the DLLs loaded by LSASS,
-  the print spooler and netsh (`Get-AuthenticodeSignature`). Setup answer
-  files, Group Policy Preferences files and PowerShell histories are read to
-  count the passwords they hold: no password and no history line is kept.
+  (`Get-FileHash`), and the Authenticode signer of the DLLs and programs
+  Windows starts from a load point (LSASS, the print spooler, netsh, network,
+  credential and time providers, print processors, ServiceDlls, the .NET
+  profiler, the crash debugger, the logon screen tools) and of Office COM add-ins,
+  with `Get-AuthenticodeSignature`. It lists the BITS jobs with
+  `Get-BitsTransfer -AllUsers` and, as SYSTEM, reads the F value of each SAM
+  account (its RID), never the password hashes. Setup answer files, Group
+  Policy Preferences files and PowerShell histories are read to count the
+  passwords they hold, authorized_keys files to count the keys, and the
+  Credential Manager folders to count the saved credential files: no
+  password, key, credential or history line is kept. Only with `-NamedPipes`
+  it opens each named pipe for reading for a moment to read its permissions
+  (nothing is sent or read through it).
   It reads the audit policy with `auditpol /backup` and the
   local security policy with `secedit /export`, each into a temporary file
   that is deleted right away. It never uses `/configure` or `/import`. When
@@ -825,7 +863,8 @@ or, without one, when they have the same title.
 
 The score of a host is 100 &times; e<sup>&minus;penalty/100</sup>. Each
 triggered check adds a weight for its worst severity (Critical 20, High 8,
-Medium 3, Low 1). Any Critical caps the score at 35, and any High at 65.
+Medium 3, Low 1), and the Low checks add 10 at most, so many minor gaps do
+not sink a host. Any Critical caps the score at 35, and any High at 65.
 The score measures exposure: the DISA STIG rules (and the Brave adaptation of
 the Chrome STIG) are compliance with a policy baseline and are shown on their
 own, as compliance per product, not in the score. A KEV name match on a
@@ -875,6 +914,7 @@ standard user with Defender in passive mode.
 
 .\Collect-HostSnapshot.ps1 [-OutDir <folder>] [-NoZip] [-SkipAcl] [-CheckUpdates]   # -CheckUpdates: the Windows Update service searches for missing updates (network)
     [-EncryptPassword <text> | -EncryptCertificate <.cer file or thumbprint>]   # write an encrypted .hbx, nothing in clear
+    [-NamedPipes]                                # also read who may write to each named pipe (each is opened for a moment)
 ```
 
 An exception (see `examples/exceptions.example.json`) has a `type`, a `host`

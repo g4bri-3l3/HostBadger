@@ -184,7 +184,10 @@
 .PARAMETER RemediationProfile
     Optional, with -OutRemediation: add a remediation profile to every
     remediate_<host>.ps1, on top of the fixes of the findings. Essential (CIS
-    Level 1 and Essential Eight Maturity Level One settings safe on any machine),
+    Level 1 and Essential Eight Maturity Level One settings safe on any machine
+    that change nothing the user sees or does: the fixes that would, such as
+    CTRL+ALT+DEL, hiding the last user name, screen lock or extra UAC prompts,
+    are listed in the script and left to Recommended),
     Recommended (Essential, plus the rest of CIS Level 1 for managed machines and
     Essential Eight Maturity Level Two: attack surface reduction rules in block
     mode) or Strict (Recommended, plus CIS Level 2, Essential Eight Maturity
@@ -322,7 +325,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:HostBadgerVersion = '2.2'
+$script:HostBadgerVersion = '2.3'
 . (Join-Path $PSScriptRoot 'lib\Common.ps1')
 . (Join-Path $PSScriptRoot 'lib\Checks.ps1')
 . (Join-Path $PSScriptRoot 'lib\AI.ps1')
@@ -332,7 +335,7 @@ $script:HostBadgerVersion = '2.2'
 Write-Host @'
      _.--""--._
    .'  |    |  '.
-  /    |    |    \      HostBadger v2.2
+  /    |    |    \      HostBadger v2.3
  |  (o)|    |(o)  |     Windows host hardening
  |     |    |     |     read-only snapshots, offline analysis
   \    '.__.'    /

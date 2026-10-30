@@ -884,7 +884,7 @@ function filterBadgerTable(input) {
     }
     foreach ($s in $sevOrder) { & $w "<div class=`"card $($s.ToLower())`"><div class=`"num`">$($counts[$s])</div><div class=`"lbl`">$s findings</div></div>" }
     & $w '</div>'
-    & $w '<div class="meta">Score per host = 100 &times; e<sup>&minus;penalty/100</sup>, where penalty sums a weight per triggered check at its worst severity (Critical 20, High 8, Medium 3, Low 1); any Critical caps it at 35, any High at 65. It measures exposure: DISA STIG rules and the Brave policy gaps are compliance, shown on their own, and a KEV name match already judged by version (CVE data) is not counted twice.</div>'
+    & $w '<div class="meta">Score per host = 100 &times; e<sup>&minus;penalty/100</sup>, where penalty sums a weight per triggered check at its worst severity (Critical 20, High 8, Medium 3, Low 1, the Low ones 10 at most); any Critical caps it at 35, any High at 65. It measures exposure: DISA STIG rules and the Brave policy gaps are compliance, shown on their own, and a KEV name match already judged by version (CVE data) is not counted twice.</div>'
 
     # ---------------- Compliance ----------------
     $compCharts = @()
