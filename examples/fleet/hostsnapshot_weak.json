@@ -5228,7 +5228,10 @@
           "sids": [
             "S-1-1-0",
             "S-1-5-11"
-          ]
+          ],
+          "serverPid": 4242,
+          "serverProcess": "FabrikamUpdaterSvc.exe",
+          "serverPath": "C:\\Program Files\\Fabrikam\\FabrikamUpdaterSvc.exe"
         }
       ]
     }

@@ -86,7 +86,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:CollectorVersion = '2.3'
+$script:CollectorVersion = '2.4'
 $script:SchemaVersion = 1
 $script:Errors = New-Object System.Collections.Generic.List[object]
 $script:Sections = New-Object System.Collections.Generic.List[string]
@@ -1837,6 +1837,23 @@ $surface = Invoke-Section 'surface' {
     $pipes = $null
     if ($NamedPipes) {
         $pipes = [ordered]@{ total = 0; read = 0; writable = @() }
+        # The server process of each writable pipe: GetNamedPipeServerProcessId (kernel32) on the client
+        # handle only says which process the pipe belongs to - it reads nothing through the pipe and
+        # changes nothing. This is the one reviewed P/Invoke of the collector (Test-HostBadgerSafety.ps1).
+        $pipeIdReady = $false
+        try {
+            if (-not ('HostBadger.Pipe' -as [type])) {
+                Add-Type -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+public static extern bool GetNamedPipeServerProcessId(System.IntPtr Pipe, out uint ServerProcessId);
+'@ -Name 'Pipe' -Namespace 'HostBadger' -ErrorAction Stop
+            }
+            $pipeIdReady = $true
+        }
+        catch { Add-CollectionError -Section 'surface.namedPipes' -Message "pipe server process lookup unavailable: $($_.Exception.Message)" }
+        # One query, then a name/path lookup by PID (writable pipes often share a server process).
+        $procById = @{}
+        foreach ($pr in @(Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue)) { $procById[[int]$pr.ProcessId] = $pr }
         $bs = [string][char]92
         $names = @([System.IO.Directory]::GetFiles("$bs$bs.${bs}pipe$bs") | ForEach-Object { $_.Substring(9) })
         $pipes.total = $names.Count
@@ -1850,7 +1867,18 @@ $surface = Invoke-Section 'surface' {
                 $who = @(foreach ($ace in $sec.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
                         if ("$($ace.AccessControlType)" -eq 'Allow' -and ([int]$ace.PipeAccessRights -band 0x2) -and @('S-1-1-0', 'S-1-5-7', 'S-1-5-11', 'S-1-5-32-545') -contains $ace.IdentityReference.Value) { $ace.IdentityReference.Value }
                     })
-                if ($who.Count -and $pipes.writable.Count -lt 300) { $pipes.writable += [ordered]@{ name = $pn; sids = @($who | Select-Object -Unique) } }
+                if ($who.Count -and $pipes.writable.Count -lt 300) {
+                    $entry = [ordered]@{ name = $pn; sids = @($who | Select-Object -Unique) }
+                    if ($pipeIdReady) {
+                        $spid = [uint32]0
+                        if ([HostBadger.Pipe]::GetNamedPipeServerProcessId($ps.SafePipeHandle.DangerousGetHandle(), [ref]$spid) -and $spid -gt 0) {
+                            $entry.serverPid = [int]$spid
+                            $pr = $procById[[int]$spid]
+                            if ($pr) { $entry.serverProcess = "$($pr.Name)"; $entry.serverPath = "$($pr.ExecutablePath)" }
+                        }
+                    }
+                    $pipes.writable += $entry
+                }
             }
             catch { }
             finally { if ($ps) { $ps.Dispose() } }

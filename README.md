@@ -390,7 +390,7 @@ PowerShell 5.1, rollback file next to the script, linked in Outputs, with the
 command that undoes it).
 
 The header has Settings, the **Safety review** and Check for updates.
-**Restart as administrator** reopens the window elevated in the same folder
+**Restart as admin** reopens the window elevated in the same folder
 (Windows asks to confirm), with the settings, the kept catalogs and the
 choices of the form as they were. Collecting this machine without
 administrator rights opens a warning first (the checks that need them come
@@ -406,13 +406,16 @@ run log, CSV, JSON Lines, fix scripts, AI prompt and answer, the report
 folder, the last snapshot and the settings file; at the start it shows the
 newest report of the report folder, which "Open the last report" opens.
 Below it is the log of the
-running step. After an analysis, **AI: dry run** writes the prompt and **AI:
-send to Gemini** sends it, both without analyzing again (the analysis stays in
-the window's memory, never on disk). The line under them names the report the
-summary goes into; **Other report...** picks an earlier one. For a report of
-an earlier session the snapshot of the form is analyzed again in the same run
-and that report rewritten with the AI section (the summary lives in the HTML,
-and the same snapshot gives the same findings).
+running step. After an analysis a question offers the AI summary (**Settings**
+can turn it off); **AI: dry run** writes the prompt and **AI: send to Gemini**
+sends it, both without analyzing again (the analysis stays in the window's
+memory until the next one, never on disk). The line under them names the
+report the summary goes into; **Other report...** picks an earlier one. With no
+analysis in memory the buttons ask which existing report to use: its findings
+are read back from it and the summary is added to it, nothing is analyzed or
+downloaded. Its snapshot must still be reachable (the one chosen in the form,
+the snapshot folder or the report's folder), because the names replaced with
+tokens come from it.
 
 **Results** opens by itself when an analysis is done (not when the fixes of
 this machine follow: the window stays on the log of their preview). It reads
@@ -456,8 +459,10 @@ it runs `git fetch origin` and compares with `origin/main`; **Update** then
 runs `git pull --ff-only origin main`, offered only on the `main` branch with
 no local changes, after you confirm. Outside a git clone it reads the version
 of `HostBadger.ps1` on the main branch (one GET to raw.githubusercontent.com)
-and tells you if a newer one is out. Nothing else in the window uses the
-network unless you ask for a download or the AI step.
+and tells you if a newer one is out. **Check for updates each time the window
+opens** in Settings (off by default) runs the same check at every start, and
+installs nothing by itself. Nothing else in the window uses the network unless
+you ask for a download or the AI step.
 
 ## Quick start
 
@@ -798,7 +803,10 @@ or, without one, when they have the same title.
   Credential Manager folders to count the saved credential files: no
   password, key, credential or history line is kept. Only with `-NamedPipes`
   it opens each named pipe for reading for a moment to read its permissions
-  (nothing is sent or read through it).
+  and, through the one P/Invoke it compiles (`GetNamedPipeServerProcessId`,
+  kernel32), the process that exposes it (nothing is sent or read through the
+  pipe). That call is read-only and is the only compiled C# the safety review
+  allows, in the collector alone.
   It reads the audit policy with `auditpol /backup` and the
   local security policy with `secedit /export`, each into a temporary file
   that is deleted right away. It never uses `/configure` or `/import`. When
@@ -909,7 +917,7 @@ standard user with Defender in passive mode.
     [-SnapshotPassword <SecureString>] [-SnapshotPfx <file.pfx> [-SnapshotPfxPassword <SecureString>]]   # open encrypted .hbx snapshots (asked for when missing)
     [-HideCis] [-HideStig]                       # keep those findings out of the HTML listing (CSV and JSON Lines keep them)
     [-AiIncludeStig]                             # also send the STIG findings to Gemini (large prompt, may time out)
-    [-SendToAI [-AiConfirm]] [-AiDryRun prompt.txt] [-ApiKey <key>] [-Model gemini-3.8-flash] [-AiMaxAttempts 3]
+    [-SendToAI [-AiConfirm]] [-AiDryRun prompt.txt] [-AiReport report.html] [-ApiKey <key>] [-Model gemini-3.8-flash] [-AiMaxAttempts 3]
     [-OutLog run.log] | [-NoLog]                 # run log, default <report>.log next to the report
 
 .\Collect-HostSnapshot.ps1 [-OutDir <folder>] [-NoZip] [-SkipAcl] [-CheckUpdates]   # -CheckUpdates: the Windows Update service searches for missing updates (network)
@@ -1126,6 +1134,7 @@ $env:GEMINI_API_KEY = '<key>'
 .\HostBadger.ps1 -Snapshot .\snapshots\ -OutHtml fleet.html -AiDryRun prompt.txt   # see exactly what would go out, send nothing
 .\HostBadger.ps1 -Snapshot .\snapshots\ -OutHtml fleet.html -SendToAI -AiConfirm   # read the prompt first, then answer y/N
 .\HostBadger.ps1 -Snapshot .\snapshots\ -OutHtml fleet.html -SendToAI              # unattended
+.\HostBadger.ps1 -AiReport fleet.html -Snapshot .\snapshots\ -SendToAI             # on a report already written: nothing analyzed or downloaded
 ```
 
 The launcher offers the same thing right after it writes the report.

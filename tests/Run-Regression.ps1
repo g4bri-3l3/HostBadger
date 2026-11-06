@@ -171,6 +171,8 @@ Assert-True (@($oldLpRes.Findings | Where-Object { $newTypes -contains $_.Type -
 $surfTypes = @('print_spooler_no_printers', 'wsl_distribution_installed', 'client_hypervisor_enabled', 'named_pipe_writable_by_everyone', 'office_addin_unsigned', 'credential_manager_saved', 'defender_asr_exclusion_broad', 'shadow_copies_disabled', 'windows_hello_software_keys', 'firewall_inbound_user_program')
 Assert-Equal ((@(foreach ($sn in $hard, $lap) { $sn.Findings | Where-Object { $surfTypes -contains $_.Type } }) | ForEach-Object { "$($_.Type) $($_.Object)" }) -join '; ') '' 'attack surface: the hardened server and the laptop (a signed Office add-in, a TPM behind the PIN, a printer, few saved credentials) have none'
 Assert-True ((Has $weak 'named_pipe_writable_by_everyone' 'pipe: FabrikamUpdaterPipe' 'Low') -and -not (Has $weak 'named_pipe_writable_by_everyone' 'pipe: lsass') -and (Has $weak 'office_addin_unsigned' 'add-in: Excel PriceSync.Connect' 'High') -and -not (Has $weak 'office_addin_unsigned' 'add-in: Outlook UCAddin.LyncAddin.1')) 'attack surface: a vendor pipe open to everyone is a lead, Windows'' own RPC pipes are not; an unsigned add-in in the profile is High, a signed one is not reported'
+$pipeFind = @($weak.Findings | Where-Object { $_.Type -eq 'named_pipe_writable_by_everyone' -and $_.Object -eq 'pipe: FabrikamUpdaterPipe' })[0]
+Assert-True ($pipeFind -and $pipeFind.Detail -match 'Exposed by FabrikamUpdaterSvc\.exe \(C:\\Program Files\\Fabrikam\\FabrikamUpdaterSvc\.exe\)\.') 'named pipes: the finding names the process that exposes the pipe (collector GetNamedPipeServerProcessId)'
 Assert-True ((Has $weak 'defender_asr_exclusion_broad' 'ASR: C:\Users\jsmith\AppData\Local\Temp' 'High') -and (Has $weak 'defender_asr_exclusion_broad' 'ASR d4f940ab-401b-4efc-aadc-ad5f3c50688a: C:\Program Files\Contoso ERP\erp.exe' 'Medium') -and (Has $weak 'firewall_inbound_user_program' 'program: C:\Users\jsmith\Downloads\AnyDesk.exe' 'Medium') -and @($weak.Findings | Where-Object { $_.Type -eq 'firewall_inbound_user_program' }).Count -eq 1) 'attack surface: an ASR exclusion of Temp is High, a per-rule one of a program Medium; two rules of one program in Downloads on the Public profile are one Medium finding'
 Assert-True ((Has $weak 'shadow_copies_disabled' 'service: VSS' 'Medium') -and (Has $weak 'shadow_copies_disabled' 'policy: DisableSR' 'Low') -and (Has $weak 'windows_hello_software_keys' 'Windows Hello' 'Medium') -and (Has $weak 'credential_manager_saved' 'profile: jsmith' 'Low') -and (Has $weak 'wsl_distribution_installed' 'WSL: Ubuntu-24.04 (jsmith)' 'Low') -and (Has $weak 'client_hypervisor_enabled' 'feature: Hyper-V' 'Low')) 'attack surface: VSS disabled, System Restore off, Hello without a TPM, saved credentials, WSL and Hyper-V on the weak workstation'
 $noPipes = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_weak.json'); $noPipes.meta.options.namedPipes = $false; $noPipes.surface.namedPipes = $null
@@ -762,7 +764,7 @@ $prompt = [System.IO.File]::ReadAllText($dry)
 $realNames = @('WKS-ACCT-017', 'DC01', 'LT-SALES-112', 'SRV-APP-02', 'WKS-HR-004', 'corp.example', 'jsmith', 'Helpdesk', 'Server Admins', 'LocalAdm',
     'VendorAgent', 'PrintHelper', 'TrayHelper', 'Inventory', 'tvnserver', 'Contoso', 'C:\Users\Public', 'S-1-5-21', 'Intel(R)',
     'svc_backup', 'svc_sync', 'UpdaterCheck', 'CafeGuest', 'Fabrikam', 'NightlySync', 'C:\Python27', 'C:\Python39', 'C:\Tools', 'Python 3.9.13', 'mbianchi', 'Acme Ledger Bridge',
-    'helper$', 'ScanDrop', 'SysCacheSvc', 'WinHelperSvc', 'Font cache refresh', 'cdn.example.net', '203.0.113.10', 'LogonNotify', 'NtpExtra', 'OldAgentSvc', 'pricing.xll', 'certhelp', 'crashmon', 'PriceSync', 'pricesync64', 'FabrikamUpdaterPipe', 'Ubuntu-24.04', 'AnyDesk.exe', 'Contoso ERP')
+    'helper$', 'ScanDrop', 'SysCacheSvc', 'WinHelperSvc', 'Font cache refresh', 'cdn.example.net', '203.0.113.10', 'LogonNotify', 'NtpExtra', 'OldAgentSvc', 'pricing.xll', 'certhelp', 'crashmon', 'PriceSync', 'pricesync64', 'FabrikamUpdaterPipe', 'FabrikamUpdaterSvc.exe', 'Ubuntu-24.04', 'AnyDesk.exe', 'Contoso ERP')
 $leaked = @($realNames | Where-Object { $prompt.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
 Assert-Equal ($leaked -join ', ') '' 'AI prompt contains no real host, account, path, service or SID'
 Assert-True ($prompt -match 'HOST-1' -and $prompt -match 'Coverage gaps' -and $prompt -match 'PATH-\d+') 'AI prompt is tokenized and lists coverage gaps'
@@ -829,6 +831,49 @@ Assert-True ($aiHtml -match '<div class="meta">[^<]*analysis [\d.,]+s &middot; A
 Assert-True ($aiHtml -match '(?s)Hosts to work on first.*WKS-ACCT-017') 'tokens in the reply are turned back into host names'
 Assert-True ($aiHtml -match 'Turn UAC back on' -and $aiHtml -notmatch 'Invented work package') 'items about checks that did not fire are dropped'
 Assert-True ($aiHtml -notmatch 'HOST-99') 'unknown host tokens are dropped'
+
+# -AiReport: the AI step on a report already written. The findings and the scores are read back from it,
+# nothing is analyzed: the prompt is the one the analysis itself writes, comparison included.
+$arDir = Join-Path $aiOut 'report'; New-Item -ItemType Directory -Path $arDir -Force | Out-Null
+$arRows = @(Import-Csv -LiteralPath (Join-Path $aiOut 'dry.csv'))
+$arPrev = Join-Path $arDir 'previous.csv'
+$arGone = $arRows[1].PSObject.Copy(); $arGone.Object = 'something fixed since'
+@(@($arRows | Select-Object -Skip 3) + @($arGone)) | Export-Csv -LiteralPath $arPrev -NoTypeInformation -Encoding UTF8
+$arHtml = Join-Path $arDir 'a.html'; $arDirect = Join-Path $arDir 'direct.txt'; $arRead = Join-Path $arDir 'read.txt'
+& (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml $arHtml -CompareTo $arPrev -AiDryRun $arDirect *>&1 | Out-Null
+$arBefore = [System.IO.File]::ReadAllText($arHtml)
+$arOut = @(& (Join-Path $root 'HostBadger.ps1') -AiReport $arHtml -Snapshot $fleet, $fleet -AiDryRun $arRead *>&1 | ForEach-Object { "$_" })
+Assert-Equal ([System.IO.File]::ReadAllText($arRead)) ([System.IO.File]::ReadAllText($arDirect)) '-AiReport: the prompt read back from a report is the prompt of its analysis'
+Assert-True ([System.IO.File]::ReadAllText($arDirect) -match 'Comparison with the previous run' -and @($arOut | Where-Object { $_ -like 'Hosts analyzed:*' }).Count -eq 0 -and [System.IO.File]::ReadAllText($arHtml) -ceq $arBefore) '-AiReport: nothing analyzed, and a dry run leaves the report as it is'
+$arNoSnap = Join-Path $arDir 'nosnap.txt'; $arEmpty = Join-Path $arDir 'empty'; New-Item -ItemType Directory -Path $arEmpty -Force | Out-Null
+$arMissing = @(& (Join-Path $root 'HostBadger.ps1') -AiReport $arHtml -Snapshot $arEmpty -AiDryRun $arNoSnap *>&1 | ForEach-Object { "$_" })
+$arOld = Join-Path $arDir 'old.html'; [System.IO.File]::WriteAllText($arOld, '<html></html>'); [System.IO.File]::WriteAllText((Join-Path $arDir 'old.csv'), 'Severity,Type')
+$arNoSum = @(& (Join-Path $root 'HostBadger.ps1') -AiReport $arOld -Snapshot $fleet -AiDryRun $arNoSnap *>&1 | ForEach-Object { "$_" })
+Assert-True (@($arMissing | Where-Object { $_ -like 'AI report: the snapshot of this report was not found*Nothing written or sent.' }).Count -eq 1 -and @($arNoSum | Where-Object { $_ -like 'AI report: old.html cannot be used*' }).Count -eq 1 -and -not (Test-Path -LiteralPath $arNoSnap)) '-AiReport: without the snapshot of the report (the names to hide) or its summary nothing is written or sent'
+# A send goes through the same pseudonymizer and adds the section to the report, replacing an earlier one.
+$arListener = New-Object System.Net.HttpListener; $arListener.Prefixes.Add("http://localhost:$port/"); $arListener.Start()
+$arCap = [hashtable]::Synchronized(@{})
+$arPs = [powershell]::Create()
+[void]$arPs.AddScript({
+        param($l, $resp, $c)
+        $ctx = $l.GetContext()
+        $c.Body = (New-Object System.IO.StreamReader($ctx.Request.InputStream)).ReadToEnd()
+        $bytes = [Text.Encoding]::UTF8.GetBytes($resp)
+        $ctx.Response.ContentType = 'application/json'
+        $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length); $ctx.Response.Close()
+    }).AddArgument($arListener).AddArgument($reply).AddArgument($arCap)
+$arAsync = $arPs.BeginInvoke()
+$env:HOSTBADGER_GEMINI_BASEURL = "http://localhost:$port"
+try {
+    & (Join-Path $root 'HostBadger.ps1') -AiReport (Join-Path $aiOut 'r.html') -Snapshot $fleet -SendToAI -ApiKey 'test-key' -Model 'second-model' -AiMaxAttempts 1 *>&1 | Out-Null
+    [void]$arAsync.AsyncWaitHandle.WaitOne(5000)
+}
+finally { $env:HOSTBADGER_GEMINI_BASEURL = $script:NoGemini; try { $arListener.Stop() } catch { }; $arPs.Dispose() }
+Assert-Equal (@($realNames | Where-Object { "$($arCap.Body)".IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 }) -join ', ') '' '-AiReport: the request body carries no real name'
+$arSent = [System.IO.File]::ReadAllText((Join-Path $aiOut 'r.html'))
+$arMark = '<script type="application/json" id="hostbadger-summary">'
+$arJs = $arSent.Substring($arSent.LastIndexOf($arMark) + $arMark.Length); $arSum = $arJs.Substring(0, $arJs.IndexOf('</script>')) | ConvertFrom-Json
+Assert-True ([regex]::Matches($arSent, "<div class='ai-section'>").Count -eq 1 -and $arSent -match '<div class="meta">[^<]*analysis [\d.,]+s &middot; AI second-model [\d.,]+s</div>' -and $arSent -notmatch 'AI mock-model' -and "$($arSum.ai.model)" -eq 'second-model' -and @($arSum.ai.plan).Count -eq 1 -and @($arSum.hosts).Count -eq 5) '-AiReport: the section, the line under the title and the summary of the report are replaced'
 # The launcher, driven with typed answers (menu 2, then the offer that follows the report): "d"
 # writes the prompt and sends nothing, "n" leaves it alone.
 $psExe = (Get-Process -Id $PID).Path
@@ -1118,6 +1163,9 @@ $kevSample = Join-Path $work 'kev_sample.json'
                 @{ cveID = 'CVE-2026-4004'; vendorProject = 'Microsoft'; product = 'Windows SMB'; vulnerabilityName = 'SMB flaw'; dateAdded = '2026-06-01'; knownRansomwareCampaignUse = 'Known' },
                 @{ cveID = 'CVE-2026-5005'; vendorProject = 'Fabrikam'; product = 'Reporting Suite'; vulnerabilityName = 'Not installed anywhere'; dateAdded = '2026-07-01'; knownRansomwareCampaignUse = 'Unknown' })
         } | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding($false)))
+# An entry whose product is only the vendor's name matches its own product, not all of that vendor.
+$kevGeneric = @([PSCustomObject]@{ Cve = 'CVE-2026-6006'; Vendor = 'Microsoft'; Product = 'Microsoft'; Name = 'Microsoft Exchange Server Cross-Site Scripting Vulnerability'; DateAdded = '2026-05-15'; Ransomware = $false }, [PSCustomObject]@{ Cve = 'CVE-2026-6007'; Vendor = 'ImageMagick'; Product = 'ImageMagick'; Name = 'ImageMagick Flaw'; DateAdded = '2026-05-15'; Ransomware = $false })
+Assert-Equal (@(Get-KevIndex $kevGeneric | ForEach-Object { "$($_.Vendor)|$($_.Product)" } | Sort-Object) -join ', ') 'ImageMagick|ImageMagick, Microsoft|Exchange Server' 'KEV: a product that is only the name of a vendor with many products comes from the title'
 $kevParsed = @(ConvertFrom-KevCatalog ([System.IO.File]::ReadAllText($kevSample)))
 Assert-True ($kevParsed.Count -eq 5 -and @($kevParsed | Where-Object { $_.Ransomware }).Count -eq 2) 'KEV: the catalog is parsed (cve, vendor, product, date, ransomware use)'
 $cfgKev = $config.Clone(); $cfgKev['Kev'] = $kevParsed
@@ -1432,6 +1480,11 @@ $script:RunAi = 'N'; $offNo = @{ OutHtml = 'x.html' }; Add-AiOffer $offNo
 $offSaved = @{ OutHtml = 'x.html'; SendToAI = $true }; $script:RunAi = ''; Add-AiOffer $offSaved
 $contNone = @(& (Join-Path $root 'HostBadger.ps1') -AiContinue -AiDryRun (Join-Path $offerDir 'none.txt') *>&1 | ForEach-Object { "$_" })
 Assert-True (-not $offNo.ContainsKey('AiLater') -and -not $offSaved.ContainsKey('AiLater') -and @($contNone | Where-Object { $_ -like 'No analysis kept for the AI step*' }).Count -eq 1 -and -not (Test-Path -LiteralPath (Join-Path $offerDir 'none.txt'))) 'AI offer: not offered when the global settings turn it off or the run has an AI mode; -AiContinue without a kept analysis does nothing'
+& (Join-Path $root 'HostBadger.ps1') @offerParams *>&1 | Out-Null
+$contFirst = @(& (Join-Path $root 'HostBadger.ps1') -AiContinue -SendToAI -ApiKey '' *>&1 | ForEach-Object { "$_" })
+$contSecond = @(& (Join-Path $root 'HostBadger.ps1') -AiContinue -AiDryRun (Join-Path $offerDir 'again.txt') *>&1 | ForEach-Object { "$_" })
+$global:HostBadgerAiPending = $null
+Assert-True (@($contFirst | Where-Object { $_ -like 'ERROR: no API key*' }).Count -eq 1 -and @($contSecond | Where-Object { $_ -like 'No analysis kept*' }).Count -eq 0 -and (Test-Path -LiteralPath (Join-Path $offerDir 'again.txt'))) 'a send that failed leaves the analysis in memory: the next AI step does not analyze again'
 Remove-Item Function:\Read-AiMode, Function:\Add-AiParams, Function:\Invoke-Sub, Function:\Invoke-AiOffer, Function:\Add-AiOffer
 # -DriversFile reads the copy kept by -DriversOnline (and the original drivers.json, through the same converter).
 $dfOut = Join-Path $work 'driversfile'; New-Item -ItemType Directory -Path $dfOut -Force | Out-Null
@@ -1592,6 +1645,20 @@ Assert-True ((Test-Path -LiteralPath $gitAttr) -and ([System.IO.File]::ReadAllTe
 $guiOut = (& (Join-Path $root 'Start-HostBadgerGui.ps1') -NoShow *>&1 | ForEach-Object { "$_" }) -join "`n"
 Assert-True ($guiOut -match 'GUI ready: \d+ controls, 6 catalogs, version \d+\.\d+; settings: \d+ controls, 6 catalogs, 5 fix levels') "window: builds without errors ($($guiOut -replace '\s+', ' '))"
 Assert-True ($guiOut -match 'Fix button: nothing chosen False, no level False, no level with debloat True, a level True') "window: Fix this machine only when there is something to change ($($guiOut -replace '\s+', ' '))"
+# The update check at every start: off without the setting, on with it, and never with -NoShow (no network here).
+$auDir = Join-Path $work 'autoupdate'
+[void](New-Item -ItemType Directory -Path (Join-Path $auDir 'output') -Force)
+Push-Location $auDir
+try {
+    $auOff = (& (Join-Path $root 'Start-HostBadgerGui.ps1') -NoShow *>&1 | ForEach-Object { "$_" }) -join "`n"
+    [System.IO.File]::WriteAllText((Join-Path $auDir 'output\hostbadger-settings.json'), '{"version":2,"AutoUpdateCheck":true}')
+    $auOn = (& (Join-Path $root 'Start-HostBadgerGui.ps1') -NoShow *>&1 | ForEach-Object { "$_" }) -join "`n"
+}
+finally { Pop-Location }
+Assert-True ($auOff -match 'Auto update check: setting False, box False' -and $auOn -match 'Auto update check: setting True, box True') "window: the update check at start is off by default and read from Settings ($($auOn -replace '\s+', ' '))"
+$auGui = [System.IO.File]::ReadAllText((Join-Path $root 'Start-HostBadgerGui.ps1'))
+$auMenu = [System.IO.File]::ReadAllText((Join-Path $root 'Start-HostBadger.ps1'))
+Assert-True ($auGui -match 'Add_ContentRendered\(\{ Show-Results \$script:LastReport; if \(Test-AutoUpdateCheck\) \{ Invoke-UpdateCheck \} \}\)' -and $auGui -match 'AutoUpdateCheck = \[bool\]\$su\.SetAutoUpdate\.IsChecked' -and $auMenu -match 'AutoUpdateCheck = \$false') 'window: the update check runs once the window is shown, Settings saves it, and saving menu 8 keeps it'
 Assert-True ($guiOut -match 'Fix tab: button in Fix, options in Fix, scripts option in Analyze, log repeated True') "window: the fixes have their own tab, with the log ($($guiOut -replace '\s+', ' '))"
 # Fix with no fix of the findings writes the debloat and telemetry script for this machine's role at
 # once, without a collection or an analysis, and loads nothing into the runspace it runs in.
@@ -1613,6 +1680,9 @@ $pmFile = @(Get-ChildItem -LiteralPath $pmDir -Filter 'remediate_*.ps1' -ErrorAc
 $pmText = if ($pmFile.Count) { [System.IO.File]::ReadAllText($pmFile[0].FullName) } else { '' }
 Assert-True ($pmOut.Count -eq 1 -and $pmFile.Count -eq 1 -and $pmText -match '# ---- privacy: privacy and telemetry' -and $pmText -notmatch 'Remove-HbAppx -Id' -and $pmText -notmatch '# ---- [a-z_]+: .*finding\(s\)\)') 'launcher: remediation with debloat and telemetry only writes its script without an analysis, apps left to the menu'
 Assert-True ($guiOut -match 'Apply question: shown Visible True, withdrawn Collapsed False') "window: the apply question is a panel in the Fix tab, not a dialog ($($guiOut -replace '\s+', ' '))"
+Assert-True ($guiOut -match 'AI offer: Send to Gemini / Dry run \(write the prompt only\) / Not now; send with a key True, without False') "window: the AI question after an analysis, no send without the key ($($guiOut -replace '\s+', ' '))"
+$aiGui = [System.IO.File]::ReadAllText((Join-Path $root 'Start-HostBadgerGui.ps1'))
+Assert-True ($aiGui -match "elseif \(\`$ok\) \{ \`$ui\.Tabs\.SelectedItem = \`$ui\.TabResults; Invoke-AiOffer \}" -and $aiGui -match "\`$ai = @\{ AiReport = \`$target; Snapshot = \`$sources \}" -and $aiGui -match 'if \(-not \$script:Kept -and -not \(Select-AiReport\)\) \{ return \}' -and $aiGui -notmatch 'analyzed again into') 'window: the AI question follows an analysis, and with no analysis in memory the AI buttons ask for a report and never analyze'
 Assert-True ($guiOut -match 'Fix reuse: recent True, older False, other options False, same choices elsewhere True, other choices False') "window: Fix this machine reuses only a recent collection with the same options, and its analysis only with the same choices ($($guiOut -replace '\s+', ' '))"
 $guiSrc = [System.IO.File]::ReadAllText((Join-Path $root 'Start-HostBadgerGui.ps1'))
 Assert-True ($guiSrc -notmatch "'HostBadger: apply the fixes', 'YesNo'" -and $guiSrc -match 'x:Name="ApplyNoBtn"' -and $guiSrc -notmatch 'ApplyYesBtn"[^>]*IsDefault') 'window: applying needs the Apply button of the panel, never a default answer'

@@ -246,6 +246,14 @@
     Run only the AI step (with -SendToAI or -AiDryRun and their options) on
     the analysis kept by an -AiLater run in the same PowerShell session, and
     add its section to that report.
+.PARAMETER AiReport
+    Run only the AI step (with -SendToAI or -AiDryRun and their options) on a
+    report already written: its findings come from the report and its CSV,
+    nothing is analyzed and no catalog is read or downloaded, and the AI
+    section is added to that report. -Snapshot must still reach the snapshots
+    of its hosts, as collected then: their names, accounts and paths are what
+    the prompt replaces with tokens, so without them nothing is written or
+    sent. A file or folder works; only the files of those hosts are read.
 .PARAMETER ApiKey
     Gemini API key. Defaults to $env:GEMINI_API_KEY.
 .PARAMETER Model
@@ -313,6 +321,7 @@ param(
     [string]$AiDryRun = '',
     [switch]$AiLater,
     [switch]$AiContinue,
+    [string]$AiReport = '',
     [switch]$Nis2Acn,
     [string]$ApiKey = $env:GEMINI_API_KEY,
     [string]$Model = 'gemini-3.8-flash',
@@ -325,7 +334,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:HostBadgerVersion = '2.3'
+$script:HostBadgerVersion = '2.4'
 . (Join-Path $PSScriptRoot 'lib\Common.ps1')
 . (Join-Path $PSScriptRoot 'lib\Checks.ps1')
 . (Join-Path $PSScriptRoot 'lib\AI.ps1')
@@ -335,7 +344,7 @@ $script:HostBadgerVersion = '2.3'
 Write-Host @'
      _.--""--._
    .'  |    |  '.
-  /    |    |    \      HostBadger v2.3
+  /    |    |    \      HostBadger v2.4
  |  (o)|    |(o)  |     Windows host hardening
  |     |    |     |     read-only snapshots, offline analysis
   \    '.__.'    /
@@ -401,7 +410,8 @@ $aiStep = {
     # Time spent waiting for Gemini (retries included), shown next to the analysis time.
     $aiResult | Add-Member -NotePropertyName ElapsedText -NotePropertyValue (& $fmtElapsed ((Get-Date) - $aiStarted)) -Force
 
-    $html = ConvertTo-ReportHtml -Hosts $hosts.ToArray() -Split $split -Comparison $comparison -Config $config -ToolVersion $script:HostBadgerVersion -ElapsedText $elapsedText -AiResult $aiResult -Remediation $remInfo -HideCis:$HideCis -HideStig:$HideStig -KevLoaded:([bool]$config.Kev)
+    $html = if ($aiOnReport) { Add-AiSectionToReportHtml -Html ([System.IO.File]::ReadAllText($htmlFull)) -AiResult $aiResult }
+    else { ConvertTo-ReportHtml -Hosts $hosts.ToArray() -Split $split -Comparison $comparison -Config $config -ToolVersion $script:HostBadgerVersion -ElapsedText $elapsedText -AiResult $aiResult -Remediation $remInfo -HideCis:$HideCis -HideStig:$HideStig -KevLoaded:([bool]$config.Kev) }
     [System.IO.File]::WriteAllText($htmlFull, $html, (New-Object System.Text.UTF8Encoding($false)))
     Write-Host "AI section added to $OutHtml ($(@($aiResult.RemediationPlan).Count) remediation items)." -ForegroundColor Green
 }
@@ -409,13 +419,74 @@ $aiStep = {
 # -AiContinue: only the AI step, on the analysis kept by -AiLater in this PowerShell session (the guided
 # menu asks about the AI summary once the report is out, without analyzing again). Never on disk.
 if ($AiContinue) {
+    # The analysis stays for the next AI step (a dry run then a send, a send that failed); the next
+    # analysis replaces it.
     $st = $global:HostBadgerAiPending
-    # A dry run leaves the analysis for a send (the window offers both); a send uses it up.
-    if (-not $AiDryRun -or $SendToAI) { $global:HostBadgerAiPending = $null }
     if (-not $st) { Write-Host 'No analysis kept for the AI step in this session: run the analysis again with -SendToAI or -AiDryRun.' -ForegroundColor Yellow; return }
     $active = $st.Active; $hosts = $st.Hosts; $latest = $st.Latest; $comparison = $st.Comparison; $split = $st.Split; $config = $st.Config
     $remInfo = $st.Remediation; $elapsedText = $st.ElapsedText; $htmlFull = $st.HtmlFull; $OutHtml = $st.OutHtml
     $HideCis = [switch]$st.HideCis; $HideStig = [switch]$st.HideStig
+    . $aiStep
+    return
+}
+# Encrypted snapshots (.hbx) in $files: the password is asked for once, a .pfx is loaded once.
+$openHbx = {
+    $encModes = @($files | ForEach-Object { Get-SnapshotEncryption $_ } | Where-Object { $_ } | Sort-Object -Unique)
+    if ($encModes -contains 'password') {
+        if (-not $SnapshotPassword) { $SnapshotPassword = Read-Host 'Password of the encrypted snapshots' -AsSecureString }
+        $script:HbxPassword = $SnapshotPassword
+    }
+    if ($encModes -contains 'certificate' -and $SnapshotPfx) {
+        if (-not $SnapshotPfxPassword) { $SnapshotPfxPassword = Read-Host "Password of $SnapshotPfx" -AsSecureString }
+        $script:HbxPfxCerts = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection
+        $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SnapshotPfxPassword)
+        try {
+            $pfxPath = (Resolve-Path -LiteralPath $SnapshotPfx).Path
+            # EphemeralKeySet keeps the private key in memory only; without it .NET writes it to the user profile.
+            try { $script:HbxPfxCerts.Import($pfxPath, [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr), [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet) }
+            catch { $script:HbxPfxCerts.Import($pfxPath, [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr), [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::DefaultKeySet) }
+        }
+        finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+    }
+}
+# -AiReport: only the AI step, on a report already written. Its findings and scores are read back from
+# it; the snapshots of its hosts are read only for the pseudonymizer. "AI report:" lines are what the
+# window shows the user when this stops.
+if ($AiReport) {
+    $aiNo = { param($why) Write-Host "AI report: $why Nothing written or sent." -ForegroundColor Yellow }
+    if (-not $SendToAI -and -not $AiDryRun) { & $aiNo '-AiReport needs -SendToAI or -AiDryRun.'; return }
+    if (-not (Test-Path -LiteralPath $AiReport)) { & $aiNo "$AiReport not found."; return }
+    if (-not $Snapshot -or $Snapshot.Count -eq 0) { & $aiNo '-AiReport needs -Snapshot: the names to replace with tokens come from the snapshots.'; return }
+    $htmlFull = (Resolve-Path -LiteralPath $AiReport).Path
+    $OutHtml = $AiReport
+    try { $fromReport = Import-ReportForAi $htmlFull } catch { & $aiNo "$(Split-Path -Leaf $htmlFull) cannot be used: $($_.Exception.Message)"; return }
+    try { $files = @(Get-SnapshotFiles $Snapshot | Select-Object -Unique) } catch { & $aiNo "$($_.Exception.Message)."; return }
+    $reportHosts = @{}
+    foreach ($rh in $fromReport.Hosts) { $reportHosts[$rh.Name.ToUpper()] = $rh }
+    # A folder can hold many other hosts: only the files named after these ones, when each host has one.
+    $named = @($files | Where-Object {
+            $leaf = Split-Path -Leaf $_
+            @($reportHosts.Keys | Where-Object { $leaf.ToUpper().Contains(($_ -replace '[^\w\-]', '_')) }).Count -gt 0
+        })
+    if ($named.Count -ge $reportHosts.Count) { $files = $named }
+    . $openHbx
+    $latest = @{}
+    $readIndex = 0
+    foreach ($f in $files) {
+        $readIndex++
+        Step-Spinner "Reading snapshots ($readIndex of $($files.Count))"
+        try { $s = Import-HostSnapshot $f }
+        catch { Stop-Spinner; Write-Warning $_.Exception.Message; continue }
+        $name = (Get-SnapshotHostName $s).ToUpper()
+        # The very snapshot of the report (the minute is what the report keeps): another one may not
+        # name the same accounts and paths.
+        if ($reportHosts.ContainsKey($name) -and ((ConvertTo-UtcDate $s.meta.collectedAtUtc).ToString('yyyyMMddHHmm') -replace '\D') -eq ($reportHosts[$name].Collected -replace '\D')) { $latest[$name] = $s }
+    }
+    Stop-Spinner
+    $missing = @($reportHosts.Keys | Where-Object { -not $latest.ContainsKey($_) } | Sort-Object | ForEach-Object { "$($reportHosts[$_].Name) ($($reportHosts[$_].Collected))" })
+    if ($missing.Count) { & $aiNo "the snapshot of this report was not found for $($missing -join ', '). It holds the names to replace with tokens: choose it as the snapshot to analyze, or analyze again."; return }
+    $active = $fromReport.Findings; $hosts = $fromReport.Hosts; $comparison = $fromReport.Comparison
+    $aiOnReport = $true
     . $aiStep
     return
 }
@@ -653,24 +724,7 @@ try {
     $files = @(Get-SnapshotFiles $Snapshot)
     if ($files.Count -eq 0) { Write-Host 'No hostsnapshot_*.json, .zip or .hbx found.' -ForegroundColor Red; return }
 
-    # Encrypted snapshots (.hbx): the password is asked for once, a .pfx is loaded once.
-    $encModes = @($files | ForEach-Object { Get-SnapshotEncryption $_ } | Where-Object { $_ } | Sort-Object -Unique)
-    if ($encModes -contains 'password') {
-        if (-not $SnapshotPassword) { $SnapshotPassword = Read-Host 'Password of the encrypted snapshots' -AsSecureString }
-        $script:HbxPassword = $SnapshotPassword
-    }
-    if ($encModes -contains 'certificate' -and $SnapshotPfx) {
-        if (-not $SnapshotPfxPassword) { $SnapshotPfxPassword = Read-Host "Password of $SnapshotPfx" -AsSecureString }
-        $script:HbxPfxCerts = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection
-        $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SnapshotPfxPassword)
-        try {
-            $pfxPath = (Resolve-Path -LiteralPath $SnapshotPfx).Path
-            # EphemeralKeySet keeps the private key in memory only; without it .NET writes it to the user profile.
-            try { $script:HbxPfxCerts.Import($pfxPath, [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr), [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet) }
-            catch { $script:HbxPfxCerts.Import($pfxPath, [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr), [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::DefaultKeySet) }
-        }
-        finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
-    }
+    . $openHbx
 
     # Several snapshots of one host: the newest one counts.
     $latest = @{}

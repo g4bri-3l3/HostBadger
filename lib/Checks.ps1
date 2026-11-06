@@ -1526,6 +1526,10 @@ $script:KevProductStop = @('and', 'for', 'the', 'of', 'with')
 # Windows components that the patch checks already cover.
 $script:KevOsProduct = '(?i)\bwindows\b|win32k|\.net framework|\bdwm\b|\bsmb\b|\bkernel\b|ntlm|print spooler|common log file|desktop window|internet explorer|\bole\b|\bmshtml\b|\bactive directory\b'
 
+# Vendors with many products, whose name alone says nothing about what is installed. A vendor with one
+# product (ImageMagick, Notepad++) is matched by its name, as the catalog gives it.
+$script:KevManyProducts = @('Microsoft', 'Google', 'Apple', 'Adobe', 'Oracle', 'Cisco', 'IBM', 'VMware', 'Mozilla')
+
 $script:KevIndexCache = $null
 function Get-KevIndex {
     param($Kev)
@@ -1534,6 +1538,13 @@ function Get-KevIndex {
     $groups = @{}
     foreach ($e in $items) {
         if ("$($e.Vendor)" -match '(?i)^microsoft' -and "$($e.Product)" -match $script:KevOsProduct) { continue }
+        # A catalog entry whose product is only the vendor's name ("Microsoft" for an Exchange flaw) would
+        # match everything of that vendor: the product is the two words after the vendor in its title.
+        if ("$($e.Product)" -ieq "$($e.Vendor)" -and $script:KevManyProducts -contains "$($e.Vendor)") {
+            $words = @(("$($e.Name)" -replace "(?i)^$([regex]::Escape("$($e.Vendor)"))\s+", '').Split(' ') | Where-Object { $_ })
+            if ($words.Count -lt 3) { continue }
+            $e = [PSCustomObject]@{ Cve = $e.Cve; Vendor = $e.Vendor; Product = ($words[0..1] -join ' '); Name = $e.Name; DateAdded = $e.DateAdded; Ransomware = $e.Ransomware }
+        }
         $key = "$($e.Vendor)|$($e.Product)".ToLower()
         if (-not $groups.ContainsKey($key)) {
             $vt = @((ConvertTo-WordText $e.Vendor).Trim().Split(' ') | Where-Object { $_.Length -ge 2 -and $script:KevVendorStop -notcontains $_ })
@@ -4750,7 +4761,8 @@ function Invoke-SurfaceChecks {
     if ((& $can 'named_pipe_writable_by_everyone') -and $sf.namedPipes) {
         foreach ($p in @($sf.namedPipes.writable | Where-Object { $_ -and $_.name -and -not (Test-WindowsPipe "$($_.name)") })) {
             $anon = @($p.sids) -contains 'S-1-5-7'
-            Add-Finding -Type 'named_pipe_writable_by_everyone' -Object "pipe: $($p.name)" -Severity $(if ($anon) { 'Medium' } else { 'Low' }) -Detail "\\.\pipe\$($p.name) may be written to by $((@($p.sids) | ForEach-Object { Get-SidLabel "$_" }) -join ', ') ($($sf.namedPipes.read) of $($sf.namedPipes.total) pipes read, the others were busy)."
+            $serverTxt = if ("$($p.serverProcess)") { " Exposed by $($p.serverProcess)$(if ("$($p.serverPath)") { " ($($p.serverPath))" })." } else { '' }
+            Add-Finding -Type 'named_pipe_writable_by_everyone' -Object "pipe: $($p.name)" -Severity $(if ($anon) { 'Medium' } else { 'Low' }) -Detail "\\.\pipe\$($p.name) may be written to by $((@($p.sids) | ForEach-Object { Get-SidLabel "$_" }) -join ', ').$serverTxt $($sf.namedPipes.read) of $($sf.namedPipes.total) pipes read, the others were busy."
         }
     }
     if (& $can 'office_addin_unsigned') {

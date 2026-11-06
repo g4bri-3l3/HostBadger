@@ -658,7 +658,7 @@ switch ($Scenario) {
         $sf.tpm = [ordered]@{ present = $false; enabled = $false; activated = $false }
         $sf.firewallUserApps = @([ordered]@{ program = 'C:\Users\jsmith\Downloads\AnyDesk.exe'; store = 'local'; profiles = @('Public'); anyRemote = $true; protocol = 6 }, [ordered]@{ program = 'C:\Users\jsmith\Downloads\AnyDesk.exe'; store = 'local'; profiles = @('Public'); anyRemote = $true; protocol = 17 })
         $s.meta.options.namedPipes = $true
-        $sf.namedPipes = [ordered]@{ total = 180; read = 41; writable = @([ordered]@{ name = 'lsass'; sids = @('S-1-1-0') }, [ordered]@{ name = 'FabrikamUpdaterPipe'; sids = @('S-1-1-0', 'S-1-5-11') }) }
+        $sf.namedPipes = [ordered]@{ total = 180; read = 41; writable = @([ordered]@{ name = 'lsass'; sids = @('S-1-1-0') }, [ordered]@{ name = 'FabrikamUpdaterPipe'; sids = @('S-1-1-0', 'S-1-5-11'); serverPid = 4242; serverProcess = 'FabrikamUpdaterSvc.exe'; serverPath = 'C:\Program Files\Fabrikam\FabrikamUpdaterSvc.exe' }) }
         $s.services = @($s.services) + @(Svc 'VSS' 'C:\Windows\system32\vssvc.exe' 'C:\Windows\system32\vssvc.exe' 'LocalSystem' 'Stopped')
         @($s.services)[-1].startMode = 'Disabled'
         $s.defender.asrExclusions = @('C:\Users\jsmith\AppData\Local\Temp')

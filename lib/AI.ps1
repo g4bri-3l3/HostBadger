@@ -208,7 +208,7 @@ function New-HostPseudonymizer {
             }
             foreach ($c in @($sf.credentialFiles | Where-Object { $_ })) { & $add $c.user 'USER' }
             foreach ($r in @($sf.firewallUserApps | Where-Object { $_ })) { & $add $r.program 'PATH' }
-            if ($sf.namedPipes) { foreach ($p in @($sf.namedPipes.writable | Where-Object { $_ -and -not (Test-WindowsPipe "$($_.name)") })) { & $add $p.name 'PIPE' } }
+            if ($sf.namedPipes) { foreach ($p in @($sf.namedPipes.writable | Where-Object { $_ -and -not (Test-WindowsPipe "$($_.name)") })) { & $add $p.name 'PIPE'; & $add $p.serverProcess 'PROC'; & $add $p.serverPath 'PATH' } }
         }
         if ($s.defender) {
             foreach ($x in @($s.defender.asrExclusions | Where-Object { $_ })) { & $add $x 'PATH' }

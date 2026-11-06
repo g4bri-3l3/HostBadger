@@ -24,7 +24,8 @@
     pseudonymized findings; "Check for updates" asks the HostBadger repository
     on GitHub (git fetch of a git clone, otherwise one GET of HostBadger.ps1
     from raw.githubusercontent.com); "Update" runs git pull --ff-only origin
-    main in a git clone on main with no local changes.
+    main in a git clone on main with no local changes. The same check runs at
+    every start only if it is ticked in Settings (off by default).
 
     The saved settings of the guided menu (output\hostbadger-settings.json,
     menu 8) fill the form. Settings writes them back, and each run saves the
@@ -134,6 +135,13 @@ $resources = @'
       <Setter Property="Padding" Value="10,4"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
       <Setter Property="Effect" Value="{x:Null}"/>
+    </Style>
+    <!-- The header actions: one row of buttons of the same size (their UniformGrid sets the width). -->
+    <Style x:Key="Header" TargetType="Button" BasedOn="{StaticResource Ghost}">
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Height" Value="28"/>
+      <Setter Property="Padding" Value="6,0"/>
+      <Setter Property="Margin" Value="6,0,0,0"/>
     </Style>
     <!-- Slim scroll bars in the colors of the page, instead of the grey Windows ones. -->
     <Style x:Key="ThumbInk" TargetType="Thumb">
@@ -322,17 +330,19 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
         </StackPanel>
         <StackPanel DockPanel.Dock="Right" Orientation="Vertical" HorizontalAlignment="Right" VerticalAlignment="Center">
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <Border x:Name="AdminPill" BorderBrush="#161513" BorderThickness="2" Padding="10,3" Margin="0,0,12,0" VerticalAlignment="Center">
-              <TextBlock x:Name="AdminText" FontWeight="Bold"/>
-            </Border>
-            <Button x:Name="ElevateBtn" Content="Restart as administrator"/>
-            <Button x:Name="SettingsBtn" Style="{StaticResource Ghost}" Content="Settings"/>
-            <Button x:Name="SafetyBtn" Style="{StaticResource Ghost}" Content="Safety review" ToolTip="Test-HostBadgerSafety.ps1 reads the scripts (it runs nothing) and lists every command they use, where they write and where they may connect."/>
-            <Button x:Name="UpdateCheckBtn" Style="{StaticResource Ghost}" Content="Check for updates" Margin="0"/>
+            <UniformGrid Rows="1" VerticalAlignment="Center">
+              <Button x:Name="ElevateBtn" Style="{StaticResource Header}" Content="Restart as admin" ToolTip="Restart this window as administrator, in the same folder (Windows asks to confirm)."/>
+              <Button x:Name="SettingsBtn" Style="{StaticResource Header}" Content="Settings"/>
+              <Button x:Name="SafetyBtn" Style="{StaticResource Header}" Content="Safety review" ToolTip="Test-HostBadgerSafety.ps1 reads the scripts (it runs nothing) and lists every command they use, where they write and where they may connect."/>
+              <Button x:Name="UpdateCheckBtn" Style="{StaticResource Header}" Content="Check for updates"/>
+            </UniformGrid>
           </StackPanel>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
             <TextBlock x:Name="UpdateText" VerticalAlignment="Center" Foreground="#5F5A51" Margin="0,0,12,0" TextWrapping="Wrap" MaxWidth="520"/>
-            <Button x:Name="UpdateBtn" Content="Update" Style="{StaticResource Primary}" Margin="0" Visibility="Collapsed"/>
+            <Button x:Name="UpdateBtn" Content="Update" Style="{StaticResource Primary}" Margin="0,0,6,0" Visibility="Collapsed"/>
+            <Border x:Name="AdminPill" BorderBrush="#161513" BorderThickness="2" Padding="10,0" Height="28" VerticalAlignment="Center">
+              <TextBlock x:Name="AdminText" FontWeight="Bold" FontSize="13" VerticalAlignment="Center"/>
+            </Border>
           </StackPanel>
         </StackPanel>
       </DockPanel>
@@ -779,6 +789,7 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
               </StackPanel>
               <CheckBox x:Name="SetAiStig" Grid.Row="4" Grid.Column="1" Content="Also send the DISA STIG findings (a very large prompt may time out)"/>
             </Grid>
+            <CheckBox x:Name="SetAiOffer" Content="Ask about the AI summary after each analysis"/>
             <CheckBox x:Name="SetGeminiRemember" Content="Remember the key for my Windows account (user environment variable GEMINI__API__KEY)"/>
             <TextBlock Style="{StaticResource Muted}" Text="Without it the key is kept for this window only. A key is never written in the settings file."/>
           </StackPanel>
@@ -820,6 +831,14 @@ $windowOpen = '<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/prese
               <RadioButton x:Name="SetEncCert" GroupName="SetEnc" Content="Certificate" Margin="0,4,8,4"/>
               <TextBox x:Name="SetCert" Width="240" Margin="0,4" ToolTip="Path of the .cer file (public certificate) of whoever opens the snapshots, or the thumbprint of a certificate in the store."/>
             </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource Card}">
+          <StackPanel>
+            <TextBlock Text="Updates" Style="{StaticResource H2}"/>
+            <CheckBox x:Name="SetAutoUpdate" Content="Check for updates each time the window opens"/>
+            <TextBlock Style="{StaticResource Muted}" Text="It asks GitHub at every start, like the Check for updates button: git fetch origin in a git clone, otherwise one GET from raw.githubusercontent.com. Nothing is installed without you."/>
           </StackPanel>
         </Border>
       </StackPanel>
@@ -957,6 +976,8 @@ $script:Stopping = $false
 $script:LastReport = ''
 $script:LastSnapshot = ''
 $script:Kept = $false
+# The report was picked with "Other report...": the AI buttons do not ask which one again.
+$script:ReportChosen = $false
 $script:ApplyAfter = $false
 $script:ForFix = $false
 # This machine's last collection in this window (time and options) and the analysis that wrote its fix
@@ -1629,11 +1650,13 @@ function Select-OtherReport {
     # An earlier report for the Results tab and the AI buttons (the analysis in memory belongs to the last run only).
     $d = New-Object Microsoft.Win32.OpenFileDialog; $d.Filter = 'HostBadger reports|*.html'
     $d.InitialDirectory = if ($script:LastReport) { Split-Path -Parent $script:LastReport } else { Get-ReportDir }
-    if (-not $d.ShowDialog()) { return }
+    if (-not $d.ShowDialog()) { return $false }
     if ($d.FileName -ne $script:LastReport) { $script:Kept = $false }
     $script:LastReport = $d.FileName
+    $script:ReportChosen = $true
     Update-AiTarget; Update-Outputs
     Show-Results $script:LastReport
+    return $true
 }
 
 # ---------------- Settings: the guided menu's global settings fill the form.
@@ -1660,6 +1683,7 @@ function Write-Settings {
     if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     [System.IO.File]::WriteAllText($script:SettingsPath, (ConvertTo-Json -InputObject $s), (New-Object System.Text.UTF8Encoding($false)))
 }
+function Test-AutoUpdateCheck { $s = Read-Settings; return [bool]($s -and $s.AutoUpdateCheck) }
 function Get-SnapshotDir { $s = Read-Settings; if ($s -and $s.SnapshotDir) { return (Get-FullPath "$($s.SnapshotDir)") }; return (Join-Path $PWD.ProviderPath 'snapshots') }
 function Get-ReportDir { $s = Read-Settings; if ($s -and $s.ReportDir) { return (Get-FullPath "$($s.ReportDir)") }; return (Join-Path $PWD.ProviderPath 'output') }
 function Update-AiTarget {
@@ -1667,7 +1691,7 @@ function Update-AiTarget {
     if (-not $script:LastReport -or -not (Test-Path -LiteralPath $script:LastReport)) { $ui.AiTargetText.Text = 'AI summary: no report yet. Analyze first, or choose an earlier report.'; return }
     $name = Split-Path -Leaf $script:LastReport
     if ($script:Kept) { $ui.AiTargetText.Text = "AI summary goes into $name (the analysis is in memory)."; return }
-    $ui.AiTargetText.Text = "AI summary goes into $name (earlier report: the snapshot above is analyzed again, then the report is rewritten)."
+    $ui.AiTargetText.Text = "AI summary goes into $name (earlier report: its findings are read, nothing is analyzed or downloaded; its snapshot is needed for the tokens)."
 }
 
 function Update-AiInfo {
@@ -1693,7 +1717,7 @@ function Initialize-Form {
     $ui.AdminText.Text = if ($script:IsAdmin) { 'administrator' } else { 'not administrator' }
     $ui.AdminPill.Background = if ($script:IsAdmin) { New-Brush '#84CC5F' } else { New-Brush '#FBE7B5' }
     $ui.ElevateBtn.Visibility = if ($script:IsAdmin) { 'Collapsed' } else { 'Visible' }
-    $ui.CollectNote.Text = "Read only: nothing on this machine changes. $(if ($script:IsAdmin) { 'Running as administrator: full coverage.' } else { 'Not administrator: some checks will be listed as not evaluated (Restart as administrator for full coverage).' }) The snapshot describes this machine: keep it like any other sensitive file."
+    $ui.CollectNote.Text = "Read only: nothing on this machine changes. $(if ($script:IsAdmin) { 'Running as administrator: full coverage.' } else { 'Not administrator: some checks will be listed as not evaluated (Restart as admin for full coverage).' }) The snapshot describes this machine: keep it like any other sensitive file."
     # A TextBlock, so the long label wraps instead of running out of the card.
     $wu = New-Object System.Windows.Controls.TextBlock
     $wu.Text = "Search missing updates (the Windows Update service contacts $(Get-WuSource))"; $wu.TextWrapping = 'Wrap'
@@ -1850,7 +1874,7 @@ function Update-RemPanel {
     # Analyze never changes anything (it writes the scripts when asked). Fix this machine, whatever the
     # source chosen above, collects and analyzes this machine, previews and applies after a warning.
     Update-Actions
-    $ui.RemWarn.Text = "Fix this machine (button below) CHANGES THIS MACHINE, whatever the Analyze tab has under What to analyze: it collects and analyzes it (with the collection options of This machine there; a collection made in this window in the last $($script:FixReuseMinutes) minutes with the same options is used again; with No fix of the findings nothing is collected, the script holds the debloat and telemetry settings for the role of this machine), previews its fix script in the log and applies it only when you press Apply under the preview$(if ($script:IsAdmin) { '' } else { ' (needs administrator: Restart as administrator first)' }), with a System Restore point first (Windows PowerShell 5.1) and a rollback file of every value changed. Changes marked NOT REVERSIBLE (removed apps, LSA protection) cannot be undone by it. Analyze changes nothing; for other hosts tick Also save a fix script for each host (Report, in the Analyze tab), analyze, and run each script on its host."
+    $ui.RemWarn.Text = "Fix this machine (button below) CHANGES THIS MACHINE, whatever the Analyze tab has under What to analyze: it collects and analyzes it (with the collection options of This machine there; a collection made in this window in the last $($script:FixReuseMinutes) minutes with the same options is used again; with No fix of the findings nothing is collected, the script holds the debloat and telemetry settings for the role of this machine), previews its fix script in the log and applies it only when you press Apply under the preview$(if ($script:IsAdmin) { '' } else { ' (needs administrator: Restart as admin first)' }), with a System Restore point first (Windows PowerShell 5.1) and a rollback file of every value changed. Changes marked NOT REVERSIBLE (removed apps, LSA protection) cannot be undone by it. Analyze changes nothing; for other hosts tick Also save a fix script for each host (Report, in the Analyze tab), analyze, and run each script on its host."
     $ui.RemWarn.Foreground = New-Brush '#3A1714'
     $rep = Get-FullPath $ui.ReportBox.Text.Trim()
     $ui.RemOutText.Text = "Written to $(($rep -replace '\.html?$', ''))_fixes: one remediate_<HOST>.ps1 per host. Preview: .\remediate_<HOST>.ps1   Apply, as administrator on that host: .\remediate_<HOST>.ps1 -Apply"}
@@ -1973,6 +1997,7 @@ function New-SettingsWindow {
     foreach ($n in @(1..6) + 0) { [void]$su.SetAttempts.Items.Add("$n") }
     $su.SetAttempts.SelectedItem = if ($s -and "$($s.AiMaxAttempts)" -match '^[0-6]$') { "$($s.AiMaxAttempts)" } else { '3' }
     $su.SetAiStig.IsChecked = [bool]($s -and $s.AiIncludeStig)
+    $su.SetAiOffer.IsChecked = -not ($s -and "$($s.Ai)" -eq 'N')
     $su.SetGeminiRemember.IsChecked = [bool][Environment]::GetEnvironmentVariable('GEMINI_API_KEY', 'User')
     $su.SetNvdRemember.IsChecked = [bool][Environment]::GetEnvironmentVariable('NVD_API_KEY', 'User')
     Set-KeyState $su.SetGeminiState 'GEMINI_API_KEY'
@@ -2001,6 +2026,7 @@ function New-SettingsWindow {
     }
     if ($s -and $s.Encrypt -eq 'password') { $su.SetEncPass.IsChecked = $true } elseif ($s -and $s.Encrypt -eq 'certificate') { $su.SetEncCert.IsChecked = $true } elseif ($s -and $s.Encrypt -eq 'none') { $su.SetEncNone.IsChecked = $true }
     $su.SetCert.Text = if ($s) { "$($s.Certificate)" } else { '' }
+    $su.SetAutoUpdate.IsChecked = Test-AutoUpdateCheck
     return $sw
 }
 function Save-SettingsWindow {
@@ -2011,7 +2037,8 @@ function Save-SettingsWindow {
     $v = @{
         SnapshotDir = $su.SetSnapDir.Text.Trim(); ReportDir = $su.SetRepDir.Text.Trim()
         Model = $(if ($model -eq $script:DefaultModel) { '' } else { $model }); AiMaxAttempts = $(if ($att -eq '3') { '' } else { $att }); AiIncludeStig = [bool]$su.SetAiStig.IsChecked
-        Encrypt = $enc; Certificate = $su.SetCert.Text.Trim()
+        Ai = $(if (-not $su.SetAiOffer.IsChecked) { 'N' } else { $oldAi = "$((Read-Settings).Ai)"; if ($oldAi -and $oldAi -ne 'N') { $oldAi } else { 'A' } })
+        Encrypt = $enc; Certificate = $su.SetCert.Text.Trim(); AutoUpdateCheck = [bool]$su.SetAutoUpdate.IsChecked
     }
     foreach ($cn in $sw.Boxes.Keys) { $v[$cn] = "$($sw.Boxes[$cn].SelectedItem.Tag)" }
     Write-Settings $v
@@ -2052,6 +2079,7 @@ function Invoke-Analyze {
     $dir = Split-Path -Parent $ap['OutHtml']
     if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     $script:Kept = $false
+    $script:ReportChosen = $false
     $script:Pending = $ap['OutHtml']
     # An analysis of this machine's last collection that writes the fix scripts can serve the next Fix.
     $script:PendingBasis = $null
@@ -2075,7 +2103,7 @@ function Invoke-Analyze {
         if ($ok) { Show-Results $script:LastReport }
         # The fix preview prints in the log, so the window stays on it; otherwise the findings are shown.
         if ($ok -and $script:ApplyAfter) { $script:ApplyAfter = $false; Invoke-FixPreview }
-        elseif ($ok) { $ui.Tabs.SelectedItem = $ui.TabResults }
+        elseif ($ok) { $ui.Tabs.SelectedItem = $ui.TabResults; Invoke-AiOffer }
     }
 }
 function Write-GuiLog {
@@ -2084,26 +2112,95 @@ function Write-GuiLog {
     try { [System.IO.File]::WriteAllText($Path, (($Lines -join [Environment]::NewLine) + [Environment]::NewLine), (New-Object System.Text.UTF8Encoding($false))); Add-Log "Run log: $Path" } catch { }
 }
 
+function New-ChoiceWindow {
+    # A question with named buttons (a MessageBox only has Yes and No). Buttons: Tag, Label and, for one
+    # that cannot be pressed now, Off (the reason, shown as its tooltip); the first one that can is the primary.
+    param([string]$Heading, [string]$Text, [object[]]$Buttons)
+    $d = New-XamlWindow ([xml]($windowOpen + @"
+        Title="HostBadger" Width="600" SizeToContent="Height" ResizeMode="NoResize"
+        Background="#F3EFE6" FontFamily="Segoe UI" FontSize="14" Foreground="#161513" WindowStartupLocation="CenterOwner">
+$resources
+  <StackPanel Margin="22">
+    <TextBlock x:Name="ChoiceHead" Style="{StaticResource H2}"/>
+    <TextBlock x:Name="ChoiceText" TextWrapping="Wrap" Margin="0,0,0,18"/>
+    <StackPanel x:Name="ChoiceButtons" Orientation="Horizontal" HorizontalAlignment="Right"/>
+  </StackPanel>
+</Window>
+"@))
+    $d.Ui.ChoiceHead.Text = $Heading
+    $d.Ui.ChoiceText.Text = $Text
+    $primary = $false
+    foreach ($b in $Buttons) {
+        $btn = New-Object System.Windows.Controls.Button
+        $btn.Content = $b.Label; $btn.Tag = $b.Tag; $btn.Margin = '10,0,0,0'
+        if ($b.Off) { $btn.IsEnabled = $false; $btn.ToolTip = $b.Off; [System.Windows.Controls.ToolTipService]::SetShowOnDisabled($btn, $true) }
+        elseif (-not $primary) { $btn.Style = $d.Window.FindResource('Primary'); $primary = $true }
+        $btn.Add_Click({ param($s) $script:ChoiceResult = "$($s.Tag)"; [System.Windows.Window]::GetWindow($s).Close() })
+        [void]$d.Ui.ChoiceButtons.Children.Add($btn)
+    }
+    return $d
+}
+function Show-Choice {
+    # The Tag of the button pressed; '' when the window is closed.
+    param([string]$Heading, [string]$Text, [object[]]$Buttons)
+    $d = New-ChoiceWindow -Heading $Heading -Text $Text -Buttons $Buttons
+    $script:ChoiceResult = ''
+    $d.Window.Owner = $window
+    [void]$d.Window.ShowDialog()
+    return $script:ChoiceResult
+}
+function Get-AiOfferButtons {
+    @(
+        @{ Tag = 'send'; Label = 'Send to Gemini'; Off = $(if (-not $env:GEMINI_API_KEY) { 'Set the Gemini API key in Settings first.' }) }
+        @{ Tag = 'dry'; Label = 'Dry run (write the prompt only)' }
+        @{ Tag = ''; Label = 'Not now' }
+    )
+}
+function Invoke-AiOffer {
+    # After an analysis, on the analysis in memory: not with no findings (nothing to summarize), and not
+    # when the settings turn the question off.
+    $s = Read-Settings
+    if (($s -and "$($s.Ai)" -eq 'N') -or -not $script:Kept -or -not $script:Res -or @($script:Res.Rows).Count -eq 0) { return }
+    $text = "$(@($script:Res.Rows).Count) finding(s) in $(Split-Path -Leaf $script:LastReport). The AI summary uses this analysis: nothing is analyzed or downloaded again.`n`nThe dry run writes the prompt and sends nothing, so you can read it first."
+    switch (Show-Choice -Heading 'Add an AI summary?' -Text $text -Buttons (Get-AiOfferButtons)) {
+        'send' { Invoke-Ai $true }
+        'dry' { Invoke-Ai $false }
+    }
+}
+function Select-AiReport {
+    # No analysis in memory: which report the AI step works on. $true when one is chosen.
+    if ($script:ReportChosen -and $script:LastReport -and (Test-Path -LiteralPath $script:LastReport)) { return $true }
+    $has = $script:LastReport -and (Test-Path -LiteralPath $script:LastReport)
+    $buttons = @(
+        $(if ($has) { @{ Tag = 'last'; Label = "Use $(Split-Path -Leaf $script:LastReport)" } })
+        @{ Tag = 'pick'; Label = 'Choose a report...' }
+        @{ Tag = ''; Label = 'Cancel' }
+    ) | Where-Object { $_ }
+    $text = 'No analysis is in memory. The AI summary can work on a report already written: its findings are read from it and the summary is added to it, nothing is analyzed or downloaded. The snapshot of that report must still be there (the snapshot chosen above, the snapshot folder or the folder of the report): the names replaced with tokens come from it.'
+    switch (Show-Choice -Heading 'Use an existing report?' -Text $text -Buttons $buttons) {
+        'last' { return $true }
+        'pick' { return [bool](Select-OtherReport | Select-Object -Last 1) }
+    }
+    return $false
+}
+
 function Invoke-Ai {
     param([bool]$Send)
-    # With no analysis in memory (a report from an earlier session), the snapshot is analyzed again in
-    # the same run and the report rewritten with the AI section: the HTML holds the summary, and the
-    # analysis is deterministic, so the findings are the same.
-    if ($script:Kept) { $ai = @{ AiContinue = $true }; $target = $script:LastReport }
+    if (-not $script:Kept -and -not (Select-AiReport)) { return }
+    $target = $script:LastReport
+    if ($script:Kept) { $ai = @{ AiContinue = $true } }
     else {
-        $ai = Get-AnalysisParams
-        $ai.Remove('AiLater')
-        if (-not $ai['Snapshot'] -or -not (Test-Path -LiteralPath $ai['Snapshot'])) { $latest = Find-LatestSnapshot (Get-SnapshotDir); if ($latest) { $ai['Snapshot'] = $latest.FullName } }
-        if (-not $ai['Snapshot'] -or -not (Test-Path -LiteralPath $ai['Snapshot'])) { [void][System.Windows.MessageBox]::Show('No snapshot to analyze: choose one, or collect this machine first.', 'HostBadger'); return }
-        # The analysis would ask for the password at a console this window does not have.
-        if (@(Get-PasswordSnapshots $ai['Snapshot']).Count -gt 0 -and -not $ai['SnapshotPassword']) { [void][System.Windows.MessageBox]::Show("$($ai['Snapshot']) is encrypted with a password: type it under Snapshots already collected first.", 'HostBadger'); return }
-        if ($script:LastReport -and (Test-Path -LiteralPath $script:LastReport)) {
-            $ai['OutHtml'] = $script:LastReport
-            if ($ai['OutJsonl']) { $ai['OutJsonl'] = $script:LastReport -replace '\.html?$', '.jsonl' }
-            if ($ai['OutRemediation']) { $ai['OutRemediation'] = ($script:LastReport -replace '\.html?$', '') + '_fixes' }
+        # The report's snapshot is looked for here; nothing else of the form counts: the report is done.
+        $sources = @(@($ui.SnapshotBox.Text.Trim(), $script:LastSnapshot, (Get-SnapshotDir), (Split-Path -Parent $target)) | Where-Object { $_ -and (Test-Path -LiteralPath $_) })
+        $ai = @{ AiReport = $target; Snapshot = $sources }
+        if ($ui.SnapPassBox.SecurePassword.Length -gt 0) { $ai['SnapshotPassword'] = $ui.SnapPassBox.SecurePassword.Copy() }
+        # The step would ask for the password at a console this window does not have.
+        else {
+            Show-Results $target
+            $names = @(if ($script:Res -and $script:Res.Summary) { @($script:Res.Summary.hosts) | ForEach-Object { "$($_.name)" -replace '[^\w\-]', '_' } })
+            $locked = @(foreach ($src in $sources) { Get-PasswordSnapshots $src }) | Where-Object { $leaf = $_.Name; @($names | Where-Object { $leaf -like "*$_*" }).Count -gt 0 }
+            if (@($locked).Count) { [void][System.Windows.MessageBox]::Show("The snapshot of this report is encrypted with a password ($(@($locked)[0].Name)): type it under Snapshots already collected first.", 'HostBadger'); return }
         }
-        $target = $ai['OutHtml']
-        Add-Log "No analysis in memory: $($ai['Snapshot']) is analyzed again into $target, then the AI step."
     }
     $s = Read-Settings
     if ($s -and $s.Model) { $ai['Model'] = "$($s.Model)" }
@@ -2116,15 +2213,15 @@ function Invoke-Ai {
         $ai['SendToAI'] = $true
     }
     else { $ai['AiDryRun'] = $target -replace '\.html?$', '_ai_prompt.txt' }
-    if (-not $ui.StigChk.IsChecked) { $ai['SkipStig'] = $true }
-    $script:LastReport = $target
     Start-GuiTask -Label $(if ($Send) { 'Sending to Gemini' } else { 'Writing the AI prompt (dry run)' }) -Work $script:RunScript -Arguments @((Join-Path $root 'HostBadger.ps1'), $ai) -Done {
         param($t)
-        # A send uses the kept analysis up; a dry run leaves it for a send.
-        if (@($t.Lines | Where-Object { $_ -like 'No analysis kept*' -or $_ -like 'AI section added*' }).Count) { $script:Kept = $false }
+        if (@($t.Lines | Where-Object { $_ -like 'No analysis kept*' }).Count) { $script:Kept = $false }
         Set-Busy $false 'Ready'
         Update-Outputs
         Show-Results $script:LastReport
+        # The log may be on another tab: why a report could not be used is said here too.
+        $why = @($t.Lines | Where-Object { $_ -like 'AI report:*' })
+        if ($why.Count) { [void][System.Windows.MessageBox]::Show(($why[0] -replace '^AI report: ', ''), 'HostBadger') }
     }
 }
 
@@ -2396,8 +2493,8 @@ $ui.SafetyBtn.Add_Click({ Start-GuiTask -Label 'Safety review' -Work $script:Run
 $ui.OpenBtn.Add_Click({ if ($script:LastReport -and (Test-Path -LiteralPath $script:LastReport)) { Invoke-Item -LiteralPath $script:LastReport } })
 
 $ui.SettingsBtn.Add_Click({ Show-Settings })
-$ui.AiPickBtn.Add_Click({ Select-OtherReport })
-$ui.ResPickBtn.Add_Click({ Select-OtherReport })
+$ui.AiPickBtn.Add_Click({ [void](Select-OtherReport) })
+$ui.ResPickBtn.Add_Click({ [void](Select-OtherReport) })
 $ui.ResOpenBtn.Add_Click({ if ($script:Res -and $script:Res.Path -and (Test-Path -LiteralPath $script:Res.Path)) { try { Invoke-Item -LiteralPath $script:Res.Path } catch { Add-Log "Not opened: $($_.Exception.Message)" } } })
 # The Results tab reads the report when it is first shown (SelectionChanged also bubbles up from the
 # lists and the table inside the tabs).
@@ -2446,6 +2543,7 @@ Initialize-Form
 Add-Log "HostBadger v$($script:LocalVersion). Choose what to analyze (this machine, or snapshots already collected) and press the yellow button."
 if ($NoShow) {
     $sw = New-SettingsWindow
+    "Auto update check: setting $(Test-AutoUpdateCheck), box $($sw.Ui.SetAutoUpdate.IsChecked)"
     "GUI ready: $($ui.Count) controls, $($script:CatalogBoxes.Count) catalogs, version $($script:LocalVersion); settings: $($sw.Ui.Count) controls, $($sw.Boxes.Count) catalogs, $($ui.ProfilePanel.Children.Count) fix levels"
     # Fix this machine needs something to change: a level, or no level with Debloat or telemetry.
     $rbs = @($ui.ProfilePanel.Children)
@@ -2473,6 +2571,14 @@ if ($NoShow) {
     Show-ApplyPanel $true; $askOn = "$($ui.ApplyPanel.Visibility) $($ui.ApplyYesBtn.IsEnabled)"
     Show-ApplyPanel $false; $askOff = "$($ui.ApplyPanel.Visibility) $($ui.ApplyYesBtn.IsEnabled)"
     "Apply question: shown $askOn, withdrawn $askOff"
+    # The AI questions: their buttons, on this window's look, and no send without the key.
+    $savedKey = $env:GEMINI_API_KEY; $env:GEMINI_API_KEY = ''
+    $off = New-ChoiceWindow -Heading 'h' -Text 't' -Buttons (Get-AiOfferButtons)
+    $env:GEMINI_API_KEY = 'x'
+    $on = New-ChoiceWindow -Heading 'h' -Text 't' -Buttons (Get-AiOfferButtons)
+    $env:GEMINI_API_KEY = $savedKey
+    "AI offer: $(@($on.Ui.ChoiceButtons.Children | ForEach-Object { $_.Content }) -join ' / '); send with a key $(@($on.Ui.ChoiceButtons.Children)[0].IsEnabled), without $(@($off.Ui.ChoiceButtons.Children)[0].IsEnabled)"
+    $on.Window.Close(); $off.Window.Close()
     # The Results tab on the demo report: every finding read, the categories listed, a finding detailed.
     Show-Results (Join-Path $root 'examples\demo_report.html')
     $ui.ResCisChk.IsChecked = $true; $ui.ResStigChk.IsChecked = $true; Update-ResultsView
@@ -2488,6 +2594,7 @@ if ($NoShow) {
     return
 }
 # The last report is read once the window is drawn, so the Results tab shows its count from the start.
-$window.Add_ContentRendered({ Show-Results $script:LastReport })
+# The update check of Settings runs then too: never with -NoShow, which returned above.
+$window.Add_ContentRendered({ Show-Results $script:LastReport; if (Test-AutoUpdateCheck) { Invoke-UpdateCheck } })
 [void]$window.ShowDialog()
 $script:Rs.Dispose()

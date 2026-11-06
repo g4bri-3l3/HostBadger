@@ -6,6 +6,46 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
+## [2.4] - 2026-11-06
+### Added
+- Window: after **Analyze** a question offers the AI summary (send to Gemini,
+  dry run, not now) on the analysis just made. Settings can turn it off, and
+  it stays quiet when the report has no findings.
+- `-AiReport <report.html>` runs only the AI step on a report already written,
+  with `-Snapshot` reaching its snapshots: the findings and scores are read
+  back from the report and its CSV, the prompt is the one the analysis would
+  write, and the AI section is added to that report (an earlier one is
+  replaced). The snapshots are still needed, as they were collected then:
+  their names are what the prompt replaces with tokens, so without them
+  nothing is written or sent.
+- Window: Settings can check for updates each time the window opens (off by
+  default). It is the same check as the button, and it installs nothing.
+
+### Changed
+- Window: with no analysis in memory the AI buttons ask which existing report
+  to use, through `-AiReport`.
+- Window: the header buttons are all the same size, in one aligned row.
+- Report summary block: `comparison.newItems` and `comparison.resolved[].type`.
+
+### Fixed
+- Window: the AI buttons no longer analyze again (and download the catalogs
+  again) when the window was reopened, after a send, or after a send that
+  failed. The analysis now stays in memory until the next analysis.
+- `kev_software_match`: a CISA KEV entry whose product is only the name of a
+  vendor with many products (CVE-2026-42897, an Exchange Server flaw listed as
+  product "Microsoft") no longer matches everything of that vendor. The
+  product now comes from the vulnerability title, so it matches Exchange only.
+
+### Added
+- Named pipes (`-NamedPipes`): the collector now records the process that
+  exposes each writable pipe (name, PID and path), through one read-only
+  P/Invoke of `GetNamedPipeServerProcessId` (kernel32). The
+  `named_pipe_writable_by_everyone` finding names it ("Exposed by X (path)"),
+  which turns a bare pipe name into an actionable lead. The server process and
+  path are pseudonymized before anything reaches the AI step. The safety review
+  allows this one compiled-C# P/Invoke in the collector only and still rejects
+  any other `Add-Type -MemberDefinition`/`-TypeDefinition` or `DllImport`.
+
 ## [2.3] - 2026-10-30
 ### Changed
 - Remediation profile *Essential* now changes nothing the user sees or does.

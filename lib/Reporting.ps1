@@ -382,20 +382,87 @@ function ConvertTo-ReportSummaryJson {
         $sum.comparison = [ordered]@{
             previous = "$(if ($Comparison.PreviousPath) { Split-Path -Leaf $Comparison.PreviousPath })"
             new = @($Comparison.New).Count; persisting = @($Comparison.Persisting).Count
-            resolved = @(@($Comparison.Resolved | Where-Object { $_ }) | ForEach-Object { [ordered]@{ severity = "$($_.Severity)"; title = "$($_.Title)"; host = "$($_.Host)"; object = "$($_.Object)" } })
+            resolved = @(@($Comparison.Resolved | Where-Object { $_ }) | ForEach-Object { [ordered]@{ severity = "$($_.Severity)"; title = "$($_.Title)"; host = "$($_.Host)"; object = "$($_.Object)"; type = "$($_.Type)" } })
+            # The new findings the AI prompt lists (its first 30), for an AI step on this report later.
+            newItems = @(@($Comparison.New | Where-Object { $_ } | Select-Object -First 30) | ForEach-Object { [ordered]@{ severity = "$($_.Severity)"; type = "$($_.Type)"; host = "$($_.Host)"; object = "$($_.Object)" } })
         }
     }
     if ($Remediation) { $sum.remediation = @(@($Remediation | Where-Object { $_ }) | ForEach-Object { [ordered]@{ host = "$($_.Host)"; file = "$($_.File)"; actions = [int]$_.Actions; fixable = [int]$_.Fixable; notFixable = [int]$_.NotFixable } }) }
-    if ($AiResult) {
-        $sum.ai = [ordered]@{
-            model = "$($AiResult.Model)"; summary = "$($AiResult.ExecutiveSummary)"
-            quickWins = @(@($AiResult.QuickWins | Where-Object { $_ }) | ForEach-Object { "$_" })
-            plan = @(@($AiResult.RemediationPlan | Where-Object { $_ }) | ForEach-Object { [ordered]@{ title = "$($_.Title)"; effort = "$($_.Effort)"; rationale = "$($_.Rationale)" } })
-        }
+    if ($AiResult) { $sum.ai = Get-ReportAiSummary $AiResult }
+    return (ConvertTo-ReportJsonText $sum)
+}
+
+function Get-ReportAiSummary {
+    # The "ai" key of the report's summary, the last key of it (Add-AiSectionToReportHtml relies on that).
+    param($AiResult)
+    return [ordered]@{
+        model = "$($AiResult.Model)"; summary = "$($AiResult.ExecutiveSummary)"
+        quickWins = @(@($AiResult.QuickWins | Where-Object { $_ }) | ForEach-Object { "$_" })
+        plan = @(@($AiResult.RemediationPlan | Where-Object { $_ }) | ForEach-Object { [ordered]@{ title = "$($_.Title)"; effort = "$($_.Effort)"; rationale = "$($_.Rationale)" } })
     }
+}
+
+function ConvertTo-ReportJsonText {
     # "</" would close the script element early; "<\/" is the same string in JSON.
     # Windows PowerShell 5.1 writes an empty array inside a hashtable as {} (nothing here is an empty object).
-    return ((ConvertTo-Json -InputObject $sum -Depth 8 -Compress) -replace '</', '<\/' -replace '":\{\}', '":[]')
+    param($Value)
+    return ((ConvertTo-Json -InputObject $Value -Depth 8 -Compress) -replace '</', '<\/' -replace '":\{\}', '":[]')
+}
+
+$script:ReportSummaryMark = '<script type="application/json" id="hostbadger-summary">'
+
+function Import-ReportForAi {
+    # What the AI prompt needs, read back from a report on disk (its summary block and its CSV): nothing
+    # is analyzed, no catalog is read. Throws with the reason when the report cannot serve.
+    param([string]$Path)
+    $csv = $Path -replace '(?i)\.html?$', '.csv'
+    if ($csv -eq $Path -or -not (Test-Path -LiteralPath $csv)) { throw "its findings file is missing ($csv)." }
+    $html = [System.IO.File]::ReadAllText($Path)
+    $i = $html.LastIndexOf($script:ReportSummaryMark)
+    $end = if ($i -ge 0) { $html.IndexOf('</script>', $i) } else { -1 }
+    if ($end -lt 0) { throw 'it has no summary of its hosts (written by an earlier HostBadger, or a page of one host only). Analyze the snapshot again.' }
+    $start = $i + $script:ReportSummaryMark.Length
+    $summary = $html.Substring($start, $end - $start) | ConvertFrom-Json
+    if (@($summary.hosts).Count -eq 0) { throw 'it lists no host.' }
+    # The summary names a check by its title; reports of 2.3 and earlier have no type in the comparison.
+    $byTitle = @{}; foreach ($t in @($script:CheckCatalog.Keys)) { $byTitle["$($script:CheckCatalog[$t].Title)"] = $t }
+    $hostList = New-Object System.Collections.Generic.List[object]
+    foreach ($x in @($summary.hosts)) {
+        $ne = @(foreach ($n in @($x.notEvaluated | Where-Object { $_ })) {
+                if ($byTitle.ContainsKey("$($n.title)")) { [PSCustomObject]@{ Host = "$($x.name)"; Type = $byTitle["$($n.title)"]; Title = "$($n.title)"; Reason = "$($n.reason)" } }
+            })
+        $hostList.Add([PSCustomObject]@{ Name = "$($x.name)"; Role = "$($x.role)"; Os = "$($x.os)"; Collected = "$($x.collected)"; Score = [PSCustomObject]@{ Score = [int]$x.score; Grade = "$($x.grade)" }; NotEvaluated = $ne })
+    }
+    $comparison = $null
+    if ($summary.comparison) {
+        $c = $summary.comparison
+        $comparison = [PSCustomObject]@{
+            New        = @(@($c.newItems | Where-Object { $_ }) | ForEach-Object { [PSCustomObject]@{ Severity = "$($_.severity)"; Type = "$($_.type)"; Host = "$($_.host)"; Object = "$($_.object)" } })
+            Resolved   = @(@($c.resolved | Where-Object { $_ }) | ForEach-Object { [PSCustomObject]@{ Severity = "$($_.severity)"; Type = $(if ($_.type) { "$($_.type)" } else { "$($byTitle["$($_.title)"])" }); Host = "$($_.host)"; Object = "$($_.object)" } })
+            Persisting = New-Object 'object[]' ([int]$c.persisting)
+        }
+    }
+    return [PSCustomObject]@{ Findings = @(Import-Csv -LiteralPath $csv -Encoding UTF8); Hosts = $hostList; Comparison = $comparison }
+}
+
+function Add-AiSectionToReportHtml {
+    # The AI section put into a report already written, as the analysis would have rendered it: the section
+    # above the hosts, the line under the title, the summary block. An earlier AI section is replaced.
+    param([string]$Html, $AiResult)
+    $hostsAt = $Html.IndexOf('<details open><summary><h2>Hosts</h2>')
+    if ($hostsAt -lt 0) { throw 'the hosts section of the report was not found.' }
+    $old = $Html.IndexOf("<div class='ai-section'>")
+    $cut = if ($old -ge 0 -and $old -lt $hostsAt) { $old } else { $hostsAt }
+    $out = $Html.Substring(0, $cut) + (ConvertTo-AiSectionHtml $AiResult) + $Html.Substring($hostsAt)
+    $aiMeta = " &middot; AI $(ConvertTo-HtmlSafe "$($AiResult.Model)")"
+    if ($AiResult.ElapsedText) { $aiMeta += " $(ConvertTo-HtmlSafe "$($AiResult.ElapsedText)")" }
+    $m = [regex]::Match($out, '<div class="meta">([^<]* &middot; analysis (?:(?! &middot; )[^<])*)(?: &middot; AI [^<]*)?</div>')
+    if ($m.Success) { $out = $out.Substring(0, $m.Index) + '<div class="meta">' + $m.Groups[1].Value + $aiMeta + '</div>' + $out.Substring($m.Index + $m.Length) }
+    # In the JSON text a quote inside a value is escaped, so this can only be the key itself.
+    $key = ',"ai":'
+    $at = $out.IndexOf($key, $out.LastIndexOf($script:ReportSummaryMark))
+    $end = $out.IndexOf('</script>', $at)
+    return $out.Substring(0, $at + $key.Length) + (ConvertTo-ReportJsonText (Get-ReportAiSummary $AiResult)) + '}' + $out.Substring($end)
 }
 
 function Get-RingSvg {

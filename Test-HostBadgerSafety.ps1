@@ -122,6 +122,13 @@ $allowedHosts = @('attack.mitre.org', 'schemas.microsoft.com')
 $aiFile = 'lib/AI.ps1'
 $aiHosts = @('generativelanguage.googleapis.com', 'www.cisa.gov', 'www.loldrivers.io', 'endoflife.date', 'community.chocolatey.org', 'services.nvd.nist.gov', 'epss.empiricalsecurity.com', 'raw.githubusercontent.com')
 $networkText = '(?i)System\.Net\.Http|HttpClient|PostAsync|GetAsync|TcpClient|UdpClient|System\.Net\.Sockets|\[Net\.WebRequest\]|\[System\.Net\.WebRequest\]'
+# Compiled C# (Add-Type -MemberDefinition) is banned everywhere except this one reviewed, read-only
+# P/Invoke in the collector: GetNamedPipeServerProcessId (kernel32) names the process that owns a
+# named pipe (with -NamedPipes). Any other Add-Type -MemberDefinition/-TypeDefinition, and any DllImport
+# of a different function, still fails the review (checked by signature below).
+$pipePInvokeFile = 'Collect-HostSnapshot.ps1'
+$pipePInvokeFunc = 'GetNamedPipeServerProcessId'
+$dllImportRegex = '(?i)\[(?:[\w.]+\.)?DllImport\("([^"]+)"[^\]]*\)\]\s*public\s+static\s+extern\s+[\w.]+\s+(\w+)'
 
 $root = (Resolve-Path -LiteralPath $Path).Path
 # What HostBadger runs: the scripts in the folder itself and in lib\. A script in some other
@@ -148,7 +155,19 @@ foreach ($f in $files) {
 foreach ($f in $files) {
     $rel = $f.FullName.Substring($root.Length).TrimStart('\', '/')
     $text = [System.IO.File]::ReadAllText($f.FullName)
-    foreach ($k in $bannedText.Keys) { if ($text -match $bannedText[$k]) { $problems.Add("${rel}: $k") } }
+    $relSlash = $rel.Replace('\', '/')
+    foreach ($k in $bannedText.Keys) {
+        if ($text -notmatch $bannedText[$k]) { continue }
+        # The collector's one reviewed P/Invoke is allowed to compile C#; its signature is checked below.
+        if ($k -eq 'Compiled C# at run time' -and $relSlash -eq $pipePInvokeFile) { continue }
+        $problems.Add("${rel}: $k")
+    }
+    # Every P/Invoke must be the one reviewed read-only call, and only in the collector.
+    foreach ($m in [regex]::Matches($text, $dllImportRegex)) {
+        if (-not ($relSlash -eq $pipePInvokeFile -and $m.Groups[1].Value -match '(?i)^kernel32(\.dll)?$' -and $m.Groups[2].Value -eq $pipePInvokeFunc)) {
+            $problems.Add("${rel}: P/Invoke $($m.Groups[2].Value) from $($m.Groups[1].Value) is not reviewed")
+        }
+    }
     $codeOnly = [regex]::Replace($text, '(?s)<#.*?#>', '')
     $codeOnly = [regex]::Replace($codeOnly, '(?m)^\s*#.*$', '')
     $relUnix = $rel.Replace('\', '/')

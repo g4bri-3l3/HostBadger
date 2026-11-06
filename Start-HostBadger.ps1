@@ -382,6 +382,8 @@ function New-GlobalSettings {
         Jsonl = $false; Remediation = $false; RemediationProfile = ''; RemediationDebloat = $false
         ExceptionsFile = ''; PolicyFile = ''; AllowedAdmins = ''; ExpectedEdr = ''; AllowedRemoteTools = ''; AllowedExtensions = ''
         Ai = 'A'; AiIncludeStig = $false; Model = ''; AiMaxAttempts = ''
+        # Asked only in the window's Settings: listed so that saving menu 8 keeps it.
+        AutoUpdateCheck = $false
     }
 }
 
