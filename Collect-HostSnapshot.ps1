@@ -86,7 +86,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:CollectorVersion = '2.8'
+$script:CollectorVersion = '2.9'
 $script:SchemaVersion = 1
 $script:Errors = New-Object System.Collections.Generic.List[object]
 $script:Sections = New-Object System.Collections.Generic.List[string]
@@ -738,9 +738,43 @@ $bitlocker = Invoke-Section 'bitlocker' {
 $boot = Invoke-Section 'boot' {
     $sb = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State' 'UEFISecureBootEnabled'
     $fw = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control' 'PEFirmwareType'
+    # The Windows Recovery Environment, read from its own configuration file (no reagentc call):
+    # WinreBCD is the boot entry of the recovery image, all zeros when WinRE is turned off, and
+    # ImageLocation says where winre.wim lives. The image's date tells whether it was ever serviced:
+    # the WinRE BitLocker bypasses are fixed in the image, not in the installed OS.
+    $winre = $null
+    try {
+        $ra = "$env:SystemRoot\System32\Recovery\ReAgent.xml"
+        if (Test-Path -LiteralPath $ra -PathType Leaf) {
+            $x = [xml](Get-Content -LiteralPath $ra -Raw -ErrorAction Stop)
+            $cfg = $x.WindowsRE
+            $bcd = "$($cfg.WinreBCD.id)"
+            $loc = "$($cfg.ImageLocation.path)"
+            $img = $null; $imgDate = $null
+            if ($loc) {
+                $cand = Join-Path "$env:SystemDrive" $loc.TrimStart('\')
+                foreach ($f in 'Winre.wim', 'winre.wim') {
+                    $p = Join-Path $cand $f
+                    if (Test-Path -LiteralPath $p -PathType Leaf) { $img = $p; $imgDate = ConvertTo-IsoUtc (Get-Item -LiteralPath $p).LastWriteTimeUtc; break }
+                }
+            }
+            $winre = [ordered]@{
+                configured       = $true
+                enabled          = [bool]($bcd -and $bcd -notmatch '^\{?0{8}-0{4}-0{4}-0{4}-0{12}\}?$')
+                installState     = $(if ($cfg.InstallState) { [int]"$($cfg.InstallState.state)" } else { $null })
+                staged           = $(if ($cfg.WinREStaged) { [int]"$($cfg.WinREStaged.state)" -eq 1 } else { $null })
+                imagePath        = $img
+                imageModifiedUtc = $imgDate
+                imageReadable    = [bool]$img
+            }
+        }
+        else { $winre = [ordered]@{ configured = $false; enabled = $null; installState = $null; staged = $null; imagePath = $null; imageModifiedUtc = $null; imageReadable = $false } }
+    }
+    catch { Add-CollectionError -Section 'boot.winRe' -Message $_.Exception.Message }
     [ordered]@{
         secureBootEnabled = $(if ($null -eq $sb) { $null } else { [int]$sb -eq 1 })
         firmware          = $(if ($fw -eq 2) { 'UEFI' } elseif ($fw -eq 1) { 'BIOS' } else { $null })
+        winRe             = $winre
     }
 }
 
@@ -778,6 +812,7 @@ $network = Invoke-Section 'network' {
         netbios                   = @()
         firewallProfiles          = @()
         listening                 = @()
+        portProxy                 = @()
     }
     try {
         $srv = Get-SmbServerConfiguration
@@ -800,7 +835,7 @@ $network = Invoke-Section 'network' {
         $n.smbClientSigningRequired = $(if ($null -eq $rs) { $null } else { [int]$rs -eq 1 })
     }
     foreach ($nic in @(Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True')) {
-        $n.netbios += [ordered]@{ adapter = "$($a.Description)"; tcpipNetbiosOptions = $a.TcpipNetbiosOptions }
+        $n.netbios += [ordered]@{ adapter = "$($nic.Description)"; tcpipNetbiosOptions = $nic.TcpipNetbiosOptions }
     }
     try {
         foreach ($fp in @(Get-NetFirewallProfile -PolicyStore ActiveStore)) {
@@ -824,6 +859,19 @@ $network = Invoke-Section 'network' {
         }
     }
     catch { Add-CollectionError -Section 'network.listening' -Message $_.Exception.Message }
+    # Port forwarding set with "netsh interface portproxy" (the service keeps it under
+    # Services\PortProxy\<family>\<protocol>, value name "listen address/port", value
+    # "connect address/port"). A host that forwards a port is a pivot into the network.
+    try {
+        foreach ($fam in 'v4tov4', 'v4tov6', 'v6tov4', 'v6tov6') {
+            foreach ($proto in 'tcp', 'udp') {
+                foreach ($v in @(Get-RegSubkeyValues "HKLM:\SYSTEM\CurrentControlSet\Services\PortProxy\$fam\$proto")) {
+                    $n.portProxy += [ordered]@{ family = $fam; protocol = $proto; listen = "$($v.name)"; connect = "$($v.value)" }
+                }
+            }
+        }
+    }
+    catch { Add-CollectionError -Section 'network.portProxy' -Message $_.Exception.Message }
     $n
 }
 
@@ -1432,6 +1480,7 @@ $loadPoints = Invoke-Section 'loadPoints' {
         networkProviders = @(); credentialProviders = @(); appCertDlls = @(); sessionManagerExecute = @(); timeProviders = @(); printProcessors = @()
         dotnetProfiler = $null; aeDebug = @(); serviceHooks = @(); hiddenServices = @(); hiddenTasks = @(); logonScripts = @(); psProfiles = @()
         officeTestMachine = @(); officeProfiles = @(); userHivesRead = 0; ssh = $null; bitsJobs = @(); bitsJobCount = $null; accessibility = @(); missingTargets = @()
+        runDialog = @(); officeTrustedLocations = @()
     }
     $ccs = 'HKLM:\SYSTEM\CurrentControlSet'
     # Network providers: a DLL in the provider order gets the user name and the password in clear at
@@ -1600,6 +1649,35 @@ $loadPoints = Invoke-Section 'loadPoints' {
             }
         }
         if ($o.officeTest -or $o.homePages.Count -or $o.xll.Count -or $o.accessVbom.Count) { $lp.officeProfiles += $o }
+        # What was typed in the Run dialog (RunMRU, the last 26) and in the Explorer address bar
+        # (TypedPaths, the last 25). Both are kept by Explorer per user; a paste-and-run lure
+        # (ClickFix, FileFix) leaves its command line there. The trailing \1 of a RunMRU value is
+        # Explorer's own separator.
+        foreach ($pair in @(@('RunMRU', 'Run dialog'), @('TypedPaths', 'Explorer address bar'))) {
+            foreach ($v in @(Get-RegSubkeyValues "$hu\Software\Microsoft\Windows\CurrentVersion\Explorer\$($pair[0])")) {
+                $cmd = ("$($v.value)" -replace '\\1$', '').Trim()
+                if (-not $cmd) { continue }
+                $lp.runDialog += [ordered]@{ user = $user; source = $pair[1]; entry = "$($v.name)"; command = Protect-CommandLine $cmd }
+            }
+        }
+        # Office trusted locations: a document under one of these paths opens with macros enabled and
+        # no warning. Both the user's own list and the one Group Policy writes under the user.
+        foreach ($ver in '16.0', '15.0', '14.0') {
+            foreach ($app in 'Word', 'Excel', 'PowerPoint', 'Access', 'Visio', 'Publisher') {
+                foreach ($r in @(@("$hu\Software\Microsoft\Office\$ver\$app\Security\Trusted Locations", $false), @("$hu\Software\Policies\Microsoft\Office\$ver\$app\Security\Trusted Locations", $true))) {
+                    foreach ($k in @(Get-ChildItem -LiteralPath $r[0] -ErrorAction SilentlyContinue)) {
+                        $path = "$(Get-KeyValue $k 'Path')".Trim()
+                        if (-not $path) { continue }
+                        $lp.officeTrustedLocations += [ordered]@{
+                            user = $user; app = $app; version = $ver; location = $k.PSChildName
+                            path = [Environment]::ExpandEnvironmentVariables($path)
+                            allowSubfolders = ("$(Get-KeyValue $k 'AllowSubfolders')" -eq '1')
+                            policy = [bool]$r[1]
+                        }
+                    }
+                }
+            }
+        }
     }
     # PowerShell profiles for every user: they run in every PowerShell session, administrators' and SYSTEM's included.
     $psDirs = @("$env:SystemRoot\System32\WindowsPowerShell\v1.0", "$env:SystemRoot\SysWOW64\WindowsPowerShell\v1.0") + @(Get-ChildItem -LiteralPath "$env:ProgramFiles\PowerShell" -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
@@ -2221,6 +2299,53 @@ $hardening = Invoke-Section 'hardening' {
     $recallState = $null
     try { foreach ($of in @(Get-CimInstance -ClassName Win32_OptionalFeature -Filter "Name='Recall'")) { $recallState = [int]$of.InstallState } } catch { }
     $tsPolicy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services'
+    # Chromium browser policies that decide whether the cookie and password store can be read by
+    # another program running as the same user: app-bound encryption ties the key to the browser,
+    # remote debugging hands the open session to anything that can reach the port.
+    $browserSec = @()
+    foreach ($b in @(@('Chrome', 'HKLM:\SOFTWARE\Policies\Google\Chrome'), @('Edge', 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'), @('Brave', 'HKLM:\SOFTWARE\Policies\BraveSoftware\Brave'))) {
+        $abe = Get-RegValue $b[1] 'ApplicationBoundEncryptionEnabled'
+        $rdb = Get-RegValue $b[1] 'RemoteDebuggingAllowed'
+        if ($null -eq $abe -and $null -eq $rdb) { continue }
+        $browserSec += [ordered]@{ browser = $b[0]; appBoundEncryption = $abe; remoteDebuggingAllowed = $rdb }
+    }
+    # Where this host takes its updates from. An http:// WSUS server is an unauthenticated channel:
+    # whoever answers for that name decides what the update agent installs.
+    $wuPolicy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
+    $wuServer = "$(Get-RegValue $wuPolicy 'WUServer')".Trim()
+    $wsus = [ordered]@{
+        useWuServer       = Get-RegValue "$wuPolicy\AU" 'UseWUServer'
+        server            = $wuServer
+        serverScheme      = $(if ($wuServer -match '^(?i)(https?)://') { $Matches[1].ToLower() } else { '' })
+        statusServer      = "$(Get-RegValue $wuPolicy 'WUStatusServer')".Trim()
+        proxyBehavior     = Get-RegValue $wuPolicy 'SetProxyBehaviorForUpdateDetection'
+        trustedPublisher  = Get-RegValue "$wuPolicy\AU" 'AcceptTrustedPublisherCerts'
+    }
+    # Application Control (WDAC) policies in force. The .cip files are binary; what is kept is the
+    # file names the policy mentions (its rules name executables), so the analyzer can see whether a
+    # policy was written to keep a security agent from running.
+    $ciPolicies = @()
+    try {
+        $cid = "$env:SystemRoot\System32\CodeIntegrity"
+        foreach ($f in @(Get-ChildItem -LiteralPath "$cid\CiPolicies\Active" -Filter '*.cip' -File -ErrorAction SilentlyContinue) + @(Get-Item -LiteralPath "$cid\SiPolicy.p7b" -ErrorAction SilentlyContinue)) {
+            $names = @()
+            try {
+                # A policy is tens of kilobytes; anything far larger is not read at all (the entry
+                # still says it is there, with its size and date).
+                if ($f.Length -gt 20MB) { throw "policy file too large to read ($([int]($f.Length / 1MB)) MB)" }
+                $bytes = [IO.File]::ReadAllBytes($f.FullName)
+                $text = [Text.Encoding]::Unicode.GetString($bytes)
+                foreach ($m in [regex]::Matches($text, '(?i)[\w .+\-()]{1,64}\.(exe|dll|sys|ocx|msi)')) {
+                    $nm = $m.Value.Trim().ToLower()
+                    if ($names -notcontains $nm) { $names += $nm }
+                    if ($names.Count -ge 500) { break }
+                }
+            }
+            catch { Add-CollectionError -Section 'hardening.ciPolicies' -Message "$($f.Name): $($_.Exception.Message)" }
+            $ciPolicies += [ordered]@{ file = "$($f.Name)"; length = [int64]$f.Length; modifiedUtc = (ConvertTo-IsoUtc $f.LastWriteTimeUtc); fileNames = $names }
+        }
+    }
+    catch { Add-CollectionError -Section 'hardening.ciPolicies' -Message $_.Exception.Message }
     [ordered]@{
         credsspDelegation        = $credssp
         # WinRM client hosts trusted without Kerberos ("*" sends NTLM credentials to any host).
@@ -2459,6 +2584,9 @@ $hardening = Invoke-Section 'hardening' {
         kerberosEncryptionTypes  = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters' 'SupportedEncryptionTypes'
         # Windows Event Forwarding: whether a subscription manager is set by policy (the address is not kept).
         wefSubscriptionManager   = (@(Get-RegSubkeyValues 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\EventLog\EventForwarding\SubscriptionManager' | Where-Object { "$($_.value)".Trim() }).Count -gt 0)
+        browserSecurity          = $browserSec
+        windowsUpdateSource      = $wsus
+        ciPolicies               = $ciPolicies
     }
 }
 # ------------------------------------------------------------------ installed software

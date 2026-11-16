@@ -6,6 +6,106 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
+## [2.9] - 2026-11-16
+### Added
+- Eleven checks, from the vectors most reported between 2022 and 2026 and from
+  data the collector already held but never judged (234 checks):
+  - `network_port_proxy`: a `netsh interface portproxy` rule, read from
+    `Services\PortProxy`. The host forwards a port into a segment the attacker
+    cannot route to, nothing in the firewall shows it, and the rule survives a
+    reboot. Forwarding to loopback is reported a step lower.
+  - `run_dialog_payload`: what was typed into the Run dialog (`RunMRU`) or the
+    Explorer address bar (`TypedPaths`), when it carries a sign of a
+    paste-and-run lure (ClickFix, FileFix): an interpreter with a URL, a
+    download piped into one, a WebDAV mapping, an encoded command. A bare `cmd`
+    is what the dialog is for and stays quiet. It is evidence of what ran, not
+    a setting to fix, and the remediation text says so.
+  - `office_trusted_location_risky`: a trusted location that is not one of
+    Office's own folders. Documents opened from there run their macros with no
+    warning; a share or a Downloads folder is High, another local path Medium.
+  - `browser_cookie_protection_off`: `ApplicationBoundEncryptionEnabled = 0` or
+    `RemoteDebuggingAllowed = 1` for Chrome, Edge or Brave. Infostealers set the
+    first themselves, with administrator rights, to undo the browser's own
+    protection of its cookie and password store.
+  - `wsus_insecure_transport`: a WSUS server set by policy over `http://`, or
+    update detection allowed through a user-set proxy. Whoever answers for that
+    name decides what the update agent installs, as SYSTEM.
+  - `app_control_policy_suspect`: an App Control (WDAC) policy in force whose
+    rules name an antivirus or EDR binary. A deny policy is the one way to keep
+    a signed, trusted agent from starting at all; an allow-list policy can name
+    the same file, so the finding lists the names and leaves the reading to you.
+  - `winre_bitlocker_exposure`: BitLocker unlocking the system volume with the
+    TPM alone while the recovery environment is enabled, with the date of the
+    recovery image when it can be read. The condition the WinRE BitLocker
+    bypasses need; judged only where there is no PIN or startup key.
+  - `scheduled_task_masquerade`: a task in a `\Microsoft\Windows\` folder whose
+    author is not Microsoft. High when it runs a program from outside the
+    Windows folder.
+  - `defender_service_disabled`: `AMServiceEnabled` false while Defender is
+    still the registered antivirus, so nothing is scanning although real-time
+    protection reports itself as on. Not judged in passive mode.
+  - `local_account_dormant`: an enabled local account with no logon for longer
+    than `-DormantAccountDays` (default 180), or none at all with a password
+    older than that. Medium for a local administrator.
+  - `credential_guard_no_lock`: `LsaCfgFlags = 2` (Credential Guard without the
+    UEFI lock, which one registry write undoes), or the setting on with
+    Credential Guard not running.
+- A mapping of recent attacks to the checks that look for what each one needs
+  (`data\recent-attacks.json`): 32 vectors of 2022-2026 and, as plainly, the
+  nine kinds of attack a host snapshot deliberately says nothing about and why.
+  It is written into `COVERAGE.md` by `tools\New-CoverageDoc.ps1` and summarized
+  in the README; the regression refuses a row that names a check that is not in
+  the catalog.
+- A **Protection against recent attacks** panel in the report's dashboard, from
+  that mapping (`Get-RecentAttackCoverage`): per vector, the hosts a check of it
+  reports something on, the hosts where none of its checks could be judged, and
+  the rest, each opening on what the vector needs, the checks that fired and the
+  ones that could not be judged. A check that does not apply to a host's role is
+  left out for that host, and a check the policy turned off or that was not
+  evaluated counts as not judged, never as clean. The panel says in as many
+  words that "exposed" is the condition and not proof the attack happened, and
+  that "nothing found" is not a guarantee. The JSON Lines host summary carries
+  `recent_attacks_exposed`, `recent_attacks_judged` and `recent_attacks_total`,
+  and the report's summary block a `recentAttacks` object per host.
+- Collector: `network.portProxy`, `boot.winRe` (read from `ReAgent.xml`, no
+  `reagentc` call), `loadPoints.runDialog`, `loadPoints.officeTrustedLocations`,
+  `hardening.browserSecurity`, `hardening.windowsUpdateSource` and
+  `hardening.ciPolicies` (the file names a code integrity policy mentions, read
+  from the `.cip` bytes, never the policy itself). All read-only.
+- Fix scripts for six checks that had none: `credssp_encryption_oracle_weak`,
+  `wpad_not_disabled`, `smb_encryption_off`, `ldap_server_signing_off` (signing
+  and channel binding), `webclient_webdav_enabled` and
+  `print_spooler_no_printers`. `lsa_not_protected` deliberately keeps none: the
+  value the benchmark asks for (`RunAsPPL = 1`) sets a UEFI variable, so a
+  rollback file cannot undo it, and it stays in the Strict remediation profile
+  where it is printed as NOT REVERSIBLE.
+- The window offers to open the report when it is final: after the AI question
+  when no AI step runs, and from the AI step itself once its section is written,
+  in the same dialog as the AI question. The guided menu already asked.
+- `-DormantAccountDays` sets how long an enabled local account may go unused.
+### Fixed
+- `local_account_dormant` judged an account with no recorded last logon by the
+  age of its password, which made the account in daily use on a Windows 11 Home
+  machine (where `Get-LocalUser` leaves `LastLogon` empty for an account that
+  signs in with a Microsoft account or Hello) look dormant. Found by running the
+  collector on a real host before the release. Now only an account whose last
+  logon the host actually recorded is judged, and a host that records none for
+  any enabled local account lists the check as not evaluated.
+- The collector read the NetBIOS setting of every adapter into an empty
+  variable (`$a` instead of `$nic` in the `network` section), so
+  `netbios_enabled` could never fire on a real host: the adapter name was empty
+  and `tcpipNetbiosOptions` null, which the check reads as "not collected". The
+  synthetic snapshots set the field by hand, which is why the regression never
+  saw it.
+### Security
+- Everything new that can reach the AI prompt is tokenized before anything is
+  sent: both ends of a port forwarding rule, the addresses and UNC paths inside
+  a Run dialog command (the command itself stays readable, so the model still
+  sees that it was mshta or PowerShell), the trusted location and the user whose
+  list it is, the WSUS server, and the author of a task that is reported for
+  sitting among Windows' own - that one only when it is not Microsoft or a
+  resource string, so the word "Microsoft" is not rewritten everywhere else.
+
 ## [2.8] - 2026-11-13
 ### Security
 - A snapshot is a file from a host that may itself be compromised, and what it

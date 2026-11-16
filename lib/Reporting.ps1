@@ -230,6 +230,15 @@ function Export-FindingsJsonl {
             $o['e8_levels'] = $lv
             $o['e8_capped'] = [string[]]@($h.E8.Keys | Where-Object { $h.E8[$_].Capped })
         }
+        # Recent attacks (data\recent-attacks.json): the vectors a check of this host reports something
+        # for, and how many of them could be judged at all on it. Exposed is the condition, not the
+        # attack.
+        $raHost = @(Get-RecentAttackCoverage -Hosts @($h) -Findings $hf)
+        if ($raHost.Count) {
+            $o['recent_attacks_exposed'] = [string[]]@($raHost | Where-Object { @($_.Exposed).Count -gt 0 } | ForEach-Object { $_.Name })
+            $o['recent_attacks_judged'] = @($raHost | Where-Object { @($_.Unknown).Count -eq 0 }).Count
+            $o['recent_attacks_total'] = $raHost.Count
+        }
         # NIS2 / ACN basic measures (Determinazione 379907/2025) a host shows: the requirements with a
         # finding against them, and those none of whose checks could be judged, as "<code>.<point>".
         if ($h.Acn) {
@@ -364,6 +373,13 @@ function ConvertTo-ReportSummaryJson {
                 stigEvaluated = [int]$hostItem.StigEvaluated; stig = $stig
                 updatesSource = "$($hostItem.UpdatesSource)"
                 e8 = $e8.ToArray(); acn = $acn
+                recentAttacks = $(
+                    $raH = @(Get-RecentAttackCoverage -Hosts @($hostItem) -Findings $mine)
+                    [ordered]@{
+                        exposed = [string[]]@($raH | Where-Object { @($_.Exposed).Count -gt 0 } | ForEach-Object { $_.Name })
+                        judged  = @($raH | Where-Object { @($_.Unknown).Count -eq 0 }).Count
+                        total   = $raH.Count
+                    })
                 trend = $(if ($hostItem.Trend) { @(@($hostItem.Trend.Points) | ForEach-Object { [ordered]@{ collected = $_.Collected.ToString('yyyy-MM-dd HH:mm') + ' UTC'; score = [int]$_.Score; grade = "$($_.Grade)" } }) } else { @() })
                 scoreChange = $(if ($hostItem.Trend -and $hostItem.Trend.Previous) { [int]$hostItem.Trend.Change } else { $null })
                 scorePreviousCollected = $(if ($hostItem.Trend -and $hostItem.Trend.Previous) { $hostItem.Trend.Previous.Collected.ToString('yyyy-MM-dd HH:mm') + ' UTC' } else { '' })
@@ -597,6 +613,33 @@ function Get-DashboardHtml {
     if ($e8Judged -gt 0) {
         $pE = 100 * $e8Met / $e8Judged
         & $w "<div class='dash-panel'><div class='dash-panel-head'>$(Get-RingSvg -Percent $pE -Big "ML$overall" -Small 'from a host')<div><div class='dash-panel-title'>ACSC Essential Eight</div><div class='meta'>Maturity levels from the requirements a host shows (ASD model, $($script:E8ModelVersion)): $e8Met of $e8Judged met$(if ($hostsArr.Count -gt 1) { ', lowest host per strategy' }). Multi-factor authentication, backups, central logging and scanning cadence need evidence a host does not hold, so this is an upper bound, not an assessment.$(if ($overallCapped) { ' ML<n>+? means a requirement of the next level could not be judged.' })</div></div></div><table class='dash-table'>$($e8Rows -join '')</table></div>"
+    }
+    # Recent attacks: for each vector of data\recent-attacks.json, whether a check that looks for what
+    # it needs reports something. Exposed means the condition is there, not that the attack happened;
+    # covered means every judged check of that vector is clean on that host, nothing more.
+    $raCov = @(Get-RecentAttackCoverage -Hosts $hostsArr -Findings $All)
+    if ($raCov.Count) {
+        $raExposed = @($raCov | Where-Object { @($_.Exposed).Count -gt 0 })
+        $raBlind = @($raCov | Where-Object { @($_.Exposed).Count -eq 0 -and @($_.Covered).Count -eq 0 })
+        $raOk = @($raCov | Where-Object { @($_.Exposed).Count -eq 0 -and @($_.Covered).Count -gt 0 })
+        $raRows = @()
+        # Worst first: most hosts exposed, then the ones nothing could be judged on, then the clean ones.
+        foreach ($v in @(@($raExposed | Sort-Object { - @($_.Exposed).Count }) + @($raBlind) + @($raOk))) {
+            $state = if (@($v.Exposed).Count) { "exposed on $(@($v.Exposed).Count) host(s)" } elseif (@($v.Covered).Count -eq 0) { 'not judged' } else { 'nothing found' }
+            # The bar is the share of the hosts this vector was not found on.
+            $pct = 100 * (@($v.Covered).Count / [Math]::Max(1, (@($v.Exposed).Count + @($v.Unknown).Count + @($v.Covered).Count)))
+            $items = @()
+            $items += "<li class='meta'>Needs on the host: $(& $H $v.Needs)</li>"
+            if (@($v.HitChecks).Count) { $items += "<li>Reported here: $(& $H ((@($v.HitChecks) | ForEach-Object { if ($script:CheckCatalog.Contains($_)) { $script:CheckCatalog[$_].Title } else { $_ } }) -join '; '))</li>" }
+            if (@($v.Exposed).Count) { $items += "<li class='meta'>Hosts: $(& $H ((@($v.Exposed) | Sort-Object) -join ', '))</li>" }
+            if (@($v.BlindChecks).Count) { $items += "<li class='meta'>Not judged: $(& $H ((@($v.BlindChecks) | ForEach-Object { if ($script:CheckCatalog.Contains($_)) { $script:CheckCatalog[$_].Title } else { $_ } }) -join '; '))</li>" }
+            $items += "<li class='meta'>Checks that look for it: $(& $H (@($v.Checks) -join ', '))</li>"
+            $label = "<details class='dash-more'><summary>$(& $H $v.Name) <span class='meta'>($(& $H $v.Years))</span></summary><ul class='dash-list'>$($items -join '')</ul></details>"
+            $raRows += "<tr><td>$label</td><td class='num'>$(& $H $state)</td><td class='bar'>$(Get-DashBar $pct)</td></tr>"
+        }
+        $raJudged = @($raCov | Where-Object { @($_.Exposed).Count -gt 0 -or @($_.Covered).Count -gt 0 }).Count
+        $pR = if ($raJudged) { 100 * $raOk.Count / $raJudged } else { 0 }
+        & $w "<div class='dash-panel'><div class='dash-panel-head'>$(Get-RingSvg -Percent $pR -Big "$($raOk.Count)/$raJudged" -Small 'nothing found')<div><div class='dash-panel-title'>Protection against recent attacks</div><div class='meta'>The vectors most reported between 2022 and 2026 ($($raCov.Count) of them, from <code>data\recent-attacks.json</code>) against the checks that look for the condition each one needs. <b>Exposed</b> means that condition is on the host, or that it left a trace there: it is not proof the attack happened. <b>Nothing found</b> means every judged check of that vector is clean, which is not a guarantee either: a host snapshot shows configuration, not behaviour, and COVERAGE.md lists the vectors nothing here can see.</div></div></div><table class='dash-table'>$($raRows -join '')</table></div>"
     }
     # NIS2 in Italy: the ACN basic measures a host shows (Get-AcnStatus, per host). A requirement tied to
     # several rows (one per group of checks) counts once: not met when one row is not met on a host.

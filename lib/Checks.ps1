@@ -19,6 +19,10 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Credential Guard not running'
         Description = 'Credential Guard keeps NTLM hashes and Kerberos tickets in an isolated process that even SYSTEM cannot read. Without it, a single local admin compromise yields reusable domain credentials.'
         Remediation = 'Enable Virtualization-based Security with Credential Guard (Group Policy: Device Guard > Turn On Virtualization Based Security) on hardware that supports it. Not supported on domain controllers.' }
+    credential_guard_no_lock = @{ Category = 'Credential Protection'; Severity = 'Low'; Mitre = 'T1003.001'; Needs = @('credentialProtection'); Roles = @('workstation', 'server')
+        Title = 'Credential Guard configured without UEFI lock'
+        Description = 'LsaCfgFlags = 2 turns Credential Guard on without the UEFI lock, so an administrator (or code running as SYSTEM) can turn it off again by writing one registry value and rebooting, and the protection is gone without any hardware step. LsaCfgFlags = 1 keeps the setting in firmware, where it survives a registry change. The same check reports a host where the setting is on but Credential Guard is not running, which means the reboot or the hardware requirement is still missing.'
+        Remediation = 'Set "Turn On Virtualization Based Security" > Credential Guard to "Enabled with UEFI lock" (LsaCfgFlags = 1), after checking the documented way to turn it off again (it needs physical presence at the machine).' }
     wdigest_cleartext = @{ Category = 'Credential Protection'; Severity = 'High'; Mitre = 'T1003.001'; Cis = '18.4.8 (L1)'; Needs = @('credentialProtection'); Roles = $script:AllRoles
         Title = 'WDigest stores cleartext passwords'
         Description = 'UseLogonCredential = 1 makes LSASS keep the cleartext password of every interactive logon, so one memory dump gives the password itself. Attackers set it on purpose to harvest passwords later.'
@@ -45,6 +49,10 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Defender real-time protection off'
         Description = 'Microsoft Defender is the active antivirus but real-time protection (or the antivirus engine) is off: files are not scanned when written or run.'
         Remediation = 'Turn real-time protection back on, find out why it was disabled, and enable tamper protection so it cannot be turned off locally.' }
+    defender_service_disabled = @{ Category = 'Antivirus'; Severity = 'High'; Mitre = 'T1562.001'; Needs = @('defender'); Roles = $script:AllRoles
+        Title = 'Defender antimalware service not running'
+        Description = 'Microsoft Defender is the active antivirus on this host, but its antimalware service is not running (AMServiceEnabled is false): nothing is scanning, whatever the other settings say. Real-time protection reports its own value even when the service behind it is stopped, so a host can look configured and be unprotected. Not reported when Defender runs in passive mode behind another antivirus, where the service is expected to be idle.'
+        Remediation = 'Start the Microsoft Defender Antivirus service (WinDefend) and find out what stopped it: a disabled service, a Group Policy that turns Defender off (DisableAntiSpyware), or a failed update. If another antivirus owns the host, check that it is the one registered with Windows Security.' }
     defender_tamper_off = @{ Category = 'Antivirus'; Severity = 'Medium'; Mitre = 'T1562.001'; Needs = @('defender'); Roles = $script:AllRoles
         Title = 'Defender tamper protection off'
         Description = 'Without tamper protection, a local administrator (or malware running as one) can disable Defender, add exclusions or stop real-time protection.'
@@ -91,6 +99,10 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Secure Boot off'
         Description = 'Secure Boot is disabled or the host boots in legacy BIOS mode, so bootkits can load before Windows and its defenses.'
         Remediation = 'Switch the firmware to UEFI and enable Secure Boot (convert the disk with mbr2gpt first if needed).' }
+    winre_bitlocker_exposure = @{ Category = 'Disk and Boot'; Severity = 'Low'; Mitre = 'T1542'; Needs = @('boot', 'boot.winRe', 'bitlocker'); Roles = $script:AllRoles
+        Title = 'Recovery environment reachable on a disk unlocked without a PIN'
+        Description = 'BitLocker protects the system volume with the TPM alone and the Windows Recovery Environment is turned on, so the disk is unlocked before anyone authenticates and WinRE starts from it. The recovery image is a separate piece of Windows that servicing updates often miss, and the bypasses found in it (2024 onwards) all need exactly this: physical access to a machine whose disk unlocks by itself. The finding says when the image was last written, so an image older than the recovery updates stands out. It is not a vulnerability by itself: it is the condition those attacks need.'
+        Remediation = 'Require a PIN or a startup key for the system volume (so the disk does not unlock on its own), or keep the recovery image serviced: apply the WinRE servicing updates (reagentc /disable, apply the update, reagentc /enable, or redeploy the image), and turn WinRE off where nobody uses it.' }
 
     # ---------------- Network exposure ----------------
     smb1_server_enabled = @{ Category = 'Network Exposure'; Severity = 'High'; Mitre = 'T1210'; Cis = '18.4.4 (L1)'; Needs = @('network'); Roles = $script:AllRoles
@@ -129,6 +141,10 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Risky service listening on the network'
         Description = 'A service often abused or unencrypted (Telnet, FTP, TFTP, SNMP, VNC, databases, caches, WinRM over HTTP on a workstation) listens on a non-loopback address.'
         Remediation = 'Stop or uninstall the service if not needed; otherwise bind it to localhost or restrict it with firewall rules to the hosts that use it.' }
+    network_port_proxy = @{ Category = 'Network Exposure'; Severity = 'High'; Mitre = 'T1090.001'; Needs = @('network', 'network.portProxy'); Roles = $script:AllRoles
+        Title = 'Port forwarding configured on the host'
+        Description = 'A "netsh interface portproxy" rule makes this host forward a TCP port to another address, so whoever reaches the listening port reaches the machine behind it with this host''s identity. Windows keeps the rules under Services\PortProxy, they survive a reboot, and nothing in the firewall shows them. Administration tools rarely use them; intrusions use them to reach segments the attacker cannot route to, and to tunnel RDP or SMB through a host that is allowed to pass. Forwarding to a loopback address is reported a step lower (a local relay, often a developer''s).'
+        Remediation = 'List them with "netsh interface portproxy show all" and delete the ones nobody can account for ("netsh interface portproxy delete v4tov4 listenport=<port> listenaddress=<address>"), then look for how they were created: the rules are set by an administrator or by code running as SYSTEM.' }
 
     # ---------------- Remote access ----------------
     rdp_nla_disabled = @{ Category = 'Remote Access'; Severity = 'High'; Mitre = 'T1021.001'; Cis = '18.10.56.3.9.4 (L1)'; Needs = @('remoteAccess'); Roles = $script:AllRoles
@@ -161,6 +177,10 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Local account password never expires'
         Description = 'An enabled local account keeps the same password forever, unmanaged.'
         Remediation = 'Disable local accounts that are not needed; manage the rest with LAPS or a vault.' }
+    local_account_dormant = @{ Category = 'Local Accounts'; Severity = 'Low'; Mitre = 'T1078.003'; Needs = @('localAccounts'); Roles = $script:AllRoles
+        Title = 'Enabled local account not used for a long time'
+        Description = 'An enabled local account has not logged on for longer than the limit (-DormantAccountDays, 180 days by default), so nobody would notice if someone else started using it: no user misses it, no password change is due, and its last logon is the only trace it leaves. Accounts left behind by a departed administrator, by a migration or by a product that was uninstalled are a standing way in. Medium when the account is a local administrator, Low otherwise. Only an account whose last logon the host recorded is judged: Windows leaves that date empty for accounts that sign in with a Microsoft account or Windows Hello, and an empty date means "not recorded", never "never used". A host that records none at all lists the check as not evaluated.'
+        Remediation = 'Disable the accounts nobody can account for (keep them disabled rather than deleting them, so the SID stays known), remove the ones a product no longer needs, and set a review of local accounts on the hosts that have their own.' }
     laps_not_configured = @{ Category = 'Local Accounts'; Severity = 'High'; Mitre = 'T1078.003'; Needs = @('laps'); Roles = @('workstation', 'server')
         Title = 'LAPS not configured'
         Description = 'Neither Windows LAPS nor legacy Microsoft LAPS manages the local administrator password on this domain or Entra joined host, so it is likely the same on many machines.'
@@ -358,6 +378,10 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Automatic Windows Update turned off by policy'
         Description = 'NoAutoUpdate = 1: the Automatic Updates policy is set to Disabled, so security updates are not installed unless someone does it by hand.'
         Remediation = 'Set "Configure Automatic Updates" to Enabled (or Not configured on managed rings) and check that WSUS / Intune delivers the updates.' }
+    wsus_insecure_transport = @{ Category = 'Patching'; Severity = 'High'; Mitre = 'T1072'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'Updates taken from a WSUS server over http'
+        Description = 'The host is pointed at a WSUS server by policy and the address is http://, so the update agent takes its catalog over a channel nobody authenticates. Whoever can answer for that name or sit on the path (ARP or DNS spoofing on the segment, a stale DNS record, a compromised WSUS) decides what the agent installs, as SYSTEM. The same channel is what the published WSUS attack tools use to turn one update server into code on every host that trusts it. A host that also allows a user-set proxy for update detection (SetProxyBehaviorForUpdateDetection = 1) is reported as well: a user-level proxy then sits in front of the update traffic.'
+        Remediation = 'Put a certificate on the WSUS server and change the policy to https:// (WUServer and WUStatusServer), keeping port 8531; leave SetProxyBehaviorForUpdateDetection unset so only the system proxy is used. Where TLS on WSUS is not an option, restrict the segment and plan the move to Intune or another managed channel.' }
     smartscreen_off = @{ Category = 'Antivirus'; Severity = 'Medium'; Mitre = 'T1204'; Cis = '18.10.75.2.1 (L1)'; Needs = @('hardening'); Roles = $script:AllRoles
         Title = 'Microsoft Defender SmartScreen turned off by policy'
         Description = 'EnableSmartScreen = 0: Windows no longer warns about or blocks downloaded programs with a bad reputation.'
@@ -611,6 +635,14 @@ $script:CheckCatalog = [ordered]@{
         Title = 'No application control enforced'
         Description = 'Neither App Control for Business (WDAC) enforces a user-mode policy (Win32_DeviceGuard UsermodeCodeIntegrityPolicyEnforcementStatus = 2) nor AppLocker enforces executable rules (rules in the Exe collection, not in audit-only mode, Application Identity service not disabled): any program a user downloads or brings runs. A policy in audit mode is named in the detail. Smart App Control blocks by reputation, not against a list the organization approved: it lowers the severity to Low but does not count. The Essential Eight wants application control on workstations from Maturity Level One (internet-facing servers at Two, all servers at Three).'
         Remediation = 'Deploy App Control for Business (WDAC) in enforced mode, starting from a Microsoft base policy with Microsoft''s recommended block rules, after an audit period; or AppLocker with rules for executables, scripts, installers and DLLs, and the Application Identity service set to start. Both are organizational choices that need testing: there is no fix script.' }
+    app_control_policy_suspect = @{ Category = 'System Hardening'; Severity = 'Medium'; Mitre = 'T1562.001'; Needs = @('hardening', 'hardening.ciPolicies'); Roles = $script:AllRoles
+        Title = 'Application control policy names a security agent'
+        Description = 'An App Control (WDAC) policy in force on this host names the executable of an antivirus or EDR agent among the files its rules talk about. A policy is the one way to keep a signed, Microsoft-trusted program from starting at all: the published technique drops a deny policy for the agent''s binaries, reboots, and the host comes back with its EDR unable to load and with the kernel still happily enforcing the attacker''s policy. A legitimate allow-list policy can name the same binary, so the finding says which names were found and leaves the reading to you.'
+        Remediation = 'Read the policy (CiTool --list-policies, or convert the .cip back with ConvertFrom-CIPolicy) and check whether the agent''s binaries are in an allow rule or a deny rule, and who deployed it. Remove a policy nobody can account for (CiTool --remove-policy <id>), reboot, confirm the agent runs again, and treat the host as compromised: adding a policy needs administrator rights.' }
+    browser_cookie_protection_off = @{ Category = 'System Hardening'; Severity = 'Medium'; Mitre = 'T1539'; Needs = @('hardening'); Roles = $script:AllRoles
+        Title = 'Browser session protection turned off by policy'
+        Description = 'A policy turns off a Chromium browser''s protection of its own session store: ApplicationBoundEncryptionEnabled = 0 unties the cookie and password key from the browser, so any program running as the user can decrypt them again, and RemoteDebuggingAllowed = 1 lets anything on the machine drive the running browser over its debugging port and read the live session. Both are off by default. Infostealers set the first one themselves when they land with administrator rights, precisely to undo the protection, and use the second where they cannot. Neither belongs on a managed host.'
+        Remediation = 'Remove the policy (or set ApplicationBoundEncryptionEnabled = 1 and RemoteDebuggingAllowed = 0) under Software\Policies\<vendor>\<browser>, find out who set it, and if nothing in the organization did, treat the host as compromised and reset the sessions and passwords kept in that browser.' }
     powershell_clm_off = @{ Category = 'System Hardening'; Severity = 'Low'; Mitre = 'T1059.001'; Needs = @('hardening'); Roles = $script:AllRoles
         Title = 'PowerShell is not held to Constrained Language Mode'
         Description = 'Nothing puts PowerShell in Constrained Language Mode: no enforced WDAC user-mode policy and no enforced AppLocker script rules (either makes PowerShell run untrusted code in Constrained Language Mode), and no __PSLockdownPolicy = 4. Full Language Mode lets a script call .NET and Win32 directly, which most PowerShell attack tooling needs. An Essential Eight Maturity Level Three requirement.'
@@ -684,6 +716,14 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Scheduled task hidden from the Task Scheduler'
         Description = 'A scheduled task''s registry entry (TaskCache\Tree) has no security descriptor (SD). The task keeps running, but schtasks /query, Get-ScheduledTask and the Task Scheduler no longer show it: the Tarrask technique used by the Hafnium group, which needs only SYSTEM to delete one registry value. A key whose task XML is gone (System32\Tasks) is a leftover of a removed task and is not reported, nor is an Index of 0, which Windows upgrades leave on many removed tasks.'
         Remediation = 'Look at the task''s XML in C:\Windows\System32\Tasks (same path) and at the Id in TaskCache\Tasks to see what it runs. If nobody created it, delete its keys under TaskCache\Tree and TaskCache\Tasks and its XML file (as SYSTEM), and investigate the host as compromised.' }
+    scheduled_task_masquerade = @{ Category = 'Persistence'; Severity = 'Medium'; Mitre = 'T1036.004'; Needs = @('scheduledTasks'); Roles = $script:AllRoles
+        Title = 'Task in a Windows folder was not created by Windows'
+        Description = 'A scheduled task sits in a folder Windows owns (\Microsoft\Windows\...), where hundreds of its own tasks live and nobody reads the list, but its author is not Microsoft: a local user, a domain account, or no author at all. The folder is the only thing that makes it look official; the task runs whatever its action says, usually as SYSTEM. Reported only for tasks whose author does not name Microsoft, so a task a vendor or an administrator deliberately put there needs to be recognised once and then excepted.'
+        Remediation = 'Compare the task with the same host''s peers (the Microsoft folders hold the same tasks on every Windows of that build), read its action, and move or delete the ones nobody can account for. Keep the organization''s own tasks in a folder of its own, so this check stays quiet and the next intrusion stands out.' }
+    run_dialog_payload = @{ Category = 'Persistence'; Severity = 'High'; Mitre = 'T1204.004'; Needs = @('loadPoints'); Roles = $script:AllRoles
+        Title = 'A command was pasted into the Run dialog or the address bar'
+        Description = 'Explorer keeps what each user typed in the Run dialog (RunMRU) and in the address bar (TypedPaths), and one of those entries is a command of the kind a page tells the victim to paste: PowerShell or cmd with a download, mshta or curl with a URL, a WebDAV "net use", an encoded command, conhost with a hidden window. This is how "ClickFix" and "FileFix" lures work, and the entry is the only local trace they leave: no file, no autostart, nothing for the antivirus to scan. A hit means the command ran on the user''s behalf: it is evidence of what happened, not a setting to fix. Severity is High for a downloader or an encoded command, Medium for a bare interpreter or a WebDAV path.'
+        Remediation = 'Treat the host as compromised until proven otherwise: read the full command line in the finding, look for what it fetched (proxy and DNS logs of that time, the user''s Downloads and Temp), check the autostart entries and the scheduled tasks created since, and reset the user''s credentials. The entry itself is only history; deleting it removes the evidence, not the payload.' }
     persistence_logon_script = @{ Category = 'Persistence'; Severity = 'Medium'; Mitre = 'T1037.001'; Needs = @('loadPoints'); Roles = $script:AllRoles
         Title = 'Logon or startup script set on the host'
         Description = 'The local Group Policy of the host (GroupPolicy\Machine or User\Scripts, scripts.ini and psscripts.ini) runs a startup, shutdown, logon or logoff script, or a user''s environment has a UserInitMprLogonScript, which Windows runs at that user''s logon. Startup scripts run as SYSTEM. Scripts that the organization pushes come from domain Group Policy and are not listed here: a local one is set by hand on this host. UserInitMprLogonScript is High, a local Group Policy script Medium.'
@@ -700,6 +740,10 @@ $script:CheckCatalog = [ordered]@{
         Title = 'Office trusts programmatic access to the VBA project'
         Description = 'For a user, Word, Excel or PowerPoint trusts access to the VBA project object model (AccessVBOM = 1, "Trust access to the VBA project object model"). Code can then read and write the macros of every document and template, so a macro or a script plants itself into the user''s Normal.dotm or Personal.xlsb and comes back every time Office starts, and macro malware spreads from one document to the next. Office leaves it off; it is set by hand or by malware.'
         Remediation = 'Turn it off (File > Options > Trust Center > Macro Settings) and enforce it with the Office policy "Trust access to Visual Basic Project" set to Disabled (Software\Policies\Microsoft\Office\16.0\<app>\Security\AccessVBOM = 0).' }
+    office_trusted_location_risky = @{ Category = 'System Hardening'; Severity = 'Medium'; Mitre = 'T1204.002'; Needs = @('loadPoints'); Roles = $script:AllRoles
+        Title = 'Office trusted location a user or an attacker can fill'
+        Description = 'A trusted location is a folder whose documents Office opens with macros running and no warning, whatever the macro settings say. One of the trusted locations on this host is a folder that is not Office''s own and that is reachable by whoever wants to put a document there: a network share, the user''s Downloads or Desktop, a temp folder, the root of a drive, or a folder with subfolders trusted along with it. Adding one is a documented step of macro campaigns, because it makes every later document run quietly; it is also something users do to themselves to stop being asked. High for a network path or a download / temp folder, Medium for a wide local path.'
+        Remediation = 'Remove the location (File > Options > Trust Center > Trusted Locations) and keep the list to folders the organization controls and users cannot write; set "Allow Trusted Locations not on the user''s computer" to Disabled and, where the business needs trusted documents, put them on a share where only the publisher can write.' }
     persistence_ssh_authorized_keys = @{ Category = 'Persistence'; Severity = 'Medium'; Mitre = 'T1098.004'; Needs = @('loadPoints'); Roles = $script:AllRoles
         Title = 'SSH keys give a logon to this host'
         Description = 'The OpenSSH server is installed and public keys are listed in administrators_authorized_keys (a logon as any administrator, without a password) or in a user''s .ssh\authorized_keys. A key added there is a way back in that survives a password change and leaves no account to notice. The keys are counted, not read. Administrator keys are Medium, High when a non-administrator can write the file; user keys are Low.'
@@ -1172,6 +1216,17 @@ $script:CheckAttacks = [ordered]@{
     local_admin_password_shared = 'Pass-the-hash across the fleet: the hash of the shared local password, taken from one host, logs on to all the others.'
     machine_sid_duplicate = 'Lateral movement between clones: local accounts and permissions are the same SIDs on every cloned host.'
     config_drift = 'Gaps in hardening: a host that missed a Group Policy or was changed by hand is the weak point of an otherwise uniform fleet.'
+    network_port_proxy = 'Pivoting and tunnelling: the host forwards a port into a segment the attacker cannot reach, so RDP, SMB or a C2 channel travels with this machine''s identity and the firewall shows nothing.'
+    run_dialog_payload = 'Initial access by the user''s own hand: a page or document tells the victim to paste a command into the Run dialog, and the downloader runs with no file for the antivirus to see.'
+    browser_cookie_protection_off = 'Session theft: cookies and saved passwords are decrypted by any program running as the user, so the attacker signs in as them past multi-factor authentication.'
+    wsus_insecure_transport = 'Code execution as SYSTEM through the update channel: whoever answers for the http WSUS name, or sits on the path, serves an "update" to every host that trusts it.'
+    winre_bitlocker_exposure = 'Offline attack on an encrypted disk: the machine unlocks its own volume before anyone authenticates, so whoever holds it boots the recovery environment against decrypted data.'
+    app_control_policy_suspect = 'Defence evasion that survives a reboot: a code integrity policy keeps the signed security agent from loading at all, with the kernel enforcing the attacker''s list.'
+    office_trusted_location_risky = 'Macro execution without a warning: a document dropped in the trusted folder (or on the share it points to) runs its macros silently on every open.'
+    scheduled_task_masquerade = 'Persistence hidden in plain sight: a task among the hundreds of Windows'' own runs the attacker''s program as SYSTEM, and nobody reads that folder.'
+    local_account_dormant = 'Account takeover nobody notices: an unused local account is reused for logon and no owner misses it, no password change is ever due.'
+    defender_service_disabled = 'Malware runs unchecked while the host looks protected: the antimalware service is stopped, so nothing scans, although the settings still read as configured.'
+    credential_guard_no_lock = 'Credential theft after one registry write: without the UEFI lock, code running as SYSTEM turns Credential Guard off and takes the hashes and tickets at the next boot.'
 }
 foreach ($t in @($script:CheckAttacks.Keys)) { if ($script:CheckCatalog.Contains($t)) { $script:CheckCatalog[$t]['Attacks'] = $script:CheckAttacks[$t] } }
 
@@ -1230,6 +1285,11 @@ $script:CheckTools = [ordered]@{
     credssp_encryption_oracle_weak = 'Metasploit, the CVE-2018-0886 CredSSP man-in-the-middle tooling.'
     winrm_trusted_hosts_any        = 'Evil-WinRM (connect over WinRM where any host is trusted).'
     remote_access_tool             = 'the remote-access tool itself (AnyDesk, TeamViewer, ScreenConnect) reused for hands-on-keyboard access.'
+    network_port_proxy             = 'netsh (Windows'' own command sets the rules), Chisel, Ligolo-ng, plink (the same forwarding with a tool).'
+    wsus_insecure_transport        = 'WSUSpect (inject an update over http), SharpWSUS (deploy through a WSUS server).'
+    app_control_policy_suspect     = 'Krueger (deploys a WDAC policy that keeps the EDR from loading).'
+    browser_cookie_protection_off  = 'infostealer families (Lumma, Stealc, Vidar, Exela) and the published Chrome cookie decryption tooling.'
+    defender_service_disabled      = 'sc.exe / net stop (Windows'' own tools stop the service), Defendnot (registers a fake antivirus so Defender stands down).'
 }
 foreach ($t in @($script:CheckTools.Keys)) { if ($script:CheckCatalog.Contains($t)) { $script:CheckCatalog[$t]['Tools'] = $script:CheckTools[$t] } }
 
@@ -2448,6 +2508,72 @@ $script:CisMap = $null
 $script:CisBench = 'win11'
 $script:CurrentRole = 'unknown'
 
+function Get-RecentAttacks {
+    # data\recent-attacks.json: the attack vectors of 2022-2026 and the checks that look for the
+    # condition each one needs. Documentation only (COVERAGE.md and the README section are written
+    # from it); nothing in the analysis reads it. $null when the file is not there.
+    if ($null -eq $script:RecentAttacks) {
+        $path = Join-Path $PSScriptRoot '..\data\recent-attacks.json'
+        $script:RecentAttacks = if (Test-Path -LiteralPath $path) { ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText($path)) } else { $false }
+    }
+    if ($script:RecentAttacks -is [bool]) { return $null }
+    return $script:RecentAttacks
+}
+
+function Get-RecentAttackCoverage {
+    # Where the hosts stand against each vector of data\recent-attacks.json. Per vector: the hosts a
+    # check of that vector reports something on (exposed), the hosts where none of its checks could be
+    # judged (unknown), and the rest (covered: every judged check of that vector is clean). Checks that
+    # do not apply to a host's role are left out for that host, and a check the policy turns off or
+    # that is not evaluated counts as not judged, never as clean.
+    param($Hosts, $Findings)
+    $ra = Get-RecentAttacks
+    if (-not $ra) { return }
+    $fired = @{}
+    foreach ($f in @($Findings | Where-Object { $_ })) { $fired["$($f.Host)|$($f.Type)"] = $true }
+    $hostsArr = @($Hosts | Where-Object { $_ })
+    $ne = @{}
+    foreach ($h in $hostsArr) {
+        $set = @{}
+        foreach ($n in @($h.NotEvaluated | Where-Object { $_ })) { $set["$($n.Type)"] = $true }
+        foreach ($o in @(@($h.OptionalOff) + @($h.PolicyOff) | Where-Object { $_ })) { $set["$o"] = $true }
+        $ne["$($h.Name)"] = $set
+    }
+    $out = New-Object System.Collections.Generic.List[object]
+    foreach ($a in @($ra.attacks)) {
+        $exposed = New-Object System.Collections.Generic.List[string]
+        $unknown = New-Object System.Collections.Generic.List[string]
+        $covered = New-Object System.Collections.Generic.List[string]
+        $hit = New-Object System.Collections.Generic.List[string]
+        $notJudged = New-Object System.Collections.Generic.List[string]
+        foreach ($h in $hostsArr) {
+            $role = "$($h.Role)"
+            $checks = @(@($a.checks) | Where-Object { $script:CheckCatalog.Contains($_) -and ($role -eq 'unknown' -or $script:CheckCatalog[$_].Roles -contains $role) })
+            if ($checks.Count -eq 0) { continue }
+            $bad = @($checks | Where-Object { $fired["$($h.Name)|$_"] })
+            $blind = @($checks | Where-Object { $ne["$($h.Name)"].ContainsKey($_) })
+            foreach ($b in $bad) { if (-not $hit.Contains($b)) { $hit.Add($b) } }
+            foreach ($b in $blind) { if (-not $notJudged.Contains($b)) { $notJudged.Add($b) } }
+            if ($bad.Count -gt 0) { $exposed.Add("$($h.Name)") }
+            elseif ($blind.Count -eq $checks.Count) { $unknown.Add("$($h.Name)") }
+            else { $covered.Add("$($h.Name)") }
+        }
+        if (($exposed.Count + $unknown.Count + $covered.Count) -eq 0) { continue }
+        $out.Add([PSCustomObject]@{
+                Name      = "$($a.name)"
+                Years     = "$($a.years)"
+                Needs     = "$($a.needs)"
+                Checks    = [string[]]@($a.checks)
+                Exposed   = $exposed.ToArray()
+                Unknown   = $unknown.ToArray()
+                Covered   = $covered.ToArray()
+                HitChecks = $hit.ToArray()
+                BlindChecks = $notJudged.ToArray()
+            })
+    }
+    return $out.ToArray()
+}
+
 function Get-CisMap {
     if ($null -eq $script:CisMap) {
         $path = Join-Path $PSScriptRoot '..\data\cis-map.json'
@@ -2726,16 +2852,27 @@ function Invoke-HostChecks {
     # its checks say nothing about this host.
     $d = $Snapshot.defender
     if ($d -and $d.amRunningMode -and "$($d.amRunningMode)" -notmatch '(?i)^normal$') {
-        foreach ($t in @('defender_realtime_off', 'defender_tamper_off', 'defender_signatures_stale', 'defender_exclusion', 'asr_standard_rules_missing', 'defender_network_protection_off', 'defender_pua_off', 'controlled_folder_access_off', 'stig_defender', 'asr_other_rules_not_blocking', 'defender_protection_features_off', 'defender_server_baseline_gaps', 'defender_threat_action_allow', 'defender_network_blocks_off', 'defender_asr_exclusion_broad')) {
+        foreach ($t in @('defender_realtime_off', 'defender_tamper_off', 'defender_signatures_stale', 'defender_exclusion', 'asr_standard_rules_missing', 'defender_network_protection_off', 'defender_pua_off', 'controlled_folder_access_off', 'stig_defender', 'asr_other_rules_not_blocking', 'defender_protection_features_off', 'defender_server_baseline_gaps', 'defender_threat_action_allow', 'defender_network_blocks_off', 'defender_asr_exclusion_broad', 'defender_service_disabled')) {
             $extra[$t] = "Microsoft Defender Antivirus runs in '$($d.amRunningMode)': another antivirus is primary, check that product"
         }
+    }
+    # The last logon of a local account is not recorded on every host (an account that signs in with a
+    # Microsoft account or Windows Hello often has none), and "no date" must not read as "never used":
+    # where no enabled local account has one, the check says nothing instead.
+    $laUsers = @($Snapshot.localAccounts.users | Where-Object { $_ -and $_.enabled })
+    if ($laUsers.Count -gt 0 -and @($laUsers | Where-Object { "$($_.lastLogonUtc)" }).Count -eq 0) {
+        $extra['local_account_dormant'] = 'this host records no last logon for any enabled local account'
     }
     if ($Snapshot.credentialProtection -and $null -eq $Snapshot.credentialProtection.credentialGuardRunning) {
         $extra['credential_guard_off'] = 'Device Guard status (Win32_DeviceGuard) not readable'
         $extra['hvci_off'] = 'Device Guard status (Win32_DeviceGuard) not readable'
+        $extra['credential_guard_no_lock'] = 'Device Guard status (Win32_DeviceGuard) not readable'
     }
     # Windows Home has no Credential Guard: nothing to fix on that edition, so it is not judged.
-    elseif (Test-HomeEdition $Snapshot) { $extra['credential_guard_off'] = 'Windows Home has no Credential Guard (Enterprise and Education only)' }
+    elseif (Test-HomeEdition $Snapshot) {
+        $extra['credential_guard_off'] = 'Windows Home has no Credential Guard (Enterprise and Education only)'
+        $extra['credential_guard_no_lock'] = 'Windows Home has no Credential Guard (Enterprise and Education only)'
+    }
     $svcList = @($Snapshot.services | Where-Object { $_ })
     if ($svcList.Count -gt 0) {
         $withField = @($svcList | Where-Object { $_.PSObject.Properties['permissionsRead'] })
@@ -2774,7 +2911,11 @@ function Invoke-HostChecks {
     if ($sfc -and [int]$sfc.userHivesRead -eq 0) { $extra['wsl_distribution_installed'] = 'no user profile loaded (WSL distributions are registered per user)' }
     if ($Snapshot.network -and -not $Snapshot.network.PSObject.Properties['smbServerEncryptData']) { $extra['smb_encryption_off'] = 'snapshot from an older collector: field not collected' }
     # The per-user Office settings are read from the loaded profiles only.
-    if ($Snapshot.loadPoints -and [int]$Snapshot.loadPoints.userHivesRead -eq 0) { $extra['office_vba_object_model_trusted'] = 'no user profile loaded (the Office settings are per user)' }
+    if ($Snapshot.loadPoints -and [int]$Snapshot.loadPoints.userHivesRead -eq 0) {
+        $extra['office_vba_object_model_trusted'] = 'no user profile loaded (the Office settings are per user)'
+        $extra['office_trusted_location_risky'] = 'no user profile loaded (trusted locations are per user)'
+        $extra['run_dialog_payload'] = 'no user profile loaded (what was typed in the Run dialog is per user)'
+    }
 
     $ne = @(Get-NotEvaluatedChecks -Snapshot $Snapshot -Extra $extra)
     # Opt-in checks are not "not evaluated" when nobody asked for them: pending updates exist only in a
@@ -2843,6 +2984,17 @@ function Invoke-CredentialChecks {
     if ((& $can 'hvci_off') -and $c.hvciRunning -eq $false) {
         Add-Finding -Type 'hvci_off' -Object 'Memory integrity' -Detail "HVCI is not running (VBS status $($c.vbsStatus))."
     }
+    # LsaCfgFlags: 1 Credential Guard with UEFI lock, 2 without the lock, 0 or unset off. Only a host
+    # that has it turned on is judged here; a host with it off is the credential_guard_off finding.
+    if (& $can 'credential_guard_no_lock') {
+        $cg = "$($c.lsaCfgFlags)"
+        if ($cg -eq '2') {
+            Add-Finding -Type 'credential_guard_no_lock' -Object 'Credential Guard' -Found '2 (no UEFI lock)' -Expected '1 (with UEFI lock)' -Detail "LsaCfgFlags = 2: Credential Guard is on without the UEFI lock, so one registry write and a reboot turn it off$(if ($c.credentialGuardRunning -eq $false) { '. It is also not running yet: the host needs a reboot or does not meet the hardware requirements' })."
+        }
+        elseif ($cg -eq '1' -and $c.credentialGuardRunning -eq $false) {
+            Add-Finding -Type 'credential_guard_no_lock' -Object 'Credential Guard' -Found 'configured, not running' -Expected 'running' -Detail "LsaCfgFlags = 1 (with UEFI lock) but Credential Guard is not running (VBS status $($c.vbsStatus)): the host needs a reboot, or the hardware requirements are not met."
+        }
+    }
     if ((& $can 'wdigest_cleartext') -and "$($c.wdigestUseLogonCredential)" -eq '1') {
         Add-Finding -Type 'wdigest_cleartext' -Object 'WDigest' -Found '1' -Expected '0' -Detail 'UseLogonCredential = 1.'
     }
@@ -2874,6 +3026,10 @@ function Invoke-AntivirusChecks {
     }
     if ((& $can 'defender_tamper_off') -and $d.isTamperProtected -eq $false) {
         Add-Finding -Type 'defender_tamper_off' -Object 'Microsoft Defender' -Detail 'Tamper protection is off.'
+    }
+    # The service behind every other Defender switch. Old snapshots have no such field.
+    if ((& $can 'defender_service_disabled') -and ($d.PSObject.Properties.Name -contains 'amServiceEnabled') -and $d.amServiceEnabled -eq $false) {
+        Add-Finding -Type 'defender_service_disabled' -Object 'Microsoft Defender service' -Found 'not running' -Expected 'running' -Detail "AMServiceEnabled = False$(if ($d.amRunningMode) { " (running mode '$($d.amRunningMode)')" }): the antimalware service is not running, so nothing is scanning$(if ($d.realTimeProtectionEnabled -eq $true) { ', although real-time protection still reports itself as on' })."
     }
     if (& $can 'defender_signatures_stale') {
         $age = Get-AgeDays $d.signatureUpdatedUtc
@@ -2989,6 +3145,19 @@ function Invoke-DiskChecks {
                 Add-Finding -Type 'bitlocker_tpm_only' -Object "OS volume $($osVol.mountPoint)" -Detail "Protectors: $($kp -join ', ')."
             }
         }
+        # The recovery environment on a disk that unlocks itself: the condition the WinRE BitLocker
+        # bypasses need. Judged only where BitLocker is on with the TPM alone, so a host with a PIN or
+        # a startup key (and a host that is not encrypted at all) says nothing here.
+        if ((& $can 'winre_bitlocker_exposure') -and $S.boot -and $S.boot.winRe -and $osVol -and "$($osVol.protectionStatus)" -eq 'On') {
+            $w = $S.boot.winRe
+            $kp = @($osVol.keyProtectors | Where-Object { $_ })
+            $tpmOnly = $kp.Count -gt 0 -and $kp -contains 'Tpm' -and @($kp | Where-Object { $_ -match '(?i)pin|startupkey' }).Count -eq 0
+            if ($tpmOnly -and $w.enabled -eq $true) {
+                $age = Get-AgeDays $w.imageModifiedUtc
+                $imgTxt = if ($w.imageModifiedUtc) { "The recovery image was last written $($w.imageModifiedUtc)$(if ($null -ne $age) { " ($age days before the snapshot)" })." } elseif ($w.imageReadable -eq $false) { 'The recovery image is on a partition this collection could not read, so its date is unknown.' } else { 'The date of the recovery image is unknown.' }
+                Add-Finding -Type 'winre_bitlocker_exposure' -Object "OS volume $($osVol.mountPoint): recovery environment" -Found 'WinRE enabled, TPM-only unlock' -Expected 'a PIN or startup key, or a serviced WinRE image' -Detail "BitLocker unlocks $($osVol.mountPoint) with the TPM alone (protectors: $($kp -join ', ')) and WinRE is enabled. $imgTxt"
+            }
+        }
         if (& $can 'bitlocker_data_volume_off') {
             foreach ($v in @($vols | Where-Object { "$($_.volumeType)" -match '(?i)^data$|fixed' -and "$($_.protectionStatus)" -ne 'On' })) {
                 Add-Finding -Type 'bitlocker_data_volume_off' -Object "volume $($v.mountPoint)" -Detail "Protection $($v.protectionStatus).$(if ($isHome) { ' Windows Home cannot encrypt data volumes with BitLocker; use Pro or Enterprise, or a third-party tool.' })"
@@ -3065,6 +3234,18 @@ function Invoke-NetworkChecks {
             Add-Finding -Type 'risky_listener' -Object "$key ($name)" -Detail "Listening on $addr$(if ($l.process) { " by $($l.process)" })."
         }
     }
+    # Port forwarding rules (netsh interface portproxy). The value name is the listening
+    # "address/port", the value the "address/port" the traffic is sent to.
+    if (& $can 'network_port_proxy') {
+        foreach ($p in @($n.portProxy | Where-Object { $_ })) {
+            $listen = "$($p.listen)"; $connect = "$($p.connect)"
+            if (-not $listen) { continue }
+            $toSelf = $connect -match '^(127\.|::1\b|\[?::1\]?|localhost)'
+            $fromAnywhere = $listen -match '^(0\.0\.0\.0|\*|::)[/:]'
+            $sev = if ($toSelf) { 'Medium' } elseif ($fromAnywhere) { 'High' } else { 'High' }
+            Add-Finding -Type 'network_port_proxy' -Object "portproxy $($p.protocol) $listen" -Severity $sev -Found "forwards to $connect" -Expected 'no forwarding rule' -Detail "$($p.family) $($p.protocol): connections to $listen are forwarded to $connect$(if ($fromAnywhere) { ', from any address' })$(if ($toSelf) { '. The target is this host itself (a local relay)' })."
+        }
+    }
     $r = $S.remoteAccess
     if ($r) {
         if ((& $can 'rdp_nla_disabled') -and $r.rdpEnabled -eq $true -and $r.rdpNlaRequired -eq $false) {
@@ -3110,6 +3291,18 @@ function Invoke-AccountChecks {
             if ($u.enabled -and -not $u.passwordExpires -and -not ($isAdmin500 -and $lapsOn) -and -not $isGuest -and (& $can 'local_account_password_never_expires')) {
                 $age = Get-AgeDays $u.passwordLastSetUtc
                 Add-Finding -Type 'local_account_password_never_expires' -Object "account: $($u.name)" -Detail "Password never expires$(if ($null -ne $age) { "; last set $age days ago" })."
+            }
+            # Dormant: enabled and not used for a long time. Only an account whose last logon the host
+            # actually recorded is judged: an empty LastLogon means "not recorded", not "never used"
+            # (Windows leaves it empty for accounts that sign in with a Microsoft account or Hello),
+            # and a host that records none at all makes the check not evaluated, further down.
+            if ($u.enabled -and -not $isGuest -and "$($u.lastLogonUtc)" -and (& $can 'local_account_dormant')) {
+                $limit = [int]$(if ($Config.DormantAccountDays) { $Config.DormantAccountDays } else { 180 })
+                $logonAge = Get-AgeDays $u.lastLogonUtc
+                if ($null -ne $logonAge -and $logonAge -gt $limit) {
+                    $inAdmins = @($a.administrators | Where-Object { $_ -and "$($_.sid)" -eq "$($u.sid)" }).Count -gt 0
+                    Add-Finding -Type 'local_account_dormant' -Object "account: $($u.name)" -Severity $(if ($inAdmins) { 'Medium' } else { 'Low' }) -Found "last logon $logonAge days ago" -Expected "used within $limit days, or disabled" -Detail "Last logon $logonAge days before the snapshot (limit $limit)$(if ($inAdmins) { '. The account is a member of the local Administrators group' })."
+                }
             }
         }
         if (& $can 'local_admin_member') {
@@ -3782,6 +3975,37 @@ function Invoke-BaselineChecks {
         }
         $v = & $n $h.noAutoUpdate
         if ((& $can 'wu_auto_updates_disabled') -and $v -eq 1) { Add-Finding -Type 'wu_auto_updates_disabled' -Object 'Automatic Updates' -Detail 'NoAutoUpdate = 1 (CIS 18.10.92.2.1 expects 0).' }
+        # Where the update agent takes its catalog from. Only a host actually pointed at a WSUS server
+        # is judged; the scheme is what matters, and the server's name is named as it was set.
+        if ((& $can 'wsus_insecure_transport') -and $h.windowsUpdateSource) {
+            $wu = $h.windowsUpdateSource
+            $useWsus = "$(& $n $wu.useWuServer)" -eq '1' -and "$($wu.server)".Trim()
+            if ($useWsus -and "$($wu.serverScheme)" -eq 'http') {
+                Add-Finding -Type 'wsus_insecure_transport' -Object "WSUS: $($wu.server)" -Found 'http' -Expected 'https' -Detail "UseWUServer = 1 and WUServer = $($wu.server): the update agent takes its catalog and its packages over http, where nothing authenticates the server."
+            }
+            if ($useWsus -and "$(& $n $wu.proxyBehavior)" -eq '1') {
+                Add-Finding -Type 'wsus_insecure_transport' -Object 'Update detection through a user proxy' -Severity 'Medium' -Found '1' -Expected 'not set' -Detail 'SetProxyBehaviorForUpdateDetection = 1: the update agent may use the user''s proxy instead of the system one, so a proxy a user (or something running as them) sets is in front of the update traffic.'
+            }
+        }
+        # Chromium policies that undo the browser's own protection of its session store.
+        if (& $can 'browser_cookie_protection_off') {
+            foreach ($b in @($h.browserSecurity | Where-Object { $_ })) {
+                if ("$(& $n $b.appBoundEncryption)" -eq '0') {
+                    Add-Finding -Type 'browser_cookie_protection_off' -Object "$($b.browser): app-bound encryption" -Found '0' -Expected '1 (or not set)' -Detail "ApplicationBoundEncryptionEnabled = 0: $($b.browser) no longer ties the key of its cookie and password store to itself, so any program running as the user can decrypt them."
+                }
+                if ("$(& $n $b.remoteDebuggingAllowed)" -eq '1') {
+                    Add-Finding -Type 'browser_cookie_protection_off' -Object "$($b.browser): remote debugging" -Found '1' -Expected '0 (or not set)' -Detail "RemoteDebuggingAllowed = 1: anything on this machine can drive $($b.browser) over its debugging port and read the signed-in session."
+                }
+            }
+        }
+        # An App Control policy that names a security agent's own binaries.
+        if ((& $can 'app_control_policy_suspect') -and $h.ciPolicies) {
+            foreach ($pol in @($h.ciPolicies | Where-Object { $_ })) {
+                $named = @(@($pol.fileNames | Where-Object { $_ }) | Where-Object { $script:SecurityAgentBinaries -contains "$_".ToLower() } | Select-Object -Unique)
+                if ($named.Count -eq 0) { continue }
+                Add-Finding -Type 'app_control_policy_suspect' -Object "code integrity policy: $($pol.file)" -Found "names $($named -join ', ')" -Expected 'no rule about the security agent' -Detail "The policy $($pol.file)$(if ($pol.modifiedUtc) { " (written $($pol.modifiedUtc))" }) mentions $($named.Count) security agent file(s): $($named -join ', '). Read the policy to see whether these are allow or deny rules."
+            }
+        }
         $v = & $n $h.enableSmartScreen
         if ((& $can 'smartscreen_off') -and $v -eq 0) { Add-Finding -Type 'smartscreen_off' -Object 'SmartScreen' -Detail 'EnableSmartScreen = 0 (CIS 18.10.75.2.1 expects 1).' }
         if (& $can 'event_logs_small') {
@@ -4345,6 +4569,22 @@ $script:EdrProducts = @(
     @{ Key = 'Huntress'; Name = 'Huntress'; Services = @('HuntressAgent'); Display = 'Huntress' }
 )
 
+# The executables of Microsoft Defender and of the EDR products above, as an application control
+# policy would name them. Used to read a code integrity policy: a rule about these files is either a
+# deliberate allow-list entry or an attempt to keep the agent from loading, and both are worth
+# reading. Lower case, because the comparison is.
+$script:SecurityAgentBinaries = @(
+    'msmpeng.exe', 'mpdefendercoreservice.exe', 'mpcmdrun.exe', 'mssense.exe', 'senseir.exe', 'sensecncproxy.exe',
+    'sensesampleuploader.exe', 'securityhealthservice.exe', 'securityhealthsystray.exe', 'mpsvc.dll', 'mpclient.dll',
+    'csfalconservice.exe', 'csfalconcontainer.exe', 'sentinelagent.exe', 'sentinelservicehost.exe', 'sentinelstaticengine.exe',
+    'cb.exe', 'repmgr.exe', 'repux.exe', 'cyserver.exe', 'cytray.exe', 'cyveraservice.exe',
+    'sedservice.exe', 'savservice.exe', 'ntrtscan.exe', 'tmlisten.exe', 'ds_agent.exe',
+    'xagt.exe', 'mfefire.exe', 'mfemms.exe', 'mcshield.exe', 'ekrn.exe', 'egui.exe',
+    'ccsvchst.exe', 'smc.exe', 'elastic-endpoint.exe', 'elastic-agent.exe',
+    'cybereasonactiveprobe.exe', 'minionhost.exe', 'cylancesvc.exe', 'cylanceui.exe',
+    'epsecurityservice.exe', 'epprotectedservice.exe', 'bdagent.exe', 'huntressagent.exe', 'huntressrio.exe'
+)
+
 # The EDR agents a host has, from its list of services. Each entry has a Key, a Name, a State (running
 # or stopped) and the services that matched. Nothing is returned if the service list is missing.
 function Get-EdrInventory {
@@ -4749,6 +4989,19 @@ $script:AccessibilityInternalNames = @{
 $script:AccessibilityShells = '^(cmd|powershell|powershell_ise|pwsh|explorer|conhost|rundll32|mshta|wscript|cscript|taskmgr|regedit|mmc)$'
 # Command lines made to hide or fetch code. Written so that the patterns are not themselves the strings
 # antivirus engines look for in scripts.
+# What a paste-and-run lure leaves in the Run dialog or the Explorer address bar (ClickFix, FileFix
+# and their variants). High marks a command that fetches or decodes something; the others are a step
+# lower, because a user can also reach them by hand.
+$script:RunDialogPatterns = @(
+    @{ Re = '(?i)\b(powershell|pwsh|cmd|curl|mshta|msiexec|rundll32|regsvr32|wscript|cscript|conhost|bitsadmin|certutil|wget)(\.exe)?\b[^\r\n]*\bhttps?://'; Why = 'an interpreter or a download tool with a URL'; High = $true }
+    @{ Re = '(?i)\b(irm|invoke-restmethod|invoke-webrequest|iwr|curl|wget)\b[^\r\n]*\|\s*(iex|invoke-expression|powershell|pwsh|cmd)\b'; Why = 'a download piped into an interpreter'; High = $true }
+    @{ Re = '(?i)\bmsiexec(\.exe)?\s+[^\r\n]*/i\s*["'']?https?://'; Why = 'an installer fetched from a URL'; High = $true }
+    @{ Re = '(?i)\bnet(\.exe)?\s+use\b[^\r\n]*(@ssl\b|davwwwroot|\\\\\d{1,3}(\.\d{1,3}){3}\\)'; Why = 'a WebDAV or raw-address share mapped from the dialog' }
+    @{ Re = '(?i)\bget-clipboard\b|\bclip(\.exe)?\s*\|'; Why = 'a command that takes its payload from the clipboard' }
+    @{ Re = '(?i)\bconhost(\.exe)?\s[^\r\n]*--headless'; Why = 'a console started headless, so nothing is shown' }
+    @{ Re = '(?i)^\s*(search-ms|ms-msdt|ms-appinstaller|ms-officecmd|ms-cxh|shell):'; Why = 'a protocol handler typed straight into the dialog' }
+)
+
 $script:SuspiciousCommandPatterns = @(
     @{ Re = '(?i)(powershell|pwsh)(\.exe)?["'']?\s.*\s-(e|ec|en|enc|enco|encod|encode|encoded|encodedc|encodedcommand)\s+[A-Za-z0-9+/=]{16,}'; Why = 'PowerShell with an encoded command' }
     @{ Re = '(?i)(powershell|pwsh)(\.exe)?["'']?\s.*\s-w(in(dow(style)?)?)?\s+h(id(den)?)?\b'; Why = 'in a hidden window'; Weak = $true }
@@ -4886,6 +5139,39 @@ function Invoke-LoadPointChecks {
                 Add-Finding -Type 'office_vba_object_model_trusted' -Object "profile: $($o.user)" -Found 'AccessVBOM = 1' -Expected 'AccessVBOM = 0' -Detail "Trust access to the VBA project object model is on for $(@($o.accessVbom) -join ', ')."
             }
         }
+        # Trusted locations: Office's own defaults (its template and startup folders under the user's
+        # Roaming profile and under the Office install) are left out; what is left was added.
+        if (& $can 'office_trusted_location_risky') {
+            $seenTl = @{}
+            foreach ($tl in @($lp.officeTrustedLocations | Where-Object { $_ -and "$($_.path)".Trim() })) {
+                $p = "$($tl.path)".TrimEnd('\')
+                $pl = $p.ToLower()
+                if ($pl -match '(?i)\\appdata\\roaming\\microsoft\\' -or $pl -match '(?i)\\program files( \(x86\))?\\microsoft office\\' -or $pl -match '(?i)\\microsoft office\\root\\') { continue }
+                $net = $pl -match '^\\\\'
+                $open = $pl -match '\\(downloads|download|desktop|temp|tmp|public|documents)$' -or $pl -match '\\appdata\\local\\temp' -or $pl -match '^[a-z]:$' -or $pl -match '^[a-z]:\\(users|temp|tmp)$' -or $pl -match '\\users$'
+                $key = "$pl|$($tl.user)"
+                if ($seenTl.ContainsKey($key)) { continue }
+                $seenTl[$key] = $true
+                $why = if ($net) { 'a network path: whoever can write to that share decides what runs on this host' } elseif ($open) { 'a folder the user (or anything running as them) fills by itself' } else { 'not one of Office''s own folders' }
+                Add-Finding -Type 'office_trusted_location_risky' -Object "trusted location: $($tl.user) -> $p" -Severity $(if ($net -or $open) { 'High' } else { 'Medium' }) -Found $p -Expected 'a folder the organization controls' -Detail "$($tl.app) $($tl.version) trusts $p$(if ($tl.allowSubfolders) { ' and its subfolders' })$(if ($tl.policy) { ' (set by policy)' }): documents opened from there run their macros with no warning. It is $why."
+            }
+        }
+        # What was typed into the Run dialog or the address bar. Only entries that carry a sign of a
+        # paste-and-run lure are reported: a bare "cmd" is what the dialog is for.
+        if (& $can 'run_dialog_payload') {
+            foreach ($e in @($lp.runDialog | Where-Object { $_ -and "$($_.command)".Trim() })) {
+                $cmd = "$($e.command)".Trim()
+                $rd = @($script:RunDialogPatterns | Where-Object { $cmd -match $_.Re })
+                $sc = @($script:SuspiciousCommandPatterns | Where-Object { -not $_.Weak -and $cmd -match $_.Re })
+                $hits = @($rd + $sc)
+                if ($hits.Count -eq 0) { continue }
+                $why = @($hits | ForEach-Object { $_.Why } | Select-Object -Unique)
+                # A downloader or an encoded command is High; a WebDAV mapping or a protocol handler Medium.
+                $high = $sc.Count -gt 0 -or @($rd | Where-Object { $_.High -eq $true }).Count -gt 0
+                $short = if ($cmd.Length -gt 70) { $cmd.Substring(0, 70) + '...' } else { $cmd }
+                Add-Finding -Type 'run_dialog_payload' -Object "$($e.source): $($e.user) [$($e.entry)]" -Severity $(if ($high) { 'High' } else { 'Medium' }) -Found $short -Expected 'nothing of the kind' -Detail "$($e.user) ran this from the $($e.source): $cmd -- $($why -join '; ')."
+            }
+        }
         if ((& $can 'persistence_ssh_authorized_keys') -and $lp.ssh -and $lp.ssh.installed -eq $true) {
             $ak = $lp.ssh.adminKeys
             if ($ak -and [int]$ak.keys -gt 0) {
@@ -4931,6 +5217,20 @@ function Invoke-LoadPointChecks {
                 $where = if ([int]$m.missingLevels -eq 0) { "in $($m.existingFolder), which exists" } else { "$($m.missingLevels) missing folder(s) below $($m.existingFolder)" }
                 Add-Finding -Type 'autostart_target_missing' -Object $obj -Severity $(if ("$($m.source)" -eq 'autorun') { 'Medium' } else { 'High' }) -Detail "$($m.executable) does not exist; it can be created $where by $text."
             }
+        }
+    }
+
+    # A task in one of Windows' own folders whose author is not Microsoft. Windows' tasks name
+    # Microsoft or a resource string ("$(@%SystemRoot%\system32\...,-100)"); an empty author is left
+    # alone, because many Windows builds leave it empty.
+    if (& $can 'scheduled_task_masquerade') {
+        foreach ($t in @($S.scheduledTasks | Where-Object { $_ -and "$($_.path)" -match '(?i)^\\Microsoft\\' })) {
+            $author = "$($t.author)".Trim()
+            if (-not $author -or $author -match '(?i)microsoft' -or $author -match '^\$\(@' -or $author -match '^@%') { continue }
+            $exes = @($t.actions | Where-Object { $_ } | ForEach-Object { "$($_.executable)" } | Where-Object { $_ })
+            $outside = @($exes | Where-Object { $_ -notmatch '(?i)^[a-z]:\\windows\\' }).Count -gt 0
+            $runsAs = "$(if ("$($t.userId)".Trim()) { "$($t.userId)" } else { "$($t.groupId)" })".Trim()
+            Add-Finding -Type 'scheduled_task_masquerade' -Object "task: $($t.path)$($t.name)" -Severity $(if ($outside) { 'High' } else { 'Medium' }) -Found "author $author" -Expected 'a Microsoft task, or a folder of its own' -Detail "The task sits in $($t.path) among the Windows tasks, but its author is '$author'$(if ($runsAs) { ", and it runs as $runsAs" })$(if ($exes.Count -gt 0) { ". It runs $($exes -join ', ')$(if ($outside) { ', from outside the Windows folder' })" })."
         }
     }
 

@@ -36,7 +36,9 @@ foreach ($k in @(
         'powershell_scriptblock_logging_off', 'powershell_transcription_off', 'cmdline_audit_off', 'sehop_disabled', 'safe_dll_search_off',
         'ip_stack_hardening_gaps', 'rdp_policy_gaps', 'rdp_nla_disabled', 'cached_logons_high', 'guest_enabled', 'defender_realtime_off',
         'defender_pua_off', 'defender_network_protection_off', 'firewall_profile_disabled', 'firewall_default_inbound_allow', 'firewall_drop_logging_off', 'firewall_notifications_on', 'dc_netlogon_policy_weak', 'server_baseline_gaps', 'driver_blocklist_off', 'mdns_enabled',
-        'powershell_v2_enabled', 'spooler_on_dc', 'script_files_execute_on_open', 'network_credentials_stored', 'printer_drivers_by_users')) { $script:FixTypes[$k] = $true }
+        'powershell_v2_enabled', 'spooler_on_dc', 'script_files_execute_on_open', 'network_credentials_stored', 'printer_drivers_by_users',
+        'credssp_encryption_oracle_weak', 'wpad_not_disabled', 'smb_encryption_off', 'ldap_server_signing_off',
+        'webclient_webdav_enabled', 'print_spooler_no_printers')) { $script:FixTypes[$k] = $true }
 
 # Fixes that change what the user sees or does (logon screen, screen lock, prompts, saved passwords,
 # AutoPlay, scripts opened as text...): the Essential profile leaves them out (user decision
@@ -217,6 +219,22 @@ function Get-RemediationActions {
         }
         'powershell_v2_enabled' { & $feat 'MicrosoftWindowsPowerShellV2Root' }
         'spooler_on_dc' { & $svc 'Spooler' }
+        # CVE-2018-0886: 0 (Force updated clients) is the value the benchmark asks for, and the one
+        # a patched client and a patched server already satisfy.
+        'credssp_encryption_oracle_weak' { if ($o -eq 'AllowEncryptionOracle') { & $reg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\CredSSP\Parameters' 'AllowEncryptionOracle' 0 } }
+        # No fix script for lsa_not_protected: the value the benchmark asks for (RunAsPPL = 1) sets a
+        # UEFI variable, so removing the registry value again does not turn it off. It stays in the
+        # Strict remediation profile, where it is printed as NOT REVERSIBLE.
+        'wpad_not_disabled' { if ($o -eq 'WPAD auto-discovery') { & $reg 'HKLM:\SYSTEM\CurrentControlSet\Services\WinHttp\Parameters' 'DisableWpad' 1 } }
+        'smb_encryption_off' { if ($o -eq 'SMB server encryption') { & $smb 'Server' 'EncryptData' $true } }
+        'ldap_server_signing_off' {
+            if ($o -eq 'LDAP server signing') { & $reg 'HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters' 'LDAPServerIntegrity' 2 -Restart }
+            elseif ($o -eq 'LDAP channel binding') { & $reg 'HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters' 'LdapEnforceChannelBinding' 2 -Restart }
+        }
+        # WebDAV: the service is started on demand by whatever asks for it, so it is set to Disabled,
+        # not just stopped. A host that maps WebDAV shares needs it (that is an exception, not a fix).
+        'webclient_webdav_enabled' { if ($o -eq 'service: WebClient') { & $svc 'WebClient' } }
+        'print_spooler_no_printers' { if ($o -eq 'service: Spooler') { & $svc 'Spooler' } }
         # The extension opens as text (Notepad); scripts called explicitly still run.
         'script_files_execute_on_open' { if ($o -match '^file type: (\.(js|jse|vbs|vbe|wsf|wsh|hta))$') { & $reg "HKLM:\SOFTWARE\Classes\$($Matches[1])" '(default)' 'txtfile' 'String' } }
     }

@@ -22,10 +22,12 @@ is weak. It works in two steps. A single PowerShell script takes a
 Lines for a SIEM. Hand it one snapshot or a folder with hundreds and you get
 the whole fleet in one report, or one report per host.
 
-- **223 checks** and about 1,600 settings: 210 hand-written checks plus 1475 DISA
+- **234 checks** and about 1,700 settings: 221 hand-written checks plus 1475 DISA
   STIG registry rules, with the CIS Windows 11 benchmark as the baseline, and
   the drivers matched against 2,198 known vulnerable or malicious driver files
-  (LOLDrivers).
+  (LOLDrivers). The vectors of the attacks reported between 2022 and 2026 are
+  mapped to the checks that look for what each one needs:
+  [recent attacks](#recent-attacks-2022-2026).
 - **Collect anywhere, analyze anywhere**: the collector is one `.ps1` file,
   with no module and no prompt, that runs as SYSTEM or as an administrator
   through any tool that can run a PowerShell script on your hosts (an EDR's
@@ -428,7 +430,10 @@ analysis in memory the buttons ask which existing report to use: its findings
 are read back from it and the summary is added to it, nothing is analyzed or
 downloaded. Its snapshot must still be reachable (the one chosen in the form,
 the snapshot folder or the report's folder), because the names replaced with
-tokens come from it.
+tokens come from it. Once the report is final a last question offers to open
+it in your browser: right after the AI question when no summary is asked for,
+and after the AI step when one is, since that step writes its section into the
+same file. Outputs and **Open the last report** open it again at any time.
 
 **Results** opens by itself when an analysis is done (not when the fixes of
 this machine follow: the window stays on the log of their preview). It reads
@@ -623,16 +628,18 @@ the same way as on a standalone machine, elevated or as SYSTEM. What to expect:
 
 | Area | Checks | What's in it |
 |---|---|---|
-| Credential Protection | 12 | LSASS protection (RunAsPPL), Credential Guard, WDigest cleartext, cached logons, LM hash storage, LM/NTLMv1, anonymous SAM enumeration. From the CIS baseline: NTLM session security, anonymous share enumeration, Everyone includes anonymous, PKU2U and NULL session fallback, automatic logon (High when the password is stored). |
-| Antivirus and EDR | 11 | Defender real-time protection, tamper protection, signature age, every exclusion (High when it is broad or writable by users: a drive, a profile, Temp, a script extension, powershell.exe), Microsoft's three standard ASR rules. From CIS: Network Protection, PUA blocking, SmartScreen. EDR agents: one that is installed but stopped (High), the one you expect missing (High), no known EDR at all (Low on a workstation, Medium on a server). |
-| Disk and Boot | 4 | BitLocker on the OS volume (High on workstations), TPM without a PIN on laptops, fixed data volumes, Secure Boot and legacy BIOS. |
-| Network Exposure | 17 | SMBv1, SMB signing on server and client, LLMNR, NetBIOS, firewall profiles that are off or allow everything in, dropped packet logging, risky listeners (Telnet, FTP, TFTP, SNMP, VNC, databases, caches, WinRM over HTTP on workstations). From CIS: insecure SMB guest logons, LDAP client signing, anonymous shares and pipes, the domain secure channel, clear-text SMB passwords, WinRM Basic, Digest and unencrypted traffic, the SMBv1 client driver, IP source routing and ICMP redirects. |
-| Remote Access | 3 | RDP without NLA, RDP on workstations. From CIS: RDP security layer, encryption, password prompt, drive redirection. |
-| Local Accounts | 15 | The built-in Administrator, Guest, extra members of local Administrators, accounts that may have an empty password, passwords that never expire, LAPS (Windows or legacy), UAC off or silent, LocalAccountTokenFilterPolicy. From CIS: blank passwords over the network, ForceGuest, UAC secure desktop and the other UAC options, the local password and lockout policy, Guests and local accounts denied remote logon. |
-| Privilege Escalation | 7 | Services, privileged scheduled tasks and machine-wide autoruns whose program (High) or folder (Medium) can be written by low-privileged users, folders of the machine PATH users can write or create (High), programs installed in a folder users can write (Medium), unquoted service paths, AlwaysInstallElevated, Print Spooler on DCs. From CIS: user rights held by more principals than the Level 1 baseline allows, with the member server and domain controller lists on servers (debug, act as part of the OS, load drivers and a few more are High). |
-| Logging | 7 | The 16 audit subcategories the CIS benchmark expects (matched by GUID, so any language works), command lines in event 4688, PowerShell script block logging, the PowerShell 2.0 downgrade engine, Security log size. From CIS: Application and System log size, PowerShell transcription. |
-| Patching | 4 | A Windows build and edition that is out of support or about to be, no Windows update installed within the threshold, Automatic Updates turned off by policy. |
-| System Hardening | 7 | All from CIS: AutoPlay and AutoRun, inactivity lock, logon message, last user shown, SEHOP, safe DLL search, and the services the baseline wants disabled (workstations). |
+| Credential Protection | 28 | LSASS protection (RunAsPPL), Credential Guard (and Credential Guard turned on without the UEFI lock), WDigest cleartext, cached logons, LM hash storage, LM/NTLMv1, anonymous SAM enumeration, Kerberos RC4, CredSSP (CVE-2018-0886), credentials delegated to any server, DSRM logon, passwords left in answer files, Group Policy Preferences or PowerShell history. From the CIS baseline: NTLM session security, anonymous share enumeration, Everyone includes anonymous, PKU2U and NULL session fallback, automatic logon (High when the password is stored). |
+| Antivirus and EDR | 20 | Defender real-time protection, the antimalware service itself stopped, tamper protection, signature age, every exclusion (High when it is broad or writable by users: a drive, a profile, Temp, a script extension, powershell.exe), threats set to allow, Microsoft's three standard ASR rules and the others, Controlled Folder Access, brute-force and remote encryption protection. From CIS: Network Protection, PUA blocking, SmartScreen, Enhanced Phishing Protection. EDR agents: one that is installed but stopped (High), the one you expect missing (High), no known EDR at all (Low on a workstation, Medium on a server). |
+| Disk and Boot | 11 | BitLocker on the OS volume (High on workstations), TPM without a PIN, fixed data volumes, weak encryption methods, the BitLocker policy, standby with an unlocked disk, the recovery environment on a disk that unlocks itself, shadow copies disabled, Secure Boot, test signing and legacy BIOS. |
+| Network Exposure | 38 | SMBv1, SMB signing on server and client, SMB encryption, LLMNR, NetBIOS, mDNS, WPAD, firewall profiles that are off or allow everything in, dropped packet logging, risky listeners (Telnet, FTP, TFTP, SNMP, VNC, databases, caches, WinRM over HTTP on workstations), port forwarding rules (`netsh portproxy`), WebDAV reachable, a hosts file redirect, a system proxy, a root certificate or a trusted publisher someone added, shares writable by Everyone, insecure Wi-Fi profiles, legacy SCHANNEL protocols and ciphers. From CIS: insecure SMB guest logons, LDAP client and server signing with channel binding, anonymous shares and pipes, the domain secure channel, clear-text SMB passwords, WinRM Basic, Digest and unencrypted traffic, the SMBv1 client driver, IP source routing and ICMP redirects. |
+| Remote Access | 6 | RDP without NLA, RDP on workstations, WinRM trusting any host, session shadowing without consent, remote access and RMM tools (with `-AllowedRemoteTools`). From CIS: RDP security layer, encryption, password prompt, drive redirection. |
+| Local Accounts | 20 | The built-in Administrator, Guest, extra members of local Administrators, accounts that may have an empty password, passwords that never expire, enabled accounts nobody has used for months, hidden account names, RID hijacking, members of the privileged built-in groups, LAPS (Windows or legacy), UAC off or silent, LocalAccountTokenFilterPolicy, Administrator protection. From CIS: blank passwords over the network, ForceGuest, UAC secure desktop and the other UAC options, the local password and lockout policy, Guests and local accounts denied remote logon. |
+| Privilege Escalation | 18 | Services, privileged scheduled tasks and machine-wide autoruns whose program (High) or folder (Medium) can be written by low-privileged users, folders of the machine PATH users can write or create (High), programs installed in a folder users can write (Medium), unquoted service paths, service permissions, vulnerable drivers (LOLDrivers) and the Microsoft blocklist, named pipes writable by Everyone, AlwaysInstallElevated, Point and Print, Print Spooler on DCs. From CIS: user rights held by more principals than the Level 1 baseline allows, with the member server and domain controller lists on servers (debug, act as part of the OS, load drivers and a few more are High). |
+| Persistence | 17 | WMI event subscriptions, IFEO debuggers and SilentProcessExit monitors, DLL load points inside trusted processes (AppInit, LSA packages, print monitors and processors, netsh helpers, time providers, .NET profiler, AeDebug), credential capture through a network provider, hidden services and tasks (Tarrask), a task parked among Windows' own with another author, logon scripts, all-user PowerShell profiles, Office hooks and add-ins, SSH authorized_keys, BITS jobs, replaced accessibility binaries, autostart command lines that download or decode, and a command pasted into the Run dialog or the address bar (ClickFix, FileFix). |
+| Logging | 12 | The 16 audit subcategories the CIS benchmark expects (matched by GUID, so any language works), command lines in event 4688, PowerShell script block, module and transcription logging, the PowerShell 2.0 downgrade engine, Security log size, event logging silenced while the audit policy still reads as correct, NTLM auditing, Windows Event Forwarding, Sysmon. |
+| Patching | 7 | A Windows build and edition that is out of support or about to be, no Windows update installed within the threshold, updates pending (with `-CheckUpdates`), a reboot overdue, Automatic Updates turned off by policy, and updates taken from a WSUS server over http. |
+| System Hardening | 35 | Application control (WDAC or AppLocker) and a code integrity policy that names the security agent, exploit protection and the VBS settings, Office macro settings and trusted locations a user or an attacker can fill, browser session protection turned off by policy, PowerShell Constrained Language Mode, .NET 3.5, IE11, WSL, developer mode, Recall, sudo, script files that run on open, programs running from removable media. From CIS: AutoPlay and AutoRun, inactivity lock, logon message, last user shown, SEHOP, safe DLL search, and the services the baseline wants disabled. |
+| Software | 9 | Installed products matched against the CISA KEV catalog and the NVD (by CPE, with EPSS and public exploit references), products out of support or behind their release line (endoflife.date, Chocolatey), preinstalled bloatware, and browser extensions: known-malicious ids, sideloaded ones, broad permissions, and those outside `-AllowedExtensions`. |
 
 [`COVERAGE.md`](COVERAGE.md) has the full list with severity, MITRE technique,
 CIS rule and whether the check comes with a fix script.
@@ -643,6 +650,31 @@ judged on DCs (`spooler_on_dc`) and, as the CIS server benchmarks' one service
 rule, on member servers (Level 2, Low: a print server needs it). SMB signing is
 High on a DC and Medium elsewhere.
 An unencrypted OS volume is High on a workstation and Medium on a server.
+
+### Recent attacks 2022-2026
+
+The vectors behind the attacks and research most reported between 2022 and
+2026, and the checks that look for the condition each one needs on a host. A
+check does not detect the attack: it reports the setting it needs, or the trace
+it leaves. The full table, including the vectors HostBadger deliberately says
+nothing about and why, is in
+[`COVERAGE.md`](COVERAGE.md#recent-attacks-2022-2026) and the mapping itself in
+[`data\recent-attacks.json`](data/recent-attacks.json).
+
+| Attack or vector | Years | Checks |
+|---|---|---|
+| ClickFix and FileFix paste-and-run lures | 2024-26 | `run_dialog_payload`, `lolbin_outbound_not_blocked` |
+| Port forwarding for pivoting (`netsh portproxy`) | 2023-26 | `network_port_proxy`, `risky_listener` |
+| Infostealers reading the browser session store | 2024-26 | `browser_cookie_protection_off`, `credential_manager_saved` |
+| Bring your own vulnerable driver (BYOVD) | 2022-26 | `vulnerable_driver_present`, `driver_blocklist_off`, `hvci_off` |
+| An application control policy used to stop the EDR | 2024-26 | `app_control_policy_suspect` |
+| Coercion and NTLM relay (PetitPotam and successors) | 2021-26 | `webclient_webdav_enabled`, `ldap_server_signing_off`, `smb_server_signing_not_required` |
+| Updates taken over http from a WSUS server | 2015-26 | `wsus_insecure_transport` |
+| BitLocker bypass through the recovery environment | 2024-26 | `winre_bitlocker_exposure`, `bitlocker_tpm_only` |
+| A task parked among Windows' own, or hidden (Tarrask) | 2022-26 | `scheduled_task_masquerade`, `scheduled_task_hidden` |
+| Office macros through a trusted location | 2022-26 | `office_trusted_location_risky`, `office_macro_settings_weak` |
+| Turning the antivirus off before the payload | 2022-26 | `defender_service_disabled`, `defender_tamper_off`, `defender_exclusion` |
+| Reuse of a local account nobody watches | 2022-26 | `local_account_dormant`, `local_admin_password_shared`, `laps_not_configured` |
 
 ### EDR agents
 
@@ -812,7 +844,12 @@ or, without one, when they have the same title.
   notification package it also reads the export table, by parsing the file's
   bytes, to tell whether the DLL registers `NPLogonNotify` or
   `InitializeChangeNotify` and so is handed passwords: the DLL itself is never
-  loaded. It lists the BITS jobs with
+  loaded. It reads the recovery environment's own configuration file
+  (`System32\Recovery\ReAgent.xml`, no `reagentc` call) and the date of
+  `winre.wim` where that file is reachable, and the bytes of the App Control
+  policies in force (`System32\CodeIntegrity`) to keep only the file names
+  their rules mention: no policy is parsed as a policy, applied or changed.
+  It lists the BITS jobs with
   `Get-BitsTransfer -AllUsers` and, as SYSTEM, reads the F value of each SAM
   account (its RID), never the password hashes. Setup answer files, Group
   Policy Preferences files and PowerShell histories are read to count the
@@ -881,6 +918,15 @@ or, without one, when they have the same title.
   hosts, the average score and the weakest host, plus findings by severity.
 - **Incomplete coverage** lists each check that was not evaluated, on which
   hosts and why.
+- **Protection against recent attacks** takes the vectors of 2022-2026 from
+  [`data/recent-attacks.json`](data/recent-attacks.json) and says, for each,
+  whether a check that looks for the condition it needs reports something: the
+  hosts it is **exposed** on, the hosts where none of its checks could be
+  judged, and the rest. Each row opens on what the vector needs, the checks
+  that fired and the ones that could not be judged. Exposed means the condition
+  is on the host, or that it left a trace there, not that the attack happened;
+  "nothing found" is not a guarantee either, and `COVERAGE.md` lists the kinds
+  of attack a configuration snapshot cannot see at all.
 - **Hosts** shows role, OS and build, when it was collected, whether it ran as
   SYSTEM, administrator or a standard user, and the score and counts.
 - Further down you find a summary by category, the findings grouped by check
@@ -919,6 +965,7 @@ standard user with Defender in passive mode.
     [-AllowedAdmins 'CORP/Workstation Admins', 'S-1-5-21-...-1105']
     [-MaxPatchAgeDays 45] [-MaxSignatureAgeDays 7] [-SupportWarningDays 90]
     [-MaxCachedLogonsWorkstation 4] [-MaxCachedLogonsServer 1] [-MinSecurityLogKB 196608]
+    [-DormantAccountDays 180]                    # days without a logon before an enabled local account counts as dormant
     [-ExpectedEdr CrowdStrike] [-ExtraEdrServices MyAgentService]   # the EDR every host should run; services to count as an agent
     [-AllowedRemoteTools TeamViewer,ScreenConnect]   # approved remote access tools: the others are Medium
     [-AllowedExtensions 'cjpalhdlnbpafiamejdnhcphjbkeiagm','Bitwarden*']   # approved browser extensions (ids or names): the others are Medium
@@ -1013,9 +1060,16 @@ A fix gets a script only when all of this is true:
 On a neglected workstation that covers about 60% of the findings: LSA, NTLM,
 SMB, LDAP, WinRM, RDP, UAC, AutoPlay, the logon screen, Windows Update,
 SmartScreen, event log size, PowerShell logging, SEHOP and the IP stack; SMB
-signing and SMBv1; Defender real-time protection, PUA and Network Protection;
-the firewall profiles; the PowerShell 2.0 engine; the Guest account; and the
-Print Spooler on a domain controller.
+signing, SMB encryption and SMBv1; CredSSP (CVE-2018-0886) and WPAD; LDAP
+signing and channel binding on a domain controller; Defender real-time
+protection, PUA and Network Protection; the firewall profiles; the PowerShell
+2.0 engine; the Guest account; the WebClient (WebDAV) service; and the Print
+Spooler on a domain controller or on a server that has no printer.
+
+LSASS protection (`RunAsPPL`) deliberately has no fix script: the value the
+benchmark asks for sets a UEFI variable, so removing the registry value again
+does not turn it off. It is in the Strict remediation profile instead, printed
+as NOT REVERSIBLE.
 
 If you roll fixes out with scripts, you can also ask for **one file per
 host**, with all of that host's fixes and a rollback file:

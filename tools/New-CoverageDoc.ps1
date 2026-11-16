@@ -44,6 +44,30 @@ foreach ($cat in $order) {
     }
 }
 $null = $sb.AppendLine()
+# Recent attacks: the mapping lives in data\recent-attacks.json, so this document cannot name a check
+# that is not in the catalog (the regression checks every name).
+$ra = Get-RecentAttacks
+if ($ra) {
+    $null = $sb.AppendLine('## Recent attacks 2022-2026')
+    $null = $sb.AppendLine()
+    $null = $sb.AppendLine('The vectors behind the attacks and research most reported between 2022 and 2026, the condition each one needs on a Windows host, and the checks that look for that condition. A check in this table does not detect the attack: it reports the setting or the leftover the attack needs, before or after the fact.')
+    $null = $sb.AppendLine()
+    $null = $sb.AppendLine('| Attack or vector | Years | What it needs on the host | Checks |')
+    $null = $sb.AppendLine('|---|---|---|---|')
+    foreach ($a in @($ra.attacks)) {
+        $checks = (@($a.checks) | ForEach-Object { '`' + $_ + '`' }) -join ', '
+        $null = $sb.AppendLine("| $($a.name) | $($a.years) | $($a.needs) | $checks |")
+    }
+    $null = $sb.AppendLine()
+    $null = $sb.AppendLine('### What these checks do not cover')
+    $null = $sb.AppendLine()
+    $null = $sb.AppendLine('A host snapshot is a configuration, not a stream of events. These are the vectors of the same years that HostBadger deliberately says nothing about, and why.')
+    $null = $sb.AppendLine()
+    $null = $sb.AppendLine('| Not covered | Why |')
+    $null = $sb.AppendLine('|---|---|')
+    foreach ($a in @($ra.notCovered)) { $null = $sb.AppendLine("| $($a.name) | $($a.why) |") }
+    $null = $sb.AppendLine()
+}
 $null = $sb.AppendLine('## DISA STIG rules read by the stig_* checks')
 $null = $sb.AppendLine()
 $null = $sb.AppendLine('The registry rules of the DISA STIGs (STIG content published by DISA). Each rule is one finding when the host differs; the collector reads exactly those values and nothing else. Rules that need an organization decision (a banner text, an approved URL list) are left out. Browser and Office rules are judged only when the product is installed; Office rules are per-user policies and are judged on the user profiles that were loaded when the snapshot was taken.')

@@ -189,6 +189,9 @@
     Days before Defender signatures are stale (default 7).
 .PARAMETER SupportWarningDays
     Warn this many days before the OS goes out of support (default 90).
+.PARAMETER DormantAccountDays
+    Days without a logon before an enabled local account counts as dormant
+    (default 180).
 .PARAMETER OutRemediation
     Optional folder: besides the fix scripts that the report already shows under
     each check, write one remediate_<host>.ps1 per host with all of that host's
@@ -294,6 +297,7 @@ param(
     [int]$MaxPatchAgeDays = 45,
     [int]$MaxSignatureAgeDays = 7,
     [int]$SupportWarningDays = 90,
+    [int]$DormantAccountDays = 180,
     [int]$MaxCachedLogonsWorkstation = 4,
     [int]$MaxCachedLogonsServer = 1,
     [int]$MinSecurityLogKB = 196608,
@@ -349,7 +353,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:HostBadgerVersion = '2.8'
+$script:HostBadgerVersion = '2.9'
 . (Join-Path $PSScriptRoot 'lib\Common.ps1')
 . (Join-Path $PSScriptRoot 'lib\Checks.ps1')
 . (Join-Path $PSScriptRoot 'lib\AI.ps1')
@@ -359,7 +363,7 @@ $script:HostBadgerVersion = '2.8'
 Write-Host @'
      _.--""--._
    .'  |    |  '.
-  /    |    |    \      HostBadger v2.8
+  /    |    |    \      HostBadger v2.9
  |  (o)|    |(o)  |     Windows host hardening
  |     |    |     |     read-only snapshots, offline analysis
   \    '.__.'    /
@@ -531,6 +535,7 @@ $config = @{
     MaxCachedLogonsServer = $MaxCachedLogonsServer; MinSecurityLogKB = $MinSecurityLogKB
     ExpectedEdr = @($ExpectedEdr); ExtraEdrServices = @($ExtraEdrServices); SoftwareGraceDays = $SoftwareGraceDays
     AllowedRemoteTools = @($AllowedRemoteTools); AllowedExtensions = @($AllowedExtensions)
+    DormantAccountDays = $DormantAccountDays
 }
 # The organization's policy: read first, so a wrong check name stops the run before any work.
 $policy = Import-HostBadgerPolicy $PolicyFile

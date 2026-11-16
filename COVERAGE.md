@@ -1,6 +1,6 @@
 # HostBadger coverage
 
-Every check in `lib\Checks.ps1`, generated from the catalog (223 checks, of which 13 cover the 1475 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
+Every check in `lib\Checks.ps1`, generated from the catalog (234 checks, of which 13 cover the 1475 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
 
 The CIS column gives the rule number in the *CIS Microsoft Windows 11 Enterprise Benchmark v3.0.0* and its profile level (L1 corporate, L2 high security); the descriptions are HostBadger's own. A check is a read-only comparison of the host's setting with the rule; it is not a certification of conformity, and the benchmark covers many more settings (most of the administrative templates, for instance) than HostBadger reads. On Windows 10 and on Windows Server 2022, 2019 and 2016 the findings quote the same setting in that version's CIS benchmark instead (CIS Microsoft Windows 10 Enterprise Benchmark v3.0.0; CIS Microsoft Windows Server 2022 Benchmark v4.0.0; CIS Microsoft Windows Server 2019 Benchmark v4.0.0; CIS Microsoft Windows Server 2016 Benchmark v3.0.0). Checks marked *Server* follow a rule that only the server benchmarks have.
 
@@ -10,8 +10,9 @@ The last column says whether HostBadger can write a remediation script for the c
 
 | ID | Severity | MITRE | CIS | Roles | Fix script | Title |
 |---|---|---|---|---|---|---|
-| `lsa_not_protected` | Medium | T1003.001 | 18.9.26.2 (L1) | W, S, DC | no | LSASS not running as a protected process |
+| `lsa_not_protected` | Medium | T1003.001 | 18.9.26.2 (L1) | W, S, DC | yes | LSASS not running as a protected process |
 | `credential_guard_off` | Medium | T1003.001 |  | W, S | no | Credential Guard not running |
+| `credential_guard_no_lock` | Low | T1003.001 |  | W, S | no | Credential Guard configured without UEFI lock |
 | `wdigest_cleartext` | High | T1003.001 | 18.4.8 (L1) | W, S, DC | yes | WDigest stores cleartext passwords |
 | `cached_logons_high` | Low | T1003.005 | 2.3.7.7 (L2) | W, S | yes | Many domain logons cached |
 | `lm_hash_stored` | High | T1003 | 2.3.11.5 (L1) | W, S, DC | yes | LM hashes stored |
@@ -31,7 +32,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `powershell_history_secrets` | Medium | T1552.001 |  | W, S, DC | no | PowerShell history holds what looks like a password |
 | `service_domain_account` | Medium | T1003.004 |  | W, S, DC | no | Service or task runs as a domain account with a stored password |
 | `kerberos_rc4_allowed` | Medium | T1558.003 | 2.3.11.4 (L1) | W, S, DC | no | Kerberos allows RC4 or DES |
-| `credssp_encryption_oracle_weak` | High | T1557 | 18.9.4.1 (L1) | W, S, DC | no | CredSSP accepts unpatched clients and servers (CVE-2018-0886) |
+| `credssp_encryption_oracle_weak` | High | T1557 | 18.9.4.1 (L1) | W, S, DC | yes | CredSSP accepts unpatched clients and servers (CVE-2018-0886) |
 | `credential_delegation_any_server` | High | T1550 |  | W, S, DC | no | Credentials delegated to any server |
 | `dsrm_network_logon` | High | T1078.003 |  | DC | no | Directory Services Restore Mode administrator can log on normally |
 | `credential_manager_saved` | Low | T1555.004 |  | W, S, DC | no | Windows credentials saved in Credential Manager |
@@ -43,6 +44,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | ID | Severity | MITRE | CIS | Roles | Fix script | Title |
 |---|---|---|---|---|---|---|
 | `defender_realtime_off` | High | T1562.001 | 18.10.42.10.2 (L1) | W, S, DC | yes | Defender real-time protection off |
+| `defender_service_disabled` | High | T1562.001 |  | W, S, DC | no | Defender antimalware service not running |
 | `defender_tamper_off` | Medium | T1562.001 |  | W, S, DC | no | Defender tamper protection off |
 | `defender_signatures_stale` | Medium | T1562.001 |  | W, S, DC | no | Defender signatures out of date |
 | `defender_exclusion` | Low | T1562.001 |  | W, S, DC | no | Defender exclusion |
@@ -73,6 +75,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `bitlocker_policy_weak` | Medium | T1005 | 18.10.9.x (BitLocker profile) | W, S, DC | no | BitLocker policy weakens the protection of the disks |
 | `bitlocker_policy_gaps` | Low | T1005 | 18.10.9.1.1 - 18.10.9.3.15 (BitLocker profile) | W, S, DC | no | BitLocker policy differs from the CIS BitLocker profile |
 | `secure_boot_off` | Medium | T1542.003 |  | W, S, DC | no | Secure Boot off |
+| `winre_bitlocker_exposure` | Low | T1542 |  | W, S, DC | no | Recovery environment reachable on a disk unlocked without a PIN |
 | `bitlocker_unlock_exposure` | Low | T1005 | 18.9.33.6.3, 18.9.33.6.4, 2.3.7.3 (BL) | W | no | BitLocker key reachable on an unattended machine |
 | `boot_integrity_weakened` | High | T1553.006 |  | W, S, DC | no | Windows started with test signing, integrity checks or DEP off |
 | `shadow_copies_disabled` | Medium | T1490 |  | W, S, DC | no | Shadow copies or System Restore turned off |
@@ -90,6 +93,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `firewall_default_inbound_allow` | High | T1562.004 |  | W, S, DC | yes | Firewall allows inbound by default |
 | `firewall_drop_logging_off` | Low | T1562.004 |  | W, S, DC | yes | Dropped packets not logged |
 | `risky_listener` | Medium | T1021 |  | W, S, DC | no | Risky service listening on the network |
+| `network_port_proxy` | High | T1090.001 |  | W, S, DC | no | Port forwarding configured on the host |
 | `smb_insecure_guest_auth` | Medium | T1021.002 | 18.6.8.1 (L1) | W, S, DC | yes | Insecure SMB guest logons allowed |
 | `ldap_client_signing_off` | Medium | T1557 | 2.3.11.8 (L1) | W, S, DC | yes | LDAP client signing disabled |
 | `null_session_access` | Medium | T1135 | 2.3.10.6, 2.3.10.9, 2.3.10.11 (L1) | W, S, DC | yes | Shares or pipes reachable without authentication |
@@ -100,15 +104,15 @@ The last column says whether HostBadger can write a remediation script for the c
 | `firewall_notifications_on` | Low | T1562.004 | 9.1.3, 9.2.3, 9.3.3 (L1) | W, S, DC | yes | Windows Firewall shows notifications when it blocks a program |
 | `smb1_client_driver_enabled` | Low | T1210 | 18.4.3 (L1) | W, S, DC | yes | SMBv1 client driver enabled |
 | `ip_stack_hardening_gaps` | Low | T1557 | 18.5.2, 18.5.3, 18.5.5 (L1) | W, S, DC | yes | IP stack accepts source routing or ICMP redirects |
-| `smb_encryption_off` | Low | T1557 |  | S, DC | no | SMB server does not require encryption |
+| `smb_encryption_off` | Low | T1557 |  | S, DC | yes | SMB server does not require encryption |
 | `schannel_legacy_crypto_enabled` | Medium | T1557 |  | W, S, DC | no | Legacy TLS/SSL protocol or weak cipher explicitly enabled |
-| `ldap_server_signing_off` | Medium | T1557 | Server 2.3.5.3, 2.3.5.4 (L1) | DC | no | Domain controller does not require LDAP signing or channel binding |
+| `ldap_server_signing_off` | Medium | T1557 | Server 2.3.5.3, 2.3.5.4 (L1) | DC | yes | Domain controller does not require LDAP signing or channel binding |
 | `dc_netlogon_policy_weak` | High | T1210 | Server 2.3.5.1, 2.3.5.2, 2.3.5.5 (L1) | DC | yes | Domain controller weakens Netlogon or lets Server Operators schedule tasks |
 | `smb_server_hardening_gaps` | Medium | T1557 | Server 18.6.7.1, 18.6.8.2 (L1) | S, DC | no | Server does not mandate a minimum SMB dialect or SMB client encryption |
 | `server_network_policy_gaps` | Low | T1557 | Server 18.6.4.3 (L2), 18.10.58.2 (L1) | S, DC | no | Server network setting differs from the CIS Windows Server baseline |
 | `ldap_client_encryption_weak` | Medium | T1557 | Server 2.3.11.8 (L1) | S, DC | no | LDAP client does not require encryption |
-| `webclient_webdav_enabled` | Low | T1187 |  | W, S, DC | no | WebClient (WebDAV) service is enabled |
-| `wpad_not_disabled` | Low | T1557.001 |  | W, S, DC | no | WPAD auto-discovery is not disabled |
+| `webclient_webdav_enabled` | Low | T1187 |  | W, S, DC | yes | WebClient (WebDAV) service is enabled |
+| `wpad_not_disabled` | Low | T1557.001 |  | W, S, DC | yes | WPAD auto-discovery is not disabled |
 | `lolbin_outbound_not_blocked` | Low | T1105 |  | W, S, DC | no | System tools used to download payloads can reach the network |
 | `hosts_file_redirect` | High | T1562.001 |  | W, S, DC | no | Hosts file blocks or redirects update or security services |
 | `winhttp_proxy_set` | Low | T1090 |  | W, S, DC | no | Machine-wide WinHTTP proxy set |
@@ -139,6 +143,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `local_admin_member` | Medium | T1078.003 |  | W, S | no | Extra member of local Administrators |
 | `local_account_password_not_required` | High | T1078.003 |  | W, S | no | Enabled local account allowed an empty password |
 | `local_account_password_never_expires` | Low | T1078.003 |  | W, S | no | Local account password never expires |
+| `local_account_dormant` | Low | T1078.003 |  | W, S, DC | no | Enabled local account not used for a long time |
 | `laps_not_configured` | High | T1078.003 |  | W, S | no | LAPS not configured |
 | `uac_disabled` | High | T1548.002 | 2.3.17.6 (L1) | W, S, DC | yes | UAC disabled |
 | `uac_admin_no_prompt` | Medium | T1548.002 | 2.3.17.2 (L1) | W, S, DC | yes | UAC elevates administrators without asking |
@@ -174,7 +179,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `print_point_and_print_weak` | Medium | T1068 | 18.7.8, 18.7.10, 18.7.11 (L1) | W, S, DC | no | Point and Print allows driver installation without elevation |
 | `printer_drivers_by_users` | Low | T1068 | 2.3.4.1 (L2) | W, S, DC | yes | Users may install printer drivers |
 | `autostart_target_missing` | High | T1574 |  | W, S, DC | no | Program started automatically is missing, and users may create it |
-| `print_spooler_no_printers` | Medium | T1068 |  | S | no | Print Spooler running on a server with no printer |
+| `print_spooler_no_printers` | Medium | T1068 |  | S | yes | Print Spooler running on a server with no printer |
 | `named_pipe_writable_by_everyone` | Low | T1559 |  | W, S, DC | no | Named pipe that everyone can write to |
 
 ## Persistence
@@ -188,6 +193,8 @@ The last column says whether HostBadger can write a remediation script for the c
 | `persistence_service_hook` | High | T1543.003 |  | W, S, DC | no | Service loads a DLL from outside Windows or runs a program when it fails |
 | `service_hidden` | High | T1564 |  | W, S, DC | no | Service hidden from the service list |
 | `scheduled_task_hidden` | High | T1053.005 |  | W, S, DC | no | Scheduled task hidden from the Task Scheduler |
+| `scheduled_task_masquerade` | Medium | T1036.004 |  | W, S, DC | no | Task in a Windows folder was not created by Windows |
+| `run_dialog_payload` | High | T1204.004 |  | W, S, DC | no | A command was pasted into the Run dialog or the address bar |
 | `persistence_logon_script` | Medium | T1037.001 |  | W, S, DC | no | Logon or startup script set on the host |
 | `persistence_powershell_profile` | Low | T1546.013 |  | W, S, DC | no | PowerShell profile for every user |
 | `persistence_office_hooks` | High | T1137 |  | W, S, DC | no | Office loads or shows something at every start |
@@ -222,6 +229,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `os_support_ending` | Low | T1190 |  | W, S, DC | no | Windows support ends soon |
 | `updates_stale` | High | T1190 |  | W, S, DC | no | No update installed recently |
 | `wu_auto_updates_disabled` | Medium | T1190 | 18.10.92.2.1 (L1) | W, S, DC | yes | Automatic Windows Update turned off by policy |
+| `wsus_insecure_transport` | High | T1072 |  | W, S, DC | no | Updates taken from a WSUS server over http |
 | `updates_pending` | Medium | T1190 |  | W, S, DC | no | Windows update available but not installed |
 | `reboot_overdue` | Low | T1068 |  | W, S, DC | no | Restart overdue: installed updates are not active |
 
@@ -249,11 +257,14 @@ The last column says whether HostBadger can write a remediation script for the c
 | `script_files_execute_on_open` | Medium | T1204.002 |  | W, S, DC | yes | Script files run when they are double-clicked |
 | `removable_media_execute_allowed` | Low | T1091 |  | W | no | Programs can run from removable disks |
 | `app_control_not_enforced` | Medium | T1204.002 |  | W, S, DC | no | No application control enforced |
+| `app_control_policy_suspect` | Medium | T1562.001 |  | W, S, DC | no | Application control policy names a security agent |
+| `browser_cookie_protection_off` | Medium | T1539 |  | W, S, DC | no | Browser session protection turned off by policy |
 | `powershell_clm_off` | Low | T1059.001 |  | W, S, DC | no | PowerShell is not held to Constrained Language Mode |
 | `netfx3_enabled` | Low | T1562.010 |  | W, S, DC | no | .NET Framework 3.5 (2.0 and 3.0) is enabled |
 | `ie11_enabled` | Medium | T1189 |  | W, S, DC | no | Internet Explorer 11 is enabled |
 | `office_macro_settings_weak` | Medium | T1566.001 |  | W, S, DC | no | Office macro settings not enforced by policy |
 | `office_vba_object_model_trusted` | Medium | T1137 |  | W, S, DC | no | Office trusts programmatic access to the VBA project |
+| `office_trusted_location_risky` | Medium | T1204.002 |  | W, S, DC | no | Office trusted location a user or an attacker can fill |
 | `sudo_inline_enabled` | Low | T1548.002 |  | W, S | no | Windows sudo runs elevated commands inline |
 | `developer_mode_enabled` | Low | T1553 |  | W, S | no | Developer mode on |
 | `recall_snapshots_enabled` | Medium | T1113 |  | W | no | Windows Recall can save snapshots of the screen |
@@ -293,6 +304,61 @@ The last column says whether HostBadger can write a remediation script for the c
 | `stig_firefox` | Medium | T1189 |  | W, S, DC | no | Mozilla Firefox policy differs from the DISA STIG |
 | `stig_office` | Medium | T1204.002 |  | W, S, DC | no | Microsoft 365 Apps policy differs from the DISA STIG |
 | `stig_adobe` | Medium | T1204.002 |  | W, S, DC | no | Adobe Acrobat policy differs from the DISA STIG |
+
+## Recent attacks 2022-2026
+
+The vectors behind the attacks and research most reported between 2022 and 2026, the condition each one needs on a Windows host, and the checks that look for that condition. A check in this table does not detect the attack: it reports the setting or the leftover the attack needs, before or after the fact.
+
+| Attack or vector | Years | What it needs on the host | Checks |
+|---|---|---|---|
+| ClickFix and FileFix paste-and-run lures | 2024-26 | the victim pastes a command into the Run dialog or the Explorer address bar; Windows keeps it in RunMRU / TypedPaths | `run_dialog_payload`, `lolbin_outbound_not_blocked`, `script_files_execute_on_open` |
+| Port forwarding for pivoting (netsh portproxy, as in CISA AA24-038A) | 2023-26 | a portproxy rule on a host that may reach the target segment | `network_port_proxy`, `firewall_inbound_user_program`, `risky_listener` |
+| Infostealers reading the browser session store | 2024-26 | app-bound encryption turned off by policy, or the browser's debugging port opened | `browser_cookie_protection_off`, `credential_manager_saved`, `network_credentials_stored` |
+| Malicious or hijacked browser extensions | 2023-26 | an extension with broad permissions, sideloaded or pulled from the store after the fact | `browser_extension_malicious`, `browser_extension_sideloaded`, `browser_extension_broad_access`, `browser_extension_not_allowed` |
+| Bring your own vulnerable driver (BYOVD) | 2022-26 | a signed vulnerable driver loadable, the Microsoft blocklist off, or test signing allowed | `vulnerable_driver_present`, `driver_blocklist_off`, `boot_integrity_weakened`, `hvci_off` |
+| An application control policy used to stop the security agent (Krueger-style) | 2024-26 | a code integrity policy in force whose rules name the agent's binaries | `app_control_policy_suspect` |
+| Turning the antivirus off before the payload | 2022-26 | tamper protection off, broad exclusions, threats set to allow, or the service stopped | `defender_tamper_off`, `defender_exclusion`, `defender_asr_exclusion_broad`, `defender_threat_action_allow`, `defender_service_disabled`, `defender_realtime_off`, `edr_agent_stopped` |
+| Event logging silenced so the intrusion leaves no trace | 2022-26 | the event log service or its autologgers stopped while the audit policy still reads as correct | `event_logging_suppressed`, `audit_policy_gaps`, `security_log_small`, `log_forwarding_missing` |
+| LSASS credential dumping | 2022-26 | LSASS not a protected process, Credential Guard off or unlocked, WDigest storing clear text | `lsa_not_protected`, `credential_guard_off`, `credential_guard_no_lock`, `wdigest_cleartext`, `cached_logons_high` |
+| Coercion and NTLM relay (PetitPotam and its successors) | 2021-26 | the WebClient service reachable, and SMB or LDAP accepting unsigned, unbound authentication | `webclient_webdav_enabled`, `ldap_server_signing_off`, `ldap_client_signing_off`, `smb_server_signing_not_required`, `smb_client_signing_not_required`, `ntlm_weak_lmcompat` |
+| Name resolution poisoning with Responder or Inveigh | 2022-26 | LLMNR, NBT-NS, mDNS or WPAD still answering on the host | `llmnr_enabled`, `netbios_enabled`, `mdns_enabled`, `wpad_not_disabled` |
+| PrintNightmare and the driver install path | 2021-26 | Point and Print without the admin restriction, or a spooler running where nothing prints | `print_point_and_print_weak`, `printer_drivers_by_users`, `spooler_on_dc`, `print_spooler_no_printers` |
+| Netlogon secure channel weakened (Zerologon family) | 2020-26 | signing, sealing or strong keys not required on the secure channel | `dc_netlogon_policy_weak`, `secure_channel_unprotected`, `dc_security_policy_gaps` |
+| Mark of the Web and installer protocol bypasses (Follina, ms-appinstaller) | 2022-26 | the zone marker stripped on copy, the App Installer protocol open, script types running on open | `explorer_motw_bypass`, `app_installer_policy_gaps`, `script_files_execute_on_open`, `removable_media_execute_allowed` |
+| Tarrask hidden scheduled task | 2022-26 | a task whose registry entry has no security descriptor, so the Task Scheduler does not list it | `scheduled_task_hidden`, `service_hidden` |
+| A task or service parked among Windows' own | 2022-26 | an entry in a Microsoft folder created by someone else, or a service hook pointing elsewhere | `scheduled_task_masquerade`, `persistence_service_hook`, `autostart_suspicious_command` |
+| WMI event subscription persistence | 2022-26 | a permanent consumer bound to a filter on the host | `persistence_wmi_subscription` |
+| DLL load points inside trusted processes (AppInit, COR_PROFILER, IFEO, netsh, LSA, print monitors) | 2022-26 | a load point whose DLL is not Windows' own | `persistence_dll_load_point`, `persistence_registry_hijack`, `persistence_credential_capture`, `amsi_provider_signing_off` |
+| DLL hijacking and planting in writable folders | 2022-26 | a program folder, PATH entry, service or task binary a non-administrator can write | `program_dir_writable`, `system_path_writable`, `service_binary_writable`, `task_binary_writable`, `service_unquoted_path`, `service_path_ancestor_control`, `autorun_writable`, `safe_dll_search_off` |
+| Office macros through a trusted location | 2022-26 | a trusted location on a share or in a folder the user fills, or macros allowed with no signature | `office_trusted_location_risky`, `office_macro_settings_weak`, `office_vba_object_model_trusted`, `persistence_office_hooks`, `office_addin_unsigned` |
+| Updates taken over an unauthenticated channel (WSUS attack tooling) | 2015-26 | a WSUS server set by policy over http, or a user-level proxy in front of update detection | `wsus_insecure_transport` |
+| BitLocker bypass through the recovery environment | 2024-26 | a disk that unlocks itself (TPM only) with WinRE enabled and an unserviced recovery image | `winre_bitlocker_exposure`, `bitlocker_tpm_only`, `bitlocker_unlock_exposure`, `bitlocker_os_volume_off` |
+| Remote monitoring tools used for hands-on-keyboard access | 2022-26 | a remote access or RMM tool installed, or RDP open with weak settings | `remote_access_tool`, `rdp_enabled_workstation`, `rdp_nla_disabled`, `rdp_policy_gaps`, `remote_session_takeover`, `winrm_trusted_hosts_any` |
+| OpenSSH on Windows as a way back in | 2023-26 | the OpenSSH server installed with keys in administrators_authorized_keys | `persistence_ssh_authorized_keys`, `risky_listener` |
+| BITS jobs that fetch and run the payload | 2022-26 | a BITS job with a notify command, retried by Windows for weeks | `persistence_bits_job` |
+| Logon screen and accessibility backdoors | 2022-26 | a replaced accessibility binary, an IFEO debugger on the logon tools, or a credential provider of someone else's | `accessibility_binary_replaced`, `persistence_registry_hijack`, `persistence_credential_capture` |
+| CredSSP and delegation abuse (CVE-2018-0886 and the delegation policies) | 2018-26 | unpatched CredSSP peers accepted, or credentials delegated to any server | `credssp_encryption_oracle_weak`, `credential_delegation_any_server`, `remote_credential_guard_off` |
+| SMBv1 and the EternalBlue family | 2017-26 | the SMBv1 server or its client driver still enabled | `smb1_server_enabled`, `smb1_client_driver_enabled` |
+| Reuse of a local account nobody watches | 2022-26 | an enabled local account unused for months, a shared local password, or no LAPS | `local_account_dormant`, `local_admin_password_shared`, `laps_not_configured`, `local_account_password_never_expires`, `builtin_admin_enabled` |
+| Credentials left on disk and picked up later | 2022-26 | an answer file, a Group Policy Preferences password, PowerShell history or a saved credential | `unattend_credentials`, `gpp_cpassword_cached`, `powershell_history_secrets`, `credential_manager_saved`, `service_domain_account` |
+| Ransomware clearing the way back (shadow copies, recovery, restore points) | 2022-26 | shadow copies disabled, or Controlled Folder Access and remote encryption protection off | `shadow_copies_disabled`, `controlled_folder_access_off`, `defender_network_blocks_off`, `asr_standard_rules_missing` |
+| Exploitation of a known vulnerability in installed software | 2022-26 | a product on the host with a published, exploited vulnerability, or one out of support | `kev_software_match`, `software_cve`, `software_eol`, `os_unsupported`, `updates_stale`, `updates_pending` |
+
+### What these checks do not cover
+
+A host snapshot is a configuration, not a stream of events. These are the vectors of the same years that HostBadger deliberately says nothing about, and why.
+
+| Not covered | Why |
+|---|---|
+| Process injection and in-memory loaders | runtime behaviour: nothing in a host's configuration shows it. The checks here only remove the conditions (application control, ASR, exploit protection); detection belongs to an EDR. |
+| Active Directory attack paths (Kerberoasting, delegation, AD CS templates, dMSA abuse) | the evidence is in the directory, not on the host. HostBadger judges only what a member or a domain controller shows locally (signing, channel binding, RC4, DSRM). |
+| Server application vulnerabilities (Exchange, SharePoint, web stacks) | they need the product's own state and logs. HostBadger sees the installed version, so software_cve and kev_software_match can place it, and nothing more. |
+| Secure Boot revocation state (bootkits of the BlackLotus family) | the revocation list lives in a UEFI variable the collector does not read. secure_boot_off and boot_integrity_weakened say only whether Secure Boot and driver signing are on. |
+| Firmware and hardware implants, Kernel DMA attacks on an unlocked machine | below the operating system. Only the policy side is judged (bitlocker_policy_gaps for the DMA setting, secure_boot_off, hvci_off). |
+| Phishing, consent phishing and anything that happens in the identity provider | no local evidence. run_dialog_payload catches only the paste-and-run kind, once it reaches the host. |
+| Cloud and token theft after the host (session tokens, OAuth grants, device code flows) | outside the host's configuration. browser_cookie_protection_off and credential_manager_saved cover the local store, not what was done with it. |
+| Supply chain compromise of a signed update | a correctly signed package from the real vendor leaves nothing wrong on the host. trusted_publisher_added and root_ca_added catch only a certificate someone added locally. |
+| Hands-on-keyboard command execution as it happens | HostBadger reads a snapshot, not a stream. It sees the command lines that persistence leaves behind (autostart_suspicious_command, run_dialog_payload), not the session. |
 
 ## DISA STIG rules read by the stig_* checks
 

@@ -216,7 +216,16 @@
   },
   "boot": {
     "secureBootEnabled": true,
-    "firmware": "UEFI"
+    "firmware": "UEFI",
+    "winRe": {
+      "configured": true,
+      "enabled": false,
+      "installState": 1,
+      "staged": false,
+      "imagePath": null,
+      "imageModifiedUtc": null,
+      "imageReadable": false
+    }
   },
   "credentialProtection": {
     "runAsPPL": 2,
@@ -284,7 +293,8 @@
         "port": 6379,
         "process": "redis-server"
       }
-    ]
+    ],
+    "portProxy": []
   },
   "remoteAccess": {
     "rdpEnabled": true,
@@ -1027,6 +1037,27 @@
     ],
     "kerberosEncryptionTypes": 2147483640,
     "wefSubscriptionManager": true,
+    "windowsUpdateSource": {
+      "useWuServer": 1,
+      "server": "https://wsus.corp.example:8531",
+      "serverScheme": "https",
+      "statusServer": "https://wsus.corp.example:8531",
+      "proxyBehavior": null,
+      "trustedPublisher": 1
+    },
+    "browserSecurity": [],
+    "ciPolicies": [
+      {
+        "file": "{A6368F33-1FA4-4F12-B3F4-6B5B1F6E7A11}.cip",
+        "length": 54320,
+        "modifiedUtc": "2026-02-01T08:00:00Z",
+        "fileNames": [
+          "setup.exe",
+          "contoso-erp.exe",
+          "msbuild.exe"
+        ]
+      }
+    ],
     "exploitProtection": {
       "dep": 0,
       "bottomUpAslr": 0,
@@ -4069,6 +4100,31 @@
     "officeTestMachine": [],
     "officeProfiles": [],
     "userHivesRead": 1,
+    "runDialog": [
+      {
+        "user": "jsmith",
+        "source": "Run dialog",
+        "entry": "a",
+        "command": "cmd"
+      },
+      {
+        "user": "jsmith",
+        "source": "Explorer address bar",
+        "entry": "url1",
+        "command": "C:\\Program Files"
+      }
+    ],
+    "officeTrustedLocations": [
+      {
+        "user": "jsmith",
+        "app": "Word",
+        "version": "16.0",
+        "location": "Location0",
+        "path": "C:\\Users\\jsmith\\AppData\\Roaming\\Microsoft\\Templates",
+        "allowSubfolders": false,
+        "policy": false
+      }
+    ],
     "ssh": {
       "installed": false,
       "adminKeys": null,

@@ -102,9 +102,12 @@ function New-HostPseudonymizer {
             & $add $svc.pathName 'PATH'; & $add $svc.executable 'PATH'
         }
         foreach ($t in @($s.scheduledTasks | Where-Object { $_ })) {
-            # The author is a vendor or a person and is never printed in a finding. Masking it would
-            # only damage words like "Microsoft".
             & $addAccount $t.userId; & $addAccount $t.groupId
+            # The author reaches a finding only for a task that sits among Windows' own with an author
+            # that is not Microsoft (scheduled_task_masquerade), and that is the only one tokenized:
+            # masking "Microsoft" or a resource string would damage the rest of the prompt.
+            $au = "$($t.author)".Trim()
+            if ($au -and $au -notmatch '(?i)microsoft' -and $au -notmatch '^\$\(@' -and $au -notmatch '^@%') { & $addAccount $au }
             foreach ($a in @($t.actions | Where-Object { $_ })) { & $add $a.execute 'PATH'; & $add $a.executable 'PATH' }
         }
         foreach ($r in @($s.autoruns | Where-Object { $_ })) { & $add $r.command 'PATH'; & $add $r.executable 'PATH' }
@@ -181,6 +184,18 @@ function New-HostPseudonymizer {
                 foreach ($x in @($o.xll | Where-Object { $_ })) { & $add $x 'PATH' }
             }
             if ($lp.ssh) { foreach ($u in @($lp.ssh.userKeys | Where-Object { $_ })) { & $add $u.user 'USER' } }
+            # Office trusted locations: the user whose list it is, and the folder itself (a share or a
+            # profile folder names people and systems).
+            foreach ($tl in @($lp.officeTrustedLocations | Where-Object { $_ })) { & $add $tl.user 'USER'; & $add $tl.path 'PATH' }
+            # What was typed in the Run dialog: the user, and the addresses inside the command (the
+            # command itself stays readable, so the AI can still see that it was mshta or PowerShell).
+            foreach ($e in @($lp.runDialog | Where-Object { $_ })) {
+                & $add $e.user 'USER'
+                $cmd = "$($e.command)"
+                foreach ($m in [regex]::Matches($cmd, '(?i)\b[a-z][a-z0-9+.\-]*://[^\s"'']+')) { & $add $m.Value 'URL' }
+                foreach ($m in [regex]::Matches($cmd, '\\\\[^\s"'']+')) { & $add $m.Value 'PATH' }
+                foreach ($m in [regex]::Matches($cmd, '(?i)\b[a-z]:\\[^\s"'']+')) { & $add $m.Value 'PATH' }
+            }
             foreach ($j in @($lp.bitsJobs | Where-Object { $_ })) { & $add $j.name 'BITS'; & $addAccount $j.owner; & $add $j.notifyCmdLine 'PATH' }
             foreach ($m in @($lp.missingTargets | Where-Object { $_ })) { & $add $m.name $(if ("$($m.source)" -eq 'service') { 'SERVICE' } else { 'TASK' }); & $add $m.executable 'PATH' }
         }
@@ -211,6 +226,21 @@ function New-HostPseudonymizer {
             foreach ($c in @($sf.credentialFiles | Where-Object { $_ })) { & $add $c.user 'USER' }
             foreach ($r in @($sf.firewallUserApps | Where-Object { $_ })) { & $add $r.program 'PATH' }
             if ($sf.namedPipes) { foreach ($p in @($sf.namedPipes.writable | Where-Object { $_ -and -not (Test-WindowsPipe "$($_.name)") })) { & $add $p.name 'PIPE'; & $add $p.serverProcess 'PROC'; & $add $p.serverPath 'PATH' } }
+        }
+        # Port forwarding: both ends of every rule reach the finding, and an internal address says how
+        # the network is laid out. The wildcards and loopback stay as they are.
+        if ($s.network) {
+            foreach ($pp in @($s.network.portProxy | Where-Object { $_ })) {
+                foreach ($side in @("$($pp.listen)", "$($pp.connect)")) {
+                    $addr = ($side -split '/')[0]
+                    if ($addr -and @('0.0.0.0', '*', '::', '127.0.0.1', '::1', 'localhost') -notcontains $addr) { & $add $addr 'IP' }
+                }
+            }
+        }
+        # The update server set by policy: an internal name, printed by wsus_insecure_transport.
+        if ($s.hardening -and $s.hardening.windowsUpdateSource) {
+            & $add $s.hardening.windowsUpdateSource.server 'URL'
+            & $add $s.hardening.windowsUpdateSource.statusServer 'URL'
         }
         if ($s.defender) {
             foreach ($x in @($s.defender.asrExclusions | Where-Object { $_ })) { & $add $x 'PATH' }

@@ -2197,16 +2197,29 @@ function Get-AiOfferButtons {
         @{ Tag = ''; Label = 'Not now' }
     )
 }
+function Invoke-ReportOffer {
+    # The last step of a run: the report is on disk and nothing else will rewrite it, so offer to open
+    # it. After the AI question, because the AI step writes its section into that same file: the offer
+    # then comes from the AI task instead, once the file is final.
+    if ($NoShow -or -not $script:LastReport -or -not (Test-Path -LiteralPath $script:LastReport)) { return }
+    # The same dialog as the AI question (Show-Choice), not a MessageBox.
+    $text = "$(Split-Path -Leaf $script:LastReport) is written$(if ($script:Res -and @($script:Res.Rows).Count) { ", with $(@($script:Res.Rows).Count) finding(s)" }).`n`n$($script:LastReport)`n`nIt opens in your default browser. The Outputs panel and the Open report button open it again at any time."
+    if ((Show-Choice -Heading 'Open the report?' -Text $text -Buttons @(@{ Tag = 'open'; Label = 'Open in browser' }, @{ Tag = ''; Label = 'Not now' })) -ne 'open') { return }
+    try { Invoke-Item -LiteralPath $script:LastReport; Add-Log "Opened $($script:LastReport)" } catch { Add-Log "Not opened: $($_.Exception.Message)" }
+}
+
 function Invoke-AiOffer {
     # After an analysis, on the analysis in memory: not with no findings (nothing to summarize), and not
-    # when the settings turn the question off.
+    # when the settings turn the question off. Whichever way it ends, the report offer follows: right
+    # away when no AI step runs, otherwise when that step is done.
     $s = Read-Settings
-    if (($s -and "$($s.Ai)" -eq 'N') -or -not $script:Kept -or -not $script:Res -or @($script:Res.Rows).Count -eq 0) { return }
+    if (($s -and "$($s.Ai)" -eq 'N') -or -not $script:Kept -or -not $script:Res -or @($script:Res.Rows).Count -eq 0) { Invoke-ReportOffer; return }
     $text = "$(@($script:Res.Rows).Count) finding(s) in $(Split-Path -Leaf $script:LastReport). The AI summary uses this analysis: nothing is analyzed or downloaded again.`n`nThe dry run writes the prompt and sends nothing, so you can read it first."
     switch (Show-Choice -Heading 'Add an AI summary?' -Text $text -Buttons (Get-AiOfferButtons)) {
-        'send' { Invoke-Ai $true }
-        'dry' { Invoke-Ai $false }
+        'send' { Invoke-Ai $true; return }
+        'dry' { Invoke-Ai $false; return }
     }
+    Invoke-ReportOffer
 }
 function Select-AiReport {
     # No analysis in memory: which report the AI step works on. $true when one is chosen.
@@ -2265,6 +2278,8 @@ function Invoke-Ai {
         # The log may be on another tab: why a report could not be used is said here too.
         $why = @($t.Lines | Where-Object { $_ -like 'AI report:*' })
         if ($why.Count) { [void][System.Windows.MessageBox]::Show(($why[0] -replace '^AI report: ', ''), 'HostBadger') }
+        # The report now holds the AI section (or the step failed and left it as it was): offer it.
+        Invoke-ReportOffer
     }
 }
 
@@ -2622,6 +2637,10 @@ if ($NoShow) {
     $env:GEMINI_API_KEY = $savedKey
     "AI offer: $(@($on.Ui.ChoiceButtons.Children | ForEach-Object { $_.Content }) -join ' / '); send with a key $(@($on.Ui.ChoiceButtons.Children)[0].IsEnabled), without $(@($off.Ui.ChoiceButtons.Children)[0].IsEnabled)"
     $on.Window.Close(); $off.Window.Close()
+    # The report offer that follows the AI question: the same dialog, with its own buttons.
+    $rep = New-ChoiceWindow -Heading 'Open the report?' -Text 't' -Buttons @(@{ Tag = 'open'; Label = 'Open in browser' }, @{ Tag = ''; Label = 'Not now' })
+    "Report offer: $(@($rep.Ui.ChoiceButtons.Children | ForEach-Object { $_.Content }) -join ' / ')"
+    $rep.Window.Close()
     # The Results tab on the demo report: every finding read, the categories listed, a finding detailed.
     Show-Results (Join-Path $root 'examples\demo_report.html')
     $ui.ResCisChk.IsChecked = $true; $ui.ResStigChk.IsChecked = $true; Update-ResultsView

