@@ -50,13 +50,14 @@ $ra = Get-RecentAttacks
 if ($ra) {
     $null = $sb.AppendLine('## Recent attacks 2022-2026')
     $null = $sb.AppendLine()
-    $null = $sb.AppendLine('The vectors behind the attacks and research most reported between 2022 and 2026, the condition each one needs on a Windows host, and the checks that look for that condition. A check in this table does not detect the attack: it reports the setting or the leftover the attack needs, before or after the fact.')
+    $null = $sb.AppendLine('The vectors behind the attacks and research most reported between 2022 and 2026, the condition each one needs on a Windows host, and the checks that look for that condition. A check in this table does not detect the attack: it reports the setting or the leftover the attack needs, before or after the fact. Only the checks in the Checks column decide whether a host is exposed; the Context column holds checks that make the vector easier or worse but are not the condition itself, so they are reported next to it and never mark a host exposed on their own.')
     $null = $sb.AppendLine()
-    $null = $sb.AppendLine('| Attack or vector | Years | What it needs on the host | Checks |')
-    $null = $sb.AppendLine('|---|---|---|---|')
+    $null = $sb.AppendLine('| Attack or vector | Years | What it needs on the host | Checks | Context |')
+    $null = $sb.AppendLine('|---|---|---|---|---|')
     foreach ($a in @($ra.attacks)) {
         $checks = (@($a.checks) | ForEach-Object { '`' + $_ + '`' }) -join ', '
-        $null = $sb.AppendLine("| $($a.name) | $($a.years) | $($a.needs) | $checks |")
+        $rel = (@($a.related) | Where-Object { $_ } | ForEach-Object { '`' + $_ + '`' }) -join ', '
+        $null = $sb.AppendLine("| $($a.name) | $($a.years) | $($a.needs) | $checks | $rel |")
     }
     $null = $sb.AppendLine()
     $null = $sb.AppendLine('### What these checks do not cover')
@@ -66,6 +67,30 @@ if ($ra) {
     $null = $sb.AppendLine('| Not covered | Why |')
     $null = $sb.AppendLine('|---|---|')
     foreach ($a in @($ra.notCovered)) { $null = $sb.AppendLine("| $($a.name) | $($a.why) |") }
+    $null = $sb.AppendLine()
+}
+# Attack paths: the chains of data\attack-paths.json, stage by stage. Same rule as the table above,
+# every check named here is in the catalog (the regression checks it).
+$apDoc = Get-AttackPaths
+if ($apDoc) {
+    $stageDoc = @{}
+    foreach ($st in @($apDoc.stages)) { $stageDoc["$($st.id)"] = "$($st.name)" }
+    $null = $sb.AppendLine('## Attack paths')
+    $null = $sb.AppendLine()
+    $null = $sb.AppendLine('The chains in `data\attack-paths.json`, stage by stage, with the checks that look for the condition each stage needs. The report draws one chain per path, for a single host: a stage is filled when a check of it reports that condition there, grey when nothing about it could be judged, plain when every judged check of it is clean. A complete chain means every stage has an enabling condition on that one host; it is evidence, not proof that anyone walked it, and the chains are documentation of what the checks mean together, not a new kind of detection.')
+    foreach ($p in @($apDoc.paths)) {
+        $null = $sb.AppendLine()
+        $null = $sb.AppendLine("### $($p.name)")
+        $null = $sb.AppendLine()
+        $null = $sb.AppendLine("$($p.why) Judged on: $((@($p.roles) -join ', ')).")
+        $null = $sb.AppendLine()
+        $null = $sb.AppendLine('| Stage | What it needs on the host | Checks |')
+        $null = $sb.AppendLine('|---|---|---|')
+        foreach ($s in @($p.steps)) {
+            $checks = (@($s.checks) | ForEach-Object { '`' + $_ + '`' }) -join ', '
+            $null = $sb.AppendLine("| $($stageDoc["$($s.stage)"]) | $($s.needs) | $checks |")
+        }
+    }
     $null = $sb.AppendLine()
 }
 $null = $sb.AppendLine('## DISA STIG rules read by the stig_* checks')

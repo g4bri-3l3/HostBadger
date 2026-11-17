@@ -10,7 +10,7 @@ The last column says whether HostBadger can write a remediation script for the c
 
 | ID | Severity | MITRE | CIS | Roles | Fix script | Title |
 |---|---|---|---|---|---|---|
-| `lsa_not_protected` | Medium | T1003.001 | 18.9.26.2 (L1) | W, S, DC | yes | LSASS not running as a protected process |
+| `lsa_not_protected` | Medium | T1003.001 | 18.9.26.2 (L1) | W, S, DC | no | LSASS not running as a protected process |
 | `credential_guard_off` | Medium | T1003.001 |  | W, S | no | Credential Guard not running |
 | `credential_guard_no_lock` | Low | T1003.001 |  | W, S | no | Credential Guard configured without UEFI lock |
 | `wdigest_cleartext` | High | T1003.001 | 18.4.8 (L1) | W, S, DC | yes | WDigest stores cleartext passwords |
@@ -307,42 +307,42 @@ The last column says whether HostBadger can write a remediation script for the c
 
 ## Recent attacks 2022-2026
 
-The vectors behind the attacks and research most reported between 2022 and 2026, the condition each one needs on a Windows host, and the checks that look for that condition. A check in this table does not detect the attack: it reports the setting or the leftover the attack needs, before or after the fact.
+The vectors behind the attacks and research most reported between 2022 and 2026, the condition each one needs on a Windows host, and the checks that look for that condition. A check in this table does not detect the attack: it reports the setting or the leftover the attack needs, before or after the fact. Only the checks in the Checks column decide whether a host is exposed; the Context column holds checks that make the vector easier or worse but are not the condition itself, so they are reported next to it and never mark a host exposed on their own.
 
-| Attack or vector | Years | What it needs on the host | Checks |
-|---|---|---|---|
-| ClickFix and FileFix paste-and-run lures | 2024-26 | the victim pastes a command into the Run dialog or the Explorer address bar; Windows keeps it in RunMRU / TypedPaths | `run_dialog_payload`, `lolbin_outbound_not_blocked`, `script_files_execute_on_open` |
-| Port forwarding for pivoting (netsh portproxy, as in CISA AA24-038A) | 2023-26 | a portproxy rule on a host that may reach the target segment | `network_port_proxy`, `firewall_inbound_user_program`, `risky_listener` |
-| Infostealers reading the browser session store | 2024-26 | app-bound encryption turned off by policy, or the browser's debugging port opened | `browser_cookie_protection_off`, `credential_manager_saved`, `network_credentials_stored` |
-| Malicious or hijacked browser extensions | 2023-26 | an extension with broad permissions, sideloaded or pulled from the store after the fact | `browser_extension_malicious`, `browser_extension_sideloaded`, `browser_extension_broad_access`, `browser_extension_not_allowed` |
-| Bring your own vulnerable driver (BYOVD) | 2022-26 | a signed vulnerable driver loadable, the Microsoft blocklist off, or test signing allowed | `vulnerable_driver_present`, `driver_blocklist_off`, `boot_integrity_weakened`, `hvci_off` |
-| An application control policy used to stop the security agent (Krueger-style) | 2024-26 | a code integrity policy in force whose rules name the agent's binaries | `app_control_policy_suspect` |
-| Turning the antivirus off before the payload | 2022-26 | tamper protection off, broad exclusions, threats set to allow, or the service stopped | `defender_tamper_off`, `defender_exclusion`, `defender_asr_exclusion_broad`, `defender_threat_action_allow`, `defender_service_disabled`, `defender_realtime_off`, `edr_agent_stopped` |
-| Event logging silenced so the intrusion leaves no trace | 2022-26 | the event log service or its autologgers stopped while the audit policy still reads as correct | `event_logging_suppressed`, `audit_policy_gaps`, `security_log_small`, `log_forwarding_missing` |
-| LSASS credential dumping | 2022-26 | LSASS not a protected process, Credential Guard off or unlocked, WDigest storing clear text | `lsa_not_protected`, `credential_guard_off`, `credential_guard_no_lock`, `wdigest_cleartext`, `cached_logons_high` |
-| Coercion and NTLM relay (PetitPotam and its successors) | 2021-26 | the WebClient service reachable, and SMB or LDAP accepting unsigned, unbound authentication | `webclient_webdav_enabled`, `ldap_server_signing_off`, `ldap_client_signing_off`, `smb_server_signing_not_required`, `smb_client_signing_not_required`, `ntlm_weak_lmcompat` |
-| Name resolution poisoning with Responder or Inveigh | 2022-26 | LLMNR, NBT-NS, mDNS or WPAD still answering on the host | `llmnr_enabled`, `netbios_enabled`, `mdns_enabled`, `wpad_not_disabled` |
-| PrintNightmare and the driver install path | 2021-26 | Point and Print without the admin restriction, or a spooler running where nothing prints | `print_point_and_print_weak`, `printer_drivers_by_users`, `spooler_on_dc`, `print_spooler_no_printers` |
-| Netlogon secure channel weakened (Zerologon family) | 2020-26 | signing, sealing or strong keys not required on the secure channel | `dc_netlogon_policy_weak`, `secure_channel_unprotected`, `dc_security_policy_gaps` |
-| Mark of the Web and installer protocol bypasses (Follina, ms-appinstaller) | 2022-26 | the zone marker stripped on copy, the App Installer protocol open, script types running on open | `explorer_motw_bypass`, `app_installer_policy_gaps`, `script_files_execute_on_open`, `removable_media_execute_allowed` |
-| Tarrask hidden scheduled task | 2022-26 | a task whose registry entry has no security descriptor, so the Task Scheduler does not list it | `scheduled_task_hidden`, `service_hidden` |
-| A task or service parked among Windows' own | 2022-26 | an entry in a Microsoft folder created by someone else, or a service hook pointing elsewhere | `scheduled_task_masquerade`, `persistence_service_hook`, `autostart_suspicious_command` |
-| WMI event subscription persistence | 2022-26 | a permanent consumer bound to a filter on the host | `persistence_wmi_subscription` |
-| DLL load points inside trusted processes (AppInit, COR_PROFILER, IFEO, netsh, LSA, print monitors) | 2022-26 | a load point whose DLL is not Windows' own | `persistence_dll_load_point`, `persistence_registry_hijack`, `persistence_credential_capture`, `amsi_provider_signing_off` |
-| DLL hijacking and planting in writable folders | 2022-26 | a program folder, PATH entry, service or task binary a non-administrator can write | `program_dir_writable`, `system_path_writable`, `service_binary_writable`, `task_binary_writable`, `service_unquoted_path`, `service_path_ancestor_control`, `autorun_writable`, `safe_dll_search_off` |
-| Office macros through a trusted location | 2022-26 | a trusted location on a share or in a folder the user fills, or macros allowed with no signature | `office_trusted_location_risky`, `office_macro_settings_weak`, `office_vba_object_model_trusted`, `persistence_office_hooks`, `office_addin_unsigned` |
-| Updates taken over an unauthenticated channel (WSUS attack tooling) | 2015-26 | a WSUS server set by policy over http, or a user-level proxy in front of update detection | `wsus_insecure_transport` |
-| BitLocker bypass through the recovery environment | 2024-26 | a disk that unlocks itself (TPM only) with WinRE enabled and an unserviced recovery image | `winre_bitlocker_exposure`, `bitlocker_tpm_only`, `bitlocker_unlock_exposure`, `bitlocker_os_volume_off` |
-| Remote monitoring tools used for hands-on-keyboard access | 2022-26 | a remote access or RMM tool installed, or RDP open with weak settings | `remote_access_tool`, `rdp_enabled_workstation`, `rdp_nla_disabled`, `rdp_policy_gaps`, `remote_session_takeover`, `winrm_trusted_hosts_any` |
-| OpenSSH on Windows as a way back in | 2023-26 | the OpenSSH server installed with keys in administrators_authorized_keys | `persistence_ssh_authorized_keys`, `risky_listener` |
-| BITS jobs that fetch and run the payload | 2022-26 | a BITS job with a notify command, retried by Windows for weeks | `persistence_bits_job` |
-| Logon screen and accessibility backdoors | 2022-26 | a replaced accessibility binary, an IFEO debugger on the logon tools, or a credential provider of someone else's | `accessibility_binary_replaced`, `persistence_registry_hijack`, `persistence_credential_capture` |
-| CredSSP and delegation abuse (CVE-2018-0886 and the delegation policies) | 2018-26 | unpatched CredSSP peers accepted, or credentials delegated to any server | `credssp_encryption_oracle_weak`, `credential_delegation_any_server`, `remote_credential_guard_off` |
-| SMBv1 and the EternalBlue family | 2017-26 | the SMBv1 server or its client driver still enabled | `smb1_server_enabled`, `smb1_client_driver_enabled` |
-| Reuse of a local account nobody watches | 2022-26 | an enabled local account unused for months, a shared local password, or no LAPS | `local_account_dormant`, `local_admin_password_shared`, `laps_not_configured`, `local_account_password_never_expires`, `builtin_admin_enabled` |
-| Credentials left on disk and picked up later | 2022-26 | an answer file, a Group Policy Preferences password, PowerShell history or a saved credential | `unattend_credentials`, `gpp_cpassword_cached`, `powershell_history_secrets`, `credential_manager_saved`, `service_domain_account` |
-| Ransomware clearing the way back (shadow copies, recovery, restore points) | 2022-26 | shadow copies disabled, or Controlled Folder Access and remote encryption protection off | `shadow_copies_disabled`, `controlled_folder_access_off`, `defender_network_blocks_off`, `asr_standard_rules_missing` |
-| Exploitation of a known vulnerability in installed software | 2022-26 | a product on the host with a published, exploited vulnerability, or one out of support | `kev_software_match`, `software_cve`, `software_eol`, `os_unsupported`, `updates_stale`, `updates_pending` |
+| Attack or vector | Years | What it needs on the host | Checks | Context |
+|---|---|---|---|---|
+| ClickFix and FileFix paste-and-run lures | 2024-26 | the victim pastes a command into the Run dialog or the Explorer address bar; Windows keeps it in RunMRU / TypedPaths | `run_dialog_payload` | `lolbin_outbound_not_blocked`, `script_files_execute_on_open` |
+| Port forwarding for pivoting (netsh portproxy, as in CISA AA24-038A) | 2023-26 | a portproxy rule on a host that may reach the target segment | `network_port_proxy` | `firewall_inbound_user_program`, `risky_listener` |
+| Infostealers reading the browser session store | 2024-26 | the browser's app-bound encryption of the session store turned off by policy | `browser_cookie_protection_off` | `credential_manager_saved`, `network_credentials_stored` |
+| Malicious or hijacked browser extensions | 2023-26 | an extension with broad permissions, sideloaded or pulled from the store after the fact | `browser_extension_malicious`, `browser_extension_sideloaded`, `browser_extension_broad_access`, `browser_extension_not_allowed` |  |
+| Bring your own vulnerable driver (BYOVD) | 2022-26 | a vulnerable signed driver on the host, the Microsoft blocklist off, or driver signing weakened | `vulnerable_driver_present`, `driver_blocklist_off`, `boot_integrity_weakened` | `hvci_off` |
+| An application control policy used to stop the security agent (Krueger-style) | 2024-26 | a code integrity policy in force whose rules name the agent's binaries | `app_control_policy_suspect` |  |
+| Turning the antivirus off before the payload | 2022-26 | tamper protection off, an exclusion the payload can live in, threats set to allow, or the service stopped | `defender_tamper_off`, `defender_exclusion`, `defender_threat_action_allow`, `defender_service_disabled`, `defender_realtime_off`, `edr_agent_stopped` | `defender_asr_exclusion_broad` |
+| Event logging silenced so the intrusion leaves no trace | 2022-26 | the event log service or its autologgers stopped while the audit policy still reads as correct | `event_logging_suppressed` | `audit_policy_gaps`, `security_log_small`, `log_forwarding_missing` |
+| LSASS credential dumping | 2022-26 | LSASS not a protected process, Credential Guard off or unlocked, WDigest storing clear text | `lsa_not_protected`, `credential_guard_off`, `credential_guard_no_lock`, `wdigest_cleartext` | `cached_logons_high` |
+| Coercion and NTLM relay (PetitPotam and its successors) | 2021-26 | SMB or LDAP accepting unsigned, unbound authentication, which is what a relayed session lands on | `ldap_server_signing_off`, `ldap_client_signing_off`, `smb_server_signing_not_required`, `smb_client_signing_not_required`, `ntlm_weak_lmcompat` | `webclient_webdav_enabled` |
+| Name resolution poisoning with Responder or Inveigh | 2022-26 | LLMNR, NBT-NS, mDNS or WPAD still answering on the host | `llmnr_enabled`, `netbios_enabled`, `mdns_enabled`, `wpad_not_disabled` |  |
+| PrintNightmare and the driver install path | 2021-26 | Point and Print without the admin restriction, users allowed to install drivers, or a spooler running where nothing prints | `print_point_and_print_weak`, `printer_drivers_by_users`, `spooler_on_dc`, `print_spooler_no_printers` |  |
+| Netlogon secure channel weakened (Zerologon family) | 2020-26 | signing, sealing or strong keys not required on the secure channel | `dc_netlogon_policy_weak`, `secure_channel_unprotected` | `dc_security_policy_gaps` |
+| Mark of the Web and installer protocol bypasses (Follina, ms-appinstaller) | 2022-26 | the zone marker stripped on copy, the App Installer protocol open, or script types running on open | `explorer_motw_bypass`, `app_installer_policy_gaps`, `script_files_execute_on_open` | `removable_media_execute_allowed` |
+| Tarrask hidden scheduled task | 2022-26 | a task or service whose registry entry has no security descriptor, so Windows does not list it | `scheduled_task_hidden`, `service_hidden` |  |
+| A task or service parked among Windows' own | 2022-26 | an entry in a Microsoft folder created by someone else, or a service hook pointing elsewhere | `scheduled_task_masquerade`, `persistence_service_hook` | `autostart_suspicious_command` |
+| WMI event subscription persistence | 2022-26 | a permanent consumer bound to a filter on the host | `persistence_wmi_subscription` |  |
+| DLL load points inside trusted processes (AppInit, COR_PROFILER, IFEO, netsh, LSA, print monitors) | 2022-26 | a load point whose DLL is not Windows' own | `persistence_dll_load_point`, `persistence_registry_hijack`, `persistence_credential_capture` | `amsi_provider_signing_off` |
+| DLL hijacking and planting in writable folders | 2022-26 | a program folder, PATH entry, service or task binary a non-administrator can write | `program_dir_writable`, `system_path_writable`, `service_binary_writable`, `task_binary_writable`, `service_unquoted_path`, `service_path_ancestor_control`, `autorun_writable` | `safe_dll_search_off` |
+| Office macros as the way in (trusted locations, unsigned macros) | 2022-26 | a trusted location on a share or in a folder the user fills, or macro settings left to the user instead of enforced by policy | `office_trusted_location_risky`, `office_macro_settings_weak` | `office_vba_object_model_trusted`, `persistence_office_hooks`, `office_addin_unsigned` |
+| Updates taken over an unauthenticated channel (WSUS attack tooling) | 2015-26 | a WSUS server set by policy over http, or a user-level proxy in front of update detection | `wsus_insecure_transport` |  |
+| BitLocker bypass through the recovery environment | 2024-26 | a disk that unlocks itself (TPM only) with WinRE enabled and an unserviced recovery image | `winre_bitlocker_exposure`, `bitlocker_tpm_only`, `bitlocker_unlock_exposure` | `bitlocker_os_volume_off` |
+| Remote monitoring tools used for hands-on-keyboard access | 2022-26 | a remote access or RMM tool installed, or RDP open with weak settings | `remote_access_tool`, `rdp_enabled_workstation`, `rdp_nla_disabled`, `remote_session_takeover` | `rdp_policy_gaps`, `winrm_trusted_hosts_any` |
+| OpenSSH on Windows as a way back in | 2023-26 | the OpenSSH server installed with keys in administrators_authorized_keys | `persistence_ssh_authorized_keys` | `risky_listener` |
+| BITS jobs that fetch and run the payload | 2022-26 | a BITS job with a notify command, retried by Windows for weeks | `persistence_bits_job` |  |
+| Logon screen and accessibility backdoors | 2022-26 | a replaced accessibility binary, or a credential provider of someone else's | `accessibility_binary_replaced`, `persistence_credential_capture` | `persistence_registry_hijack` |
+| CredSSP and delegation abuse (CVE-2018-0886 and the delegation policies) | 2018-26 | unpatched CredSSP peers accepted, or credentials delegated to any server | `credssp_encryption_oracle_weak`, `credential_delegation_any_server` | `remote_credential_guard_off` |
+| SMBv1 and the EternalBlue family | 2017-26 | the SMBv1 server or its client driver still enabled | `smb1_server_enabled`, `smb1_client_driver_enabled` |  |
+| Reuse of a local account nobody watches | 2022-26 | an enabled local account unused for months, a local password shared with other hosts, or no LAPS | `local_account_dormant`, `local_admin_password_shared`, `laps_not_configured` | `local_account_password_never_expires`, `builtin_admin_enabled` |
+| Credentials left on disk and picked up later | 2022-26 | an answer file, a Group Policy Preferences password, PowerShell history or a saved credential | `unattend_credentials`, `gpp_cpassword_cached`, `powershell_history_secrets`, `credential_manager_saved` | `service_domain_account` |
+| Ransomware clearing the way back (shadow copies, recovery, restore points) | 2022-26 | shadow copies turned off, so there is nothing on the host to restore from | `shadow_copies_disabled` | `controlled_folder_access_off`, `defender_network_blocks_off`, `asr_standard_rules_missing` |
+| Exploitation of a known vulnerability in installed software | 2022-26 | a product on the host with a published, exploited vulnerability, or one out of support | `kev_software_match`, `software_cve`, `software_eol`, `os_unsupported` | `updates_stale`, `updates_pending` |
 
 ### What these checks do not cover
 
@@ -359,6 +359,110 @@ A host snapshot is a configuration, not a stream of events. These are the vector
 | Cloud and token theft after the host (session tokens, OAuth grants, device code flows) | outside the host's configuration. browser_cookie_protection_off and credential_manager_saved cover the local store, not what was done with it. |
 | Supply chain compromise of a signed update | a correctly signed package from the real vendor leaves nothing wrong on the host. trusted_publisher_added and root_ca_added catch only a certificate someone added locally. |
 | Hands-on-keyboard command execution as it happens | HostBadger reads a snapshot, not a stream. It sees the command lines that persistence leaves behind (autostart_suspicious_command, run_dialog_payload), not the session. |
+
+## Attack paths
+
+The chains in `data\attack-paths.json`, stage by stage, with the checks that look for the condition each stage needs. The report draws one chain per path, for a single host: a stage is filled when a check of it reports that condition there, grey when nothing about it could be judged, plain when every judged check of it is clean. A complete chain means every stage has an enabling condition on that one host; it is evidence, not proof that anyone walked it, and the chains are documentation of what the checks mean together, not a new kind of detection.
+
+### Paste-and-run lure to credential theft
+
+The ClickFix and FileFix lures of 2024-26 need no exploit: the user pastes the command, the script layer runs it, the antivirus is out of the way, and the credentials are read out of LSASS. Judged on: workstation, server.
+
+| Stage | What it needs on the host | Checks |
+|---|---|---|
+| Initial access | the user can be talked into running a pasted command, and Windows does not stop a downloaded script | `run_dialog_payload`, `script_files_execute_on_open`, `explorer_motw_bypass`, `smartscreen_off` |
+| Execution | an interpreter that runs unconstrained and can reach the internet | `lolbin_outbound_not_blocked`, `powershell_clm_off`, `powershell_v2_enabled`, `powershell_scriptblock_logging_off` |
+| Defence evasion | the antivirus can be blinded or does not cover the drop folder | `defender_tamper_off`, `defender_exclusion`, `defender_realtime_off`, `asr_standard_rules_missing` |
+| Credential access | credentials readable in memory or kept in the local cache | `lsa_not_protected`, `wdigest_cleartext`, `credential_guard_off`, `cached_logons_high` |
+| Lateral movement | a reusable secret or an unauthenticated path to the next host | `smb_client_signing_not_required`, `local_admin_password_shared`, `winrm_insecure_auth` |
+
+### Macro document to persistence
+
+The oldest chain still in use: an Office document that is allowed to run code, an interpreter that fetches the next stage, and a load point that survives the reboot. Judged on: workstation, server.
+
+| Stage | What it needs on the host | Checks |
+|---|---|---|
+| Initial access | a document can run code without a prompt, or from a folder that is trusted | `office_macro_settings_weak`, `office_trusted_location_risky`, `office_vba_object_model_trusted` |
+| Execution | a signed Windows binary can fetch and run the next stage | `lolbin_outbound_not_blocked`, `script_files_execute_on_open`, `powershell_clm_off` |
+| Persistence | a load point the payload can write and that starts it again | `persistence_office_hooks`, `persistence_powershell_profile`, `persistence_registry_hijack`, `autostart_suspicious_command`, `autorun_writable` |
+
+### Standard user to SYSTEM
+
+Code running as the logged-on user becomes SYSTEM by writing a file or a registry value that a privileged process reads, and the elevation prompt does not get in the way. Judged on: workstation, server, dc.
+
+| Stage | What it needs on the host | Checks |
+|---|---|---|
+| Privilege escalation | a place a non-administrator can write that a privileged process loads or starts | `service_unquoted_path`, `service_binary_writable`, `service_permissions_weak`, `service_path_ancestor_control`, `task_binary_writable`, `system_path_writable`, `program_dir_writable`, `always_install_elevated`, `autorun_writable` |
+| Defence evasion | elevation happens without a prompt, or the administrator token is handed over unfiltered | `uac_disabled`, `uac_admin_no_prompt`, `uac_admin_protection_off`, `uac_hardening_gaps`, `remote_uac_token_filter_off` |
+| Credential access | once elevated, the credentials in memory are readable | `lsa_not_protected`, `wdigest_cleartext`, `credential_guard_off` |
+| Persistence | a privileged load point to come back through | `persistence_service_hook`, `persistence_dll_load_point`, `persistence_wmi_subscription`, `service_hidden`, `scheduled_task_hidden` |
+
+### Vulnerable driver to the kernel and the security agent
+
+Bring your own vulnerable driver: a signed driver with a known flaw gives kernel access, and from there the agent that would have reported the rest is stopped. Judged on: workstation, server, dc.
+
+| Stage | What it needs on the host | Checks |
+|---|---|---|
+| Privilege escalation | a vulnerable signed driver can be loaded, or the blocklist and the integrity settings are off | `vulnerable_driver_present`, `driver_blocklist_off`, `boot_integrity_weakened`, `hvci_off`, `vbs_policy_gaps` |
+| Defence evasion | the security agent or the event log can be turned off and leave no trace | `edr_agent_stopped`, `defender_service_disabled`, `defender_tamper_off`, `app_control_policy_suspect`, `event_logging_suppressed` |
+| Credential access | credentials not held in an isolated process | `lsa_not_protected`, `credential_guard_off`, `credential_guard_no_lock` |
+
+### Name resolution relay to lateral movement
+
+A broadcast name lookup nobody needs is answered by the attacker, the authentication that follows is relayed, and the next service accepts it because nothing is signed. Judged on: workstation, server, dc.
+
+| Stage | What it needs on the host | Checks |
+|---|---|---|
+| Initial access | a broadcast or legacy name lookup an attacker on the segment can answer | `llmnr_enabled`, `netbios_enabled`, `mdns_enabled`, `wpad_not_disabled`, `webclient_webdav_enabled` |
+| Credential access | the authentication that follows is weak enough to be used again | `ntlm_weak_lmcompat`, `lm_hash_stored`, `ntlm_min_session_security_weak`, `ntlm_audit_off` |
+| Lateral movement | a service that accepts a relayed session because nothing is signed | `smb_server_signing_not_required`, `smb_client_signing_not_required`, `ldap_client_signing_off`, `ldap_server_signing_off`, `smb_encryption_off` |
+
+### Exposed remote service to session takeover
+
+The way in is a service that answers from the network; the way on is the credentials that service is allowed to hand to the next hop, or a session already open on the host. Judged on: workstation, server, dc.
+
+| Stage | What it needs on the host | Checks |
+|---|---|---|
+| Initial access | a service answering from the network, or a firewall that does not stop it | `rdp_enabled_workstation`, `rdp_nla_disabled`, `risky_listener`, `firewall_default_inbound_allow`, `firewall_profile_disabled`, `firewall_inbound_user_program`, `remote_access_tool` |
+| Credential access | credentials delegated to whatever host asks, or an authentication the host does not pin | `credential_delegation_any_server`, `credssp_encryption_oracle_weak`, `winrm_trusted_hosts_any`, `remote_credential_guard_off` |
+| Lateral movement | a session to take over, a pivot to set up, or one password that opens every host | `remote_session_takeover`, `network_port_proxy`, `local_admin_password_shared`, `winrm_insecure_auth` |
+
+### Stolen laptop to the data on the disk
+
+No network is involved: the disk is read in another machine, or the recovery environment and an unattended unlock give the session away. Judged on: workstation.
+
+| Stage | What it needs on the host | Checks |
+|---|---|---|
+| Initial access | the volume can be read without the user, or the boot chain can be changed | `bitlocker_os_volume_off`, `bitlocker_tpm_only`, `bitlocker_weak_encryption`, `bitlocker_data_volume_off`, `secure_boot_off`, `winre_bitlocker_exposure`, `bitlocker_unlock_exposure` |
+| Credential access | secrets kept on that disk: cached logons, a stored password, an automatic logon | `cached_logons_high`, `lm_hash_stored`, `autologon_enabled`, `credential_manager_saved`, `windows_hello_software_keys` |
+
+### Browser extension to the session cookies
+
+The infostealer campaigns of 2024-26 do not need the password: an extension with broad access, or an unprotected cookie store, hands over a session that is already authenticated. Judged on: workstation, server.
+
+| Stage | What it needs on the host | Checks |
+|---|---|---|
+| Initial access | an extension that can read every page, sideloaded or pulled from the store after the fact | `browser_extension_malicious`, `browser_extension_sideloaded`, `browser_extension_broad_access`, `browser_extension_not_allowed` |
+| Credential access | a session store or a credential store that can be read from the user's own session | `browser_cookie_protection_off`, `credential_manager_saved`, `network_credentials_stored`, `powershell_history_secrets` |
+
+### Ransomware with the brakes off
+
+What turns an infection into an outage is not the encryption but what is missing around it: no behaviour blocking, no shadow copies to restore from, writable shares to spread into. Judged on: workstation, server, dc.
+
+| Stage | What it needs on the host | Checks |
+|---|---|---|
+| Defence evasion | behaviour blocking and folder protection are not in the way | `defender_tamper_off`, `controlled_folder_access_off`, `asr_standard_rules_missing`, `asr_other_rules_not_blocking`, `defender_network_protection_off` |
+| Impact | nothing to restore from, and a share to spread the damage through | `shadow_copies_disabled`, `share_writable_by_everyone`, `event_logging_suppressed`, `smb_insecure_guest_auth` |
+
+### Domain controller taken from the network
+
+The chain that ends a domain: a service on the controller that answers anyone, authentication that can be downgraded or replayed, and a privileged logon nothing restricts. Judged on: dc.
+
+| Stage | What it needs on the host | Checks |
+|---|---|---|
+| Initial access | a service on the controller that answers from the network, or a channel it does not protect | `spooler_on_dc`, `dc_netlogon_policy_weak`, `ldap_server_signing_off`, `dc_security_policy_gaps`, `secure_channel_unprotected` |
+| Credential access | authentication that can be downgraded, or a recovery account that answers from the network | `kerberos_rc4_allowed`, `lsa_not_protected`, `dsrm_network_logon`, `lsa_weak_auth_options`, `service_domain_account` |
+| Lateral movement | a privileged logon nothing restricts, or a session path onto the controller itself | `user_rights_excessive`, `deny_logon_rights_missing`, `terminal_services_server_gaps`, `winrm_insecure_auth`, `smb_server_signing_not_required` |
 
 ## DISA STIG rules read by the stig_* checks
 

@@ -656,25 +656,70 @@ An unencrypted OS volume is High on a workstation and Medium on a server.
 The vectors behind the attacks and research most reported between 2022 and
 2026, and the checks that look for the condition each one needs on a host. A
 check does not detect the attack: it reports the setting it needs, or the trace
-it leaves. The full table, including the vectors HostBadger deliberately says
+it leaves. Only the checks that look for that condition count: a check that
+would make the vector easier or worse, but is not what it needs (Controlled
+Folder Access off next to "ransomware cleared the way back", say), is listed as
+context in the report and never marks a host exposed on its own. The full table,
+including the context checks and the vectors HostBadger deliberately says
 nothing about and why, is in
 [`COVERAGE.md`](COVERAGE.md#recent-attacks-2022-2026) and the mapping itself in
 [`data\recent-attacks.json`](data/recent-attacks.json).
 
 | Attack or vector | Years | Checks |
 |---|---|---|
-| ClickFix and FileFix paste-and-run lures | 2024-26 | `run_dialog_payload`, `lolbin_outbound_not_blocked` |
-| Port forwarding for pivoting (`netsh portproxy`) | 2023-26 | `network_port_proxy`, `risky_listener` |
-| Infostealers reading the browser session store | 2024-26 | `browser_cookie_protection_off`, `credential_manager_saved` |
-| Bring your own vulnerable driver (BYOVD) | 2022-26 | `vulnerable_driver_present`, `driver_blocklist_off`, `hvci_off` |
+| ClickFix and FileFix paste-and-run lures | 2024-26 | `run_dialog_payload` |
+| Port forwarding for pivoting (`netsh portproxy`) | 2023-26 | `network_port_proxy` |
+| Infostealers reading the browser session store | 2024-26 | `browser_cookie_protection_off` |
+| Bring your own vulnerable driver (BYOVD) | 2022-26 | `vulnerable_driver_present`, `driver_blocklist_off`, `boot_integrity_weakened` |
 | An application control policy used to stop the EDR | 2024-26 | `app_control_policy_suspect` |
-| Coercion and NTLM relay (PetitPotam and successors) | 2021-26 | `webclient_webdav_enabled`, `ldap_server_signing_off`, `smb_server_signing_not_required` |
+| Coercion and NTLM relay (PetitPotam and successors) | 2021-26 | `ldap_server_signing_off`, `smb_server_signing_not_required` |
 | Updates taken over http from a WSUS server | 2015-26 | `wsus_insecure_transport` |
 | BitLocker bypass through the recovery environment | 2024-26 | `winre_bitlocker_exposure`, `bitlocker_tpm_only` |
 | A task parked among Windows' own, or hidden (Tarrask) | 2022-26 | `scheduled_task_masquerade`, `scheduled_task_hidden` |
-| Office macros through a trusted location | 2022-26 | `office_trusted_location_risky`, `office_macro_settings_weak` |
+| Office macros as the way in (trusted locations, unsigned macros) | 2022-26 | `office_trusted_location_risky`, `office_macro_settings_weak` |
 | Turning the antivirus off before the payload | 2022-26 | `defender_service_disabled`, `defender_tamper_off`, `defender_exclusion` |
 | Reuse of a local account nobody watches | 2022-26 | `local_account_dormant`, `local_admin_password_shared`, `laps_not_configured` |
+
+### Attack paths
+
+The same findings read the other way round: not one weakness at a time, but the
+chains they form. `data\attack-paths.json` ties each stage of a chain (initial
+access, execution, privilege escalation, defence evasion, credential access,
+lateral movement, persistence, impact) to the checks that look for the condition
+that stage needs, and the dashboard draws the chain stage by stage, for the
+fleet and for each host.
+
+A stage is **filled** when a check of it reports that condition on the host,
+**grey** when nothing about it could be judged (a check not evaluated, or turned
+off by `-PolicyFile`: never counted as clean), and plain when every judged check
+of it is clean. A chain is drawn for **one** host, the worst of those in view,
+because the stages of several hosts put together would show a chain that none of
+them has.
+
+A **complete** chain means every stage has an enabling condition on that single
+host. That is evidence worth acting on, not proof that anyone walked it: a
+snapshot shows configuration, not behaviour. A chain with a clean stage is not a
+guarantee either. Nothing here changes the hardening score, and no check exists
+only for a chain: the panel is a reading of the findings the checks already
+produced.
+
+| Chain | Stages | Judged on |
+|---|---|---|
+| Paste-and-run lure to credential theft | access, execution, evasion, credentials, lateral | workstation, server |
+| Macro document to persistence | access, execution, persistence | workstation, server |
+| Standard user to SYSTEM | privilege escalation, evasion, credentials, persistence | all |
+| Vulnerable driver to the kernel and the security agent | privilege escalation, evasion, credentials | all |
+| Name resolution relay to lateral movement | access, credentials, lateral | all |
+| Exposed remote service to session takeover | access, credentials, lateral | all |
+| Stolen laptop to the data on the disk | access, credentials | workstation |
+| Browser extension to the session cookies | access, credentials | workstation, server |
+| Ransomware with the brakes off | evasion, impact | all |
+| Domain controller taken from the network | access, credentials, lateral | domain controller |
+
+Every stage with its checks is in
+[`COVERAGE.md`](COVERAGE.md#attack-paths), and the JSON Lines host summary
+carries `attack_paths_complete`, `attack_paths_partial`, `attack_paths_judged`,
+`attack_paths_total` and `attack_paths_open_stages`.
 
 ### EDR agents
 

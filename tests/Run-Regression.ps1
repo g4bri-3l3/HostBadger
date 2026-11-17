@@ -457,9 +457,81 @@ $raSpool = @($raFleet | Where-Object { $_.Name -like 'PrintNightmare*' })[0]
 Assert-True (@($raSpool.Exposed) -contains 'WKS-ACCT-017' -and @($raSpool.Covered) -notcontains 'DC01') 'recent attacks: role-only checks count for the roles they apply to'
 $raBlind = @($raFleet | Where-Object { @($_.Unknown) -contains 'WKS-HR-004' })
 Assert-True ($raBlind.Count -gt 0 -and @($raBlind[0].Covered) -notcontains 'WKS-HR-004') 'recent attacks: a host whose checks could not be judged is listed apart, never as clean'
+# A check that only makes a vector easier or worse ("related") is context: it is reported next to the
+# vector and never puts a host in the exposed column by itself.
+$raRelData = @(@((Get-RecentAttacks).attacks) | Where-Object { @($_.related).Count -gt 0 })
+Assert-True ($raRelData.Count -gt 0) 'recent attacks: vectors carry their context checks apart from the condition they need'
+Assert-Equal (@(@((Get-RecentAttacks).attacks) | ForEach-Object { $a0 = $_; @($a0.related) | Where-Object { @($a0.checks) -contains $_ } }) -join ',') '' 'no check is both the condition a vector needs and context for it'
+$raRelChecks = @(@((Get-RecentAttacks).attacks) | ForEach-Object { @($_.related) } | Where-Object { $_ } | Select-Object -Unique)
+Assert-Equal (@($raRelChecks | Where-Object { -not $script:CheckCatalog.Contains($_) }) -join ',') '' 'every context check named in recent-attacks.json is in the catalog'
+# A host whose only finding for a vector is a context check: Controlled Folder Access off without a
+# shadow-copy finding does not make the host exposed to ransomware clearing the way back. It is
+# reported as context, and the vector counts as nothing found.
+$raCtxHost = @($raHosts | Where-Object { $_.Name -eq 'WKS-ACCT-017' })
+$raCtxCov = @(Get-RecentAttackCoverage -Hosts $raCtxHost -Findings @([PSCustomObject]@{ Host = 'WKS-ACCT-017'; Type = 'controlled_folder_access_off' }))
+$raCtxRansom = @($raCtxCov | Where-Object { $_.Name -like 'Ransomware clearing*' })[0]
+Assert-True ($raCtxRansom -and @($raCtxRansom.Exposed).Count -eq 0 -and @($raCtxRansom.Covered) -contains 'WKS-ACCT-017' -and @($raCtxRansom.RelatedHit) -contains 'controlled_folder_access_off') 'recent attacks: a context check alone leaves the host out of the exposed column and is reported as context'
+$raShadowCov = @(Get-RecentAttackCoverage -Hosts $raCtxHost -Findings @([PSCustomObject]@{ Host = 'WKS-ACCT-017'; Type = 'shadow_copies_disabled' }))
+Assert-True (@(@($raShadowCov | Where-Object { $_.Name -like 'Ransomware clearing*' })[0].Exposed) -contains 'WKS-ACCT-017') 'recent attacks: the condition the vector needs does make the host exposed'
+Assert-True ($html -match 'Would make it worse, but is not what it needs') 'report: the recent attacks panel names the context conditions apart'
 Assert-True ($html -match 'Protection against recent attacks' -and $html -match 'exposed on \d+ host') 'report: the recent attacks panel is in the dashboard'
 $raSum = @($parsed | Where-Object { $_.event_type -eq 'host_summary' -and $_.host -eq 'WKS-ACCT-017' })[0]
 Assert-True ([int]$raSum.recent_attacks_total -eq $raFleet.Count -and @($raSum.recent_attacks_exposed).Count -gt 0 -and [int]$raSum.recent_attacks_judged -gt 0) 'JSON Lines: the host summary carries the recent attacks it is exposed to'
+
+# Attack paths: the chains of data\attack-paths.json, stage by stage. A stage is open when a check of
+# it reports its condition, grey when nothing about it could be judged (never clean), and a chain is
+# drawn for one host, never for the stages of several hosts put together.
+$apFleet = @(Get-AttackPathStatus -Hosts $raHosts -Findings $all)
+Assert-True ($apFleet.Count -gt 0) 'attack paths: the chains are judged on the fleet'
+$apPaste = @($apFleet | Where-Object { $_.Id -eq 'paste_to_creds' })[0]
+Assert-True ($apPaste -and @($apPaste.Complete) -contains 'WKS-ACCT-017' -and @($apPaste.Complete) -notcontains 'LT-SALES-112') 'attack paths: the weak host carries a complete chain, the hardened laptop does not'
+Assert-Equal $apPaste.DrawnHost 'WKS-ACCT-017' 'attack paths: the chain is drawn for the worst of the hosts'
+Assert-Equal $apPaste.OpenSteps $apPaste.TotalSteps 'attack paths: every stage of a complete chain is drawn open'
+Assert-True (@($apPaste.Steps | Where-Object { $_.State -eq 'open' -and @($_.HitChecks) -contains 'run_dialog_payload' }).Count -eq 1) 'attack paths: a stage names the check that opened it'
+# A chain of one role is judged on that role alone, and the laptop keeps the chains where it is clean.
+$apDc = @($apFleet | Where-Object { $_.Id -eq 'dc_reach' })[0]
+Assert-Equal (@(@($apDc.Complete) + @($apDc.Partial) + @($apDc.Blocked) + @($apDc.Unjudged)) -join ',') 'DC01' 'attack paths: a chain of a role is judged only on the hosts of that role'
+$apLap = @(Get-AttackPathStatus -Hosts @($raHosts | Where-Object { $_.Name -eq 'LT-SALES-112' }) -Findings $all)
+Assert-True (@($apLap | Where-Object { @($_.Blocked) -contains 'LT-SALES-112' }).Count -gt 0 -and @($apLap | Where-Object { @($_.Complete).Count -gt 0 }).Count -eq 0) 'attack paths: the hardened laptop has chains with nothing found and none complete'
+# The host collected as a standard user: a stage nothing could be judged about is drawn apart, never
+# clean, and the chain says so.
+$apHr = @(Get-AttackPathStatus -Hosts @($raHosts | Where-Object { $_.Name -eq 'WKS-HR-004' }) -Findings $all)
+$apHrBlind = @($apHr | Where-Object { [int]$_.BlindSteps -gt 0 })
+Assert-True ($apHrBlind.Count -gt 0 -and @($apHrBlind[0].Steps | Where-Object { $_.State -eq 'unknown' -and @($_.BlindHosts) -contains 'WKS-HR-004' }).Count -gt 0) 'attack paths: on a host collected as a standard user a stage that could not be judged is drawn apart'
+Assert-Equal (@($apHr | Where-Object { @($_.Complete).Count -gt 0 -and [int]$_.BlindSteps -gt 0 }).Count) 0 'attack paths: a chain with a stage nothing could be judged about is never complete'
+# The data file: a renamed check, an unknown stage or a role no check covers must fail here, not leave
+# a chain pointing at nothing.
+$apData = Get-AttackPaths
+Assert-True ($null -ne $apData -and @($apData.paths).Count -gt 0 -and @($apData.stages).Count -gt 0) 'data\attack-paths.json holds the chains and the stages'
+Assert-Equal (@(@($apData.stages) | Where-Object { -not $_.id -or -not $_.name -or -not $_.short -or -not $_.mitre }).Count) 0 'every stage has an id, a name, a short label and a tactic'
+$apStageIds = @(@($apData.stages) | ForEach-Object { "$($_.id)" })
+$apBadRows = @()
+foreach ($apP in @($apData.paths)) {
+    if (-not $apP.id -or -not $apP.name -or -not $apP.why -or @($apP.roles).Count -eq 0 -or @($apP.steps).Count -lt 2) { $apBadRows += "$($apP.id)" }
+    foreach ($apS in @($apP.steps)) { if ($apStageIds -notcontains "$($apS.stage)" -or -not $apS.needs -or @($apS.checks).Count -eq 0) { $apBadRows += "$($apP.id)/$($apS.stage)" } }
+}
+Assert-Equal ($apBadRows -join ',') '' 'every chain has an id, a name, a why, roles and at least two steps, and every step a known stage, what it needs and its checks'
+$apChecks = @(@($apData.paths) | ForEach-Object { @($_.steps) } | ForEach-Object { @($_.checks) } | Where-Object { $_ } | Select-Object -Unique)
+Assert-Equal (@($apChecks | Where-Object { -not $script:CheckCatalog.Contains($_) }) -join ',') '' 'every check named in attack-paths.json is in the catalog'
+Assert-Equal (@(@($apData.paths) | ForEach-Object { @($_.roles) } | Select-Object -Unique | Where-Object { $script:AllRoles -notcontains $_ }) -join ',') '' 'the chains name only roles the checks know'
+$apEmpty = @()
+foreach ($apP in @($apData.paths)) {
+    foreach ($apS in @($apP.steps)) {
+        foreach ($apR in @($apP.roles)) {
+            if (@(@($apS.checks) | Where-Object { $script:CheckCatalog.Contains($_) -and $script:CheckCatalog[$_].Roles -contains $apR }).Count -eq 0) { $apEmpty += "$($apP.id)/$($apS.stage)/$apR" }
+        }
+    }
+}
+Assert-Equal ($apEmpty -join ',') '' 'every stage keeps at least one check for each role its chain is judged on'
+Assert-True ($html -match "class='dash-panel dash-paths'" -and $html -match '<div class=.dash-panel-title.>Attack paths</div>' -and $html -match "<svg class='chain'") 'report: the attack paths panel and its chains are in the dashboard'
+Assert-True (@([regex]::Matches($html, 'dash-panel dash-paths')).Count -gt 1) 'report: the attack paths panel follows the host selector (one per host besides the fleet)'
+Assert-True ($html -match 'Chain drawn for WKS-ACCT-017') 'report: the panel says which host a chain is drawn for'
+$apSum = @($parsed | Where-Object { $_.event_type -eq 'host_summary' -and $_.host -eq 'WKS-ACCT-017' })[0]
+Assert-True (@($apSum.attack_paths_complete).Count -gt 0 -and [int]$apSum.attack_paths_total -gt 0 -and [int]$apSum.attack_paths_judged -gt 0 -and [int]$apSum.attack_paths_open_stages -gt 0) 'JSON Lines: the host summary carries the chains complete on the host'
+$apSumLap = @($parsed | Where-Object { $_.event_type -eq 'host_summary' -and $_.host -eq 'LT-SALES-112' })[0]
+Assert-Equal (@($apSumLap.attack_paths_complete).Count) 0 'JSON Lines: a host with no complete chain says so'
+$apBlock = if ($html -match '(?s)<script type="application/json" id="hostbadger-summary">(.*?)</script>') { $Matches[1] | ConvertFrom-Json } else { $null }
+Assert-True ($apBlock -and @($apBlock.hosts | Where-Object { $null -eq $_.attackPaths -or $null -eq $_.attackPaths.total }).Count -eq 0) 'report: the overview block carries the attack paths of every host'
 
 # Exceptions and comparison on a second run where the weak host fixed UAC.
 $fixed = Join-Path $work 'fleet2'
@@ -1762,9 +1834,16 @@ $recentChecks = @(@($recent.attacks) | ForEach-Object { @($_.checks) } | Where-O
 Assert-Equal (@($recentChecks | Where-Object { -not $script:CheckCatalog.Contains($_) }) -join ',') '' 'every check named in recent-attacks.json is in the catalog'
 Assert-Equal (@(@($recent.attacks) | Where-Object { -not $_.name -or -not $_.years -or -not $_.needs -or @($_.checks).Count -eq 0 }).Count) 0 'every recent-attacks row has a name, years, what it needs and at least one check'
 Assert-True ($coverage -match '## Recent attacks 2022-2026' -and $coverage -match '### What these checks do not cover') 'COVERAGE.md carries the recent-attacks tables'
+# The attack-path chains are documentation too, and they name checks: the same rule applies.
+Assert-True ($coverage -match '## Attack paths') 'COVERAGE.md carries the attack-paths section'
+$coverPathPart = @((($coverage -split '## Attack paths')[1] -split '## DISA STIG rules'))[0]
+$coverPathChecks = @([regex]::Matches($coverPathPart, '`([a-z0-9_]+)`') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+Assert-True ($coverPathChecks.Count -gt 0 -and (@($coverPathChecks | Where-Object { -not $script:CheckCatalog.Contains($_) }) -join ',') -eq '') 'the COVERAGE.md attack-paths tables name only checks in the catalog'
+Assert-Equal (@(@((Get-AttackPaths).paths) | Where-Object { $coverPathPart -notmatch [regex]::Escape("### $($_.name)") }).Count) 0 'COVERAGE.md carries every chain of attack-paths.json'
 $readmeText = [System.IO.File]::ReadAllText((Join-Path $root 'README.md'))
 Assert-True ($readmeText -match '### Recent attacks 2022-2026') 'README carries the recent-attacks section'
-$readmeAttackPart = @((($readmeText -split '### Recent attacks 2022-2026')[1] -split '### EDR agents'))[0]
+Assert-True ($readmeText -match '### Attack paths') 'README carries the attack-paths section'
+$readmeAttackPart = @((($readmeText -split '### Recent attacks 2022-2026')[1] -split '### Attack paths'))[0]
 $readmeAttackChecks = @([regex]::Matches($readmeAttackPart, '`([a-z0-9_]+)`') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
 Assert-Equal (@($readmeAttackChecks | Where-Object { -not $script:CheckCatalog.Contains($_) }) -join ',') '' 'the README recent-attacks table names only checks in the catalog'
 # The STIG release lives in the catalog alone: the report, COVERAGE.md and the converter must not name

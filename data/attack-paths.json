@@ -1,0 +1,156 @@
+{
+  "built": "2026-11-17",
+  "note": "Attack chains, stage by stage, with the checks that show the condition each stage needs on a host. Hand-written from public reporting and from what a snapshot can actually show; no catalog is downloaded and nothing here is executed. A stage drawn as open means the condition for it is in the configuration of that host, not that anything ran; a complete chain means every stage of it has at least one enabling condition on the same host, which is evidence worth acting on, not a demonstrated exploit. Every check named here must exist in the catalog and every stage must exist in stages (the regression checks both).",
+  "stages": [
+    { "id": "initial_access", "name": "Initial access", "short": "Access", "mitre": "TA0001" },
+    { "id": "execution", "name": "Execution", "short": "Exec", "mitre": "TA0002" },
+    { "id": "persistence", "name": "Persistence", "short": "Persist", "mitre": "TA0003" },
+    { "id": "privilege_escalation", "name": "Privilege escalation", "short": "Priv esc", "mitre": "TA0004" },
+    { "id": "defense_evasion", "name": "Defence evasion", "short": "Evasion", "mitre": "TA0005" },
+    { "id": "credential_access", "name": "Credential access", "short": "Creds", "mitre": "TA0006" },
+    { "id": "lateral_movement", "name": "Lateral movement", "short": "Lateral", "mitre": "TA0008" },
+    { "id": "impact", "name": "Impact", "short": "Impact", "mitre": "TA0040" }
+  ],
+  "paths": [
+    {
+      "id": "paste_to_creds",
+      "name": "Paste-and-run lure to credential theft",
+      "why": "The ClickFix and FileFix lures of 2024-26 need no exploit: the user pastes the command, the script layer runs it, the antivirus is out of the way, and the credentials are read out of LSASS.",
+      "roles": ["workstation", "server"],
+      "steps": [
+        { "stage": "initial_access", "needs": "the user can be talked into running a pasted command, and Windows does not stop a downloaded script",
+          "checks": ["run_dialog_payload", "script_files_execute_on_open", "explorer_motw_bypass", "smartscreen_off"] },
+        { "stage": "execution", "needs": "an interpreter that runs unconstrained and can reach the internet",
+          "checks": ["lolbin_outbound_not_blocked", "powershell_clm_off", "powershell_v2_enabled", "powershell_scriptblock_logging_off"] },
+        { "stage": "defense_evasion", "needs": "the antivirus can be blinded or does not cover the drop folder",
+          "checks": ["defender_tamper_off", "defender_exclusion", "defender_realtime_off", "asr_standard_rules_missing"] },
+        { "stage": "credential_access", "needs": "credentials readable in memory or kept in the local cache",
+          "checks": ["lsa_not_protected", "wdigest_cleartext", "credential_guard_off", "cached_logons_high"] },
+        { "stage": "lateral_movement", "needs": "a reusable secret or an unauthenticated path to the next host",
+          "checks": ["smb_client_signing_not_required", "local_admin_password_shared", "winrm_insecure_auth"] }
+      ]
+    },
+    {
+      "id": "macro_to_persistence",
+      "name": "Macro document to persistence",
+      "why": "The oldest chain still in use: an Office document that is allowed to run code, an interpreter that fetches the next stage, and a load point that survives the reboot.",
+      "roles": ["workstation", "server"],
+      "steps": [
+        { "stage": "initial_access", "needs": "a document can run code without a prompt, or from a folder that is trusted",
+          "checks": ["office_macro_settings_weak", "office_trusted_location_risky", "office_vba_object_model_trusted"] },
+        { "stage": "execution", "needs": "a signed Windows binary can fetch and run the next stage",
+          "checks": ["lolbin_outbound_not_blocked", "script_files_execute_on_open", "powershell_clm_off"] },
+        { "stage": "persistence", "needs": "a load point the payload can write and that starts it again",
+          "checks": ["persistence_office_hooks", "persistence_powershell_profile", "persistence_registry_hijack", "autostart_suspicious_command", "autorun_writable"] }
+      ]
+    },
+    {
+      "id": "user_to_system",
+      "name": "Standard user to SYSTEM",
+      "why": "Code running as the logged-on user becomes SYSTEM by writing a file or a registry value that a privileged process reads, and the elevation prompt does not get in the way.",
+      "roles": ["workstation", "server", "dc"],
+      "steps": [
+        { "stage": "privilege_escalation", "needs": "a place a non-administrator can write that a privileged process loads or starts",
+          "checks": ["service_unquoted_path", "service_binary_writable", "service_permissions_weak", "service_path_ancestor_control", "task_binary_writable", "system_path_writable", "program_dir_writable", "always_install_elevated", "autorun_writable"] },
+        { "stage": "defense_evasion", "needs": "elevation happens without a prompt, or the administrator token is handed over unfiltered",
+          "checks": ["uac_disabled", "uac_admin_no_prompt", "uac_admin_protection_off", "uac_hardening_gaps", "remote_uac_token_filter_off"] },
+        { "stage": "credential_access", "needs": "once elevated, the credentials in memory are readable",
+          "checks": ["lsa_not_protected", "wdigest_cleartext", "credential_guard_off"] },
+        { "stage": "persistence", "needs": "a privileged load point to come back through",
+          "checks": ["persistence_service_hook", "persistence_dll_load_point", "persistence_wmi_subscription", "service_hidden", "scheduled_task_hidden"] }
+      ]
+    },
+    {
+      "id": "byovd_to_agent",
+      "name": "Vulnerable driver to the kernel and the security agent",
+      "why": "Bring your own vulnerable driver: a signed driver with a known flaw gives kernel access, and from there the agent that would have reported the rest is stopped.",
+      "roles": ["workstation", "server", "dc"],
+      "steps": [
+        { "stage": "privilege_escalation", "needs": "a vulnerable signed driver can be loaded, or the blocklist and the integrity settings are off",
+          "checks": ["vulnerable_driver_present", "driver_blocklist_off", "boot_integrity_weakened", "hvci_off", "vbs_policy_gaps"] },
+        { "stage": "defense_evasion", "needs": "the security agent or the event log can be turned off and leave no trace",
+          "checks": ["edr_agent_stopped", "defender_service_disabled", "defender_tamper_off", "app_control_policy_suspect", "event_logging_suppressed"] },
+        { "stage": "credential_access", "needs": "credentials not held in an isolated process",
+          "checks": ["lsa_not_protected", "credential_guard_off", "credential_guard_no_lock"] }
+      ]
+    },
+    {
+      "id": "relay_to_lateral",
+      "name": "Name resolution relay to lateral movement",
+      "why": "A broadcast name lookup nobody needs is answered by the attacker, the authentication that follows is relayed, and the next service accepts it because nothing is signed.",
+      "roles": ["workstation", "server", "dc"],
+      "steps": [
+        { "stage": "initial_access", "needs": "a broadcast or legacy name lookup an attacker on the segment can answer",
+          "checks": ["llmnr_enabled", "netbios_enabled", "mdns_enabled", "wpad_not_disabled", "webclient_webdav_enabled"] },
+        { "stage": "credential_access", "needs": "the authentication that follows is weak enough to be used again",
+          "checks": ["ntlm_weak_lmcompat", "lm_hash_stored", "ntlm_min_session_security_weak", "ntlm_audit_off"] },
+        { "stage": "lateral_movement", "needs": "a service that accepts a relayed session because nothing is signed",
+          "checks": ["smb_server_signing_not_required", "smb_client_signing_not_required", "ldap_client_signing_off", "ldap_server_signing_off", "smb_encryption_off"] }
+      ]
+    },
+    {
+      "id": "remote_entry_to_takeover",
+      "name": "Exposed remote service to session takeover",
+      "why": "The way in is a service that answers from the network; the way on is the credentials that service is allowed to hand to the next hop, or a session already open on the host.",
+      "roles": ["workstation", "server", "dc"],
+      "steps": [
+        { "stage": "initial_access", "needs": "a service answering from the network, or a firewall that does not stop it",
+          "checks": ["rdp_enabled_workstation", "rdp_nla_disabled", "risky_listener", "firewall_default_inbound_allow", "firewall_profile_disabled", "firewall_inbound_user_program", "remote_access_tool"] },
+        { "stage": "credential_access", "needs": "credentials delegated to whatever host asks, or an authentication the host does not pin",
+          "checks": ["credential_delegation_any_server", "credssp_encryption_oracle_weak", "winrm_trusted_hosts_any", "remote_credential_guard_off"] },
+        { "stage": "lateral_movement", "needs": "a session to take over, a pivot to set up, or one password that opens every host",
+          "checks": ["remote_session_takeover", "network_port_proxy", "local_admin_password_shared", "winrm_insecure_auth"] }
+      ]
+    },
+    {
+      "id": "stolen_device",
+      "name": "Stolen laptop to the data on the disk",
+      "why": "No network is involved: the disk is read in another machine, or the recovery environment and an unattended unlock give the session away.",
+      "roles": ["workstation"],
+      "steps": [
+        { "stage": "initial_access", "needs": "the volume can be read without the user, or the boot chain can be changed",
+          "checks": ["bitlocker_os_volume_off", "bitlocker_tpm_only", "bitlocker_weak_encryption", "bitlocker_data_volume_off", "secure_boot_off", "winre_bitlocker_exposure", "bitlocker_unlock_exposure"] },
+        { "stage": "credential_access", "needs": "secrets kept on that disk: cached logons, a stored password, an automatic logon",
+          "checks": ["cached_logons_high", "lm_hash_stored", "autologon_enabled", "credential_manager_saved", "windows_hello_software_keys"] }
+      ]
+    },
+    {
+      "id": "extension_to_session",
+      "name": "Browser extension to the session cookies",
+      "why": "The infostealer campaigns of 2024-26 do not need the password: an extension with broad access, or an unprotected cookie store, hands over a session that is already authenticated.",
+      "roles": ["workstation", "server"],
+      "steps": [
+        { "stage": "initial_access", "needs": "an extension that can read every page, sideloaded or pulled from the store after the fact",
+          "checks": ["browser_extension_malicious", "browser_extension_sideloaded", "browser_extension_broad_access", "browser_extension_not_allowed"] },
+        { "stage": "credential_access", "needs": "a session store or a credential store that can be read from the user's own session",
+          "checks": ["browser_cookie_protection_off", "credential_manager_saved", "network_credentials_stored", "powershell_history_secrets"] }
+      ]
+    },
+    {
+      "id": "ransomware_brakes_off",
+      "name": "Ransomware with the brakes off",
+      "why": "What turns an infection into an outage is not the encryption but what is missing around it: no behaviour blocking, no shadow copies to restore from, writable shares to spread into.",
+      "roles": ["workstation", "server", "dc"],
+      "steps": [
+        { "stage": "defense_evasion", "needs": "behaviour blocking and folder protection are not in the way",
+          "checks": ["defender_tamper_off", "controlled_folder_access_off", "asr_standard_rules_missing", "asr_other_rules_not_blocking", "defender_network_protection_off"] },
+        { "stage": "impact", "needs": "nothing to restore from, and a share to spread the damage through",
+          "checks": ["shadow_copies_disabled", "share_writable_by_everyone", "event_logging_suppressed", "smb_insecure_guest_auth"] }
+      ]
+    },
+    {
+      "id": "dc_reach",
+      "name": "Domain controller taken from the network",
+      "why": "The chain that ends a domain: a service on the controller that answers anyone, authentication that can be downgraded or replayed, and a privileged logon nothing restricts.",
+      "roles": ["dc"],
+      "steps": [
+        { "stage": "initial_access", "needs": "a service on the controller that answers from the network, or a channel it does not protect",
+          "checks": ["spooler_on_dc", "dc_netlogon_policy_weak", "ldap_server_signing_off", "dc_security_policy_gaps", "secure_channel_unprotected"] },
+        { "stage": "credential_access", "needs": "authentication that can be downgraded, or a recovery account that answers from the network",
+          "checks": ["kerberos_rc4_allowed", "lsa_not_protected", "dsrm_network_logon", "lsa_weak_auth_options", "service_domain_account"] },
+        { "stage": "lateral_movement", "needs": "a privileged logon nothing restricts, or a session path onto the controller itself",
+          "checks": ["user_rights_excessive", "deny_logon_rights_missing", "terminal_services_server_gaps", "winrm_insecure_auth", "smb_server_signing_not_required"] }
+      ]
+    }
+  ]
+}

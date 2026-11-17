@@ -69,6 +69,7 @@ if (-not $Browser) { throw 'No Edge or Chrome found. Pass -Browser <path to msed
 $plan = @(
     @{ Sel = '.dash-hero'; Idx = 0; Text = ''; Caption = 'Dashboard: the hardening score of the fleet, findings by severity and how many have a fix script; a selector switches to one host.' }
     @{ Sel = '.dash-grid'; Idx = 0; Text = ''; Caption = 'DISA STIG compliance by product and release, CIS-based compliance, and the ACSC Essential Eight strategies the checks bear on.' }
+    @{ Sel = '.dash-paths'; Idx = 0; Text = ''; Caption = 'Attack paths: the chains the findings form, stage by stage, drawn for one host. A filled stage means the condition it needs is there, a grey one that nothing about it could be judged.' }
     @{ Sel = '.dash-cats'; Idx = 0; Text = ''; Caption = 'Hardening categories, then the top risks, each with the attacks it enables.' }
     @{ Sel = '.chart-row'; Idx = 0; Text = ''; Caption = 'DISA STIG and CIS compliance, findings by severity and category, administrators vs standard users, software, missing updates, hosts by grade.' }
     @{ Sel = 'summary h2'; Idx = 0; Text = 'Hosts'; Caption = 'Every host: role, operating system, grade and score, findings by severity, checks not evaluated and the EDR agent it runs.' }
@@ -89,6 +90,8 @@ try {
     # The copy the browser renders: every section open (Installed software and All findings start
     # closed) and the chosen check opened.
     $html = $html.Replace('<details><summary><h2>', '<details open><summary><h2>')
+    # The recent-attacks and attack-paths panels fold in the report: a slide shows them open.
+    $html = $html.Replace("<details class='dash-fold'>", "<details class='dash-fold' open>")
     # The Details tab is hidden until clicked: shown under the dashboard in the copy.
     $html = $html.Replace('<div data-tab="details" hidden>', '<div data-tab="details">')
     if ($OpenCheck) {

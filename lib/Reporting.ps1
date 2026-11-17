@@ -239,6 +239,17 @@ function Export-FindingsJsonl {
             $o['recent_attacks_judged'] = @($raHost | Where-Object { @($_.Unknown).Count -eq 0 }).Count
             $o['recent_attacks_total'] = $raHost.Count
         }
+        # Attack paths (data\attack-paths.json): the chains every stage of which has an enabling
+        # condition on this host (complete), the ones with some stages open, and how many could be
+        # judged here at all. A complete chain is evidence, not proof that anyone walked it.
+        $apHost = @(Get-AttackPathStatus -Hosts @($h) -Findings $hf)
+        if ($apHost.Count) {
+            $o['attack_paths_complete'] = [string[]]@($apHost | Where-Object { @($_.Complete).Count -gt 0 } | ForEach-Object { $_.Id })
+            $o['attack_paths_partial'] = @($apHost | Where-Object { @($_.Partial).Count -gt 0 }).Count
+            $o['attack_paths_judged'] = @($apHost | Where-Object { @($_.Unjudged).Count -eq 0 }).Count
+            $o['attack_paths_total'] = $apHost.Count
+            $o['attack_paths_open_stages'] = [int](@($apHost | ForEach-Object { [int]$_.OpenSteps }) | Measure-Object -Sum).Sum
+        }
         # NIS2 / ACN basic measures (Determinazione 379907/2025) a host shows: the requirements with a
         # finding against them, and those none of whose checks could be judged, as "<code>.<point>".
         if ($h.Acn) {
@@ -380,6 +391,14 @@ function ConvertTo-ReportSummaryJson {
                         judged  = @($raH | Where-Object { @($_.Unknown).Count -eq 0 }).Count
                         total   = $raH.Count
                     })
+                attackPaths = $(
+                    $apH = @(Get-AttackPathStatus -Hosts @($hostItem) -Findings $mine)
+                    [ordered]@{
+                        complete = [string[]]@($apH | Where-Object { @($_.Complete).Count -gt 0 } | ForEach-Object { $_.Name })
+                        partial  = @($apH | Where-Object { @($_.Partial).Count -gt 0 }).Count
+                        judged   = @($apH | Where-Object { @($_.Unjudged).Count -eq 0 }).Count
+                        total    = $apH.Count
+                    })
                 trend = $(if ($hostItem.Trend) { @(@($hostItem.Trend.Points) | ForEach-Object { [ordered]@{ collected = $_.Collected.ToString('yyyy-MM-dd HH:mm') + ' UTC'; score = [int]$_.Score; grade = "$($_.Grade)" } }) } else { @() })
                 scoreChange = $(if ($hostItem.Trend -and $hostItem.Trend.Previous) { [int]$hostItem.Trend.Change } else { $null })
                 scorePreviousCollected = $(if ($hostItem.Trend -and $hostItem.Trend.Previous) { $hostItem.Trend.Previous.Collected.ToString('yyyy-MM-dd HH:mm') + ' UTC' } else { '' })
@@ -492,11 +511,43 @@ function Get-RingSvg {
     $color = if ($pct -ge $GoodAt) { '#6E8B5F' } elseif ($pct -ge $MidAt) { '#F2B632' } else { '#E2372A' }
     $sw = [Math]::Round($Size * 0.11, 1); $r = ($Size / 2) - ($sw / 2) - 2; $c = $Size / 2
     $circ = 2 * [Math]::PI * $r; $dash = $circ * $pct / 100
-    return "<svg class='ring' viewBox='0 0 $Size $Size' width='$Size' height='$Size' role='img' aria-label='$(ConvertTo-HtmlSafe "$Big $Small")'>" +
+    # At 0% the round line cap would still draw a dot, which reads as a sliver of progress: draw the
+    # empty ring alone.
+    $arc = if ($pct -gt 0) { "<circle cx='$c' cy='$c' r='$($r.ToString($inv))' fill='none' stroke='$color' stroke-width='$($sw.ToString($inv))' stroke-linecap='round' stroke-dasharray='$($dash.ToString('0.##', $inv)) $($circ.ToString('0.##', $inv))' transform='rotate(-90 $c $c)'/>" } else { '' }
+    return "<svg class='ring' viewBox='0 0 $Size $Size' width='$Size' height='$Size' role='img' aria-label='$(ConvertTo-HtmlSafe "$Big $Small".Trim())'>" +
     "<circle cx='$c' cy='$c' r='$($r.ToString($inv))' fill='none' stroke='#E7E3D8' stroke-width='$($sw.ToString($inv))'/>" +
-    "<circle cx='$c' cy='$c' r='$($r.ToString($inv))' fill='none' stroke='$color' stroke-width='$($sw.ToString($inv))' stroke-linecap='round' stroke-dasharray='$($dash.ToString('0.##', $inv)) $($circ.ToString('0.##', $inv))' transform='rotate(-90 $c $c)'/>" +
+    $arc +
     "<text x='$c' y='$($c + 2)' text-anchor='middle' font-size='$([int]($Size * 0.24))' font-weight='800' fill='#161513' font-family='Bahnschrift, Segoe UI, sans-serif'>$(ConvertTo-HtmlSafe $Big)</text>" +
     "<text x='$c' y='$($c + [int]($Size * 0.19))' text-anchor='middle' font-size='$([int]($Size * 0.09))' fill='#5F5A51' font-family='Cascadia Mono, Consolas, monospace'>$(ConvertTo-HtmlSafe $Small)</text></svg>"
+}
+
+function Get-ChainSvg {
+    # The chain of one attack path: a box per stage, an arrow between them, filled by the state of that
+    # stage (open: a check of it reports the condition; clean: every judged check of it is clean;
+    # not judged: nothing could be said). Stages that do not apply to these hosts are left out. Static
+    # markup: colours come from the stylesheet, so the chain follows the rest of the report.
+    param($Steps, [int]$BoxW = 60, [int]$BoxH = 28, [int]$Gap = 13)
+    $live = @(@($Steps) | Where-Object { $_ -and $_.State -ne 'na' })
+    if ($live.Count -eq 0) { return '' }
+    $width = ($live.Count * $BoxW) + (($live.Count - 1) * $Gap)
+    $label = (@($live | ForEach-Object { "$($_.Stage): $(switch ($_.State) { 'open' { 'condition present' } 'unknown' { 'not judged' } default { 'nothing found' } })" }) -join '; ')
+    $parts = New-Object System.Collections.Generic.List[string]
+    $x = 0
+    foreach ($s in $live) {
+        $cls = switch ($s.State) { 'open' { 'open' } 'unknown' { 'unk' } default { 'ok' } }
+        $what = switch ($s.State) { 'open' { 'condition present' } 'unknown' { 'not judged' } default { 'nothing found' } }
+        $parts.Add("<g class='chain-$cls'><title>$(ConvertTo-HtmlSafe "$($s.Stage): $what")</title>" +
+            "<rect x='$x' y='2' width='$BoxW' height='$BoxH' rx='9' ry='9'/>" +
+            "<text x='$($x + [int]($BoxW / 2))' y='$([int]($BoxH / 2) + 6)' text-anchor='middle'>$(ConvertTo-HtmlSafe $(if ($s.Short) { $s.Short } else { $s.Stage }))</text></g>")
+        if ($x + $BoxW -lt $width) {
+            $ax = $x + $BoxW
+            $mid = [int]($BoxH / 2) + 2
+            $parts.Add("<g class='chain-arrow'><line x1='$($ax + 2)' y1='$mid' x2='$($ax + $Gap - 6)' y2='$mid'/>" +
+                "<polygon points='$($ax + $Gap - 7),$($mid - 3) $($ax + $Gap - 1),$mid $($ax + $Gap - 7),$($mid + 3)'/></g>")
+        }
+        $x += $BoxW + $Gap
+    }
+    return "<svg class='chain' viewBox='0 0 $width $($BoxH + 4)' width='$width' height='$($BoxH + 4)' role='img' aria-label='$(ConvertTo-HtmlSafe $label)'>$($parts.ToArray() -join '')</svg>"
 }
 
 function Get-DashBar {
@@ -633,13 +684,19 @@ function Get-DashboardHtml {
             if (@($v.HitChecks).Count) { $items += "<li>Reported here: $(& $H ((@($v.HitChecks) | ForEach-Object { if ($script:CheckCatalog.Contains($_)) { $script:CheckCatalog[$_].Title } else { $_ } }) -join '; '))</li>" }
             if (@($v.Exposed).Count) { $items += "<li class='meta'>Hosts: $(& $H ((@($v.Exposed) | Sort-Object) -join ', '))</li>" }
             if (@($v.BlindChecks).Count) { $items += "<li class='meta'>Not judged: $(& $H ((@($v.BlindChecks) | ForEach-Object { if ($script:CheckCatalog.Contains($_)) { $script:CheckCatalog[$_].Title } else { $_ } }) -join '; '))</li>" }
-            $items += "<li class='meta'>Checks that look for it: $(& $H (@($v.Checks) -join ', '))</li>"
+            # Context: conditions that make this vector easier or worse. They are not what it needs, so
+            # they never put a host in the exposed column on their own.
+            if (@($v.RelatedHit).Count) { $items += "<li class='meta'>Would make it worse, but is not what it needs: $(& $H ((@($v.RelatedHit) | ForEach-Object { if ($script:CheckCatalog.Contains($_)) { $script:CheckCatalog[$_].Title } else { $_ } }) -join '; '))$(if ($hostsArr.Count -gt 1 -and @($v.RelatedHosts).Count) { " &middot; on $(@($v.RelatedHosts) -join ', ')" })</li>" }
+            $items += "<li class='meta'>Checks that look for it: $(& $H (@($v.Checks) -join ', '))$(if (@($v.Related).Count) { " &middot; context: $(& $H (@($v.Related) -join ', '))" })</li>"
             $label = "<details class='dash-more'><summary>$(& $H $v.Name) <span class='meta'>($(& $H $v.Years))</span></summary><ul class='dash-list'>$($items -join '')</ul></details>"
             $raRows += "<tr><td>$label</td><td class='num'>$(& $H $state)</td><td class='bar'>$(Get-DashBar $pct)</td></tr>"
         }
         $raJudged = @($raCov | Where-Object { @($_.Exposed).Count -gt 0 -or @($_.Covered).Count -gt 0 }).Count
         $pR = if ($raJudged) { 100 * $raOk.Count / $raJudged } else { 0 }
-        & $w "<div class='dash-panel'><div class='dash-panel-head'>$(Get-RingSvg -Percent $pR -Big "$($raOk.Count)/$raJudged" -Small 'nothing found')<div><div class='dash-panel-title'>Protection against recent attacks</div><div class='meta'>The vectors most reported between 2022 and 2026 ($($raCov.Count) of them, from <code>data\recent-attacks.json</code>) against the checks that look for the condition each one needs. <b>Exposed</b> means that condition is on the host, or that it left a trace there: it is not proof the attack happened. <b>Nothing found</b> means every judged check of that vector is clean, which is not a guarantee either: a host snapshot shows configuration, not behaviour, and COVERAGE.md lists the vectors nothing here can see.</div></div></div><table class='dash-table'>$($raRows -join '')</table></div>"
+        # Folded: the ring, the title and one line of state. The vectors and the wording open on click,
+        # so the dashboard stays short enough to scan.
+        $raHead = "$($raExposed.Count) exposed, $($raOk.Count) nothing found$(if ($raBlind.Count) { ", $($raBlind.Count) not judged" })"
+        & $w "<div class='dash-panel'><details class='dash-fold'><summary><div class='dash-panel-head'>$(Get-RingSvg -Percent $pR -Big "$($raOk.Count)/$raJudged")<div><div class='dash-panel-title'>Protection against recent attacks</div><div class='meta'>$raHead</div></div></div></summary><div class='meta'>The vectors most reported between 2022 and 2026 ($($raCov.Count) of them, from <code>data\recent-attacks.json</code>) against the checks that look for the condition each one needs. <b>Exposed</b> means that condition is on the host, not that the attack happened; only the checks that look for the condition itself decide, and one that merely makes the vector worse is listed as context. <b>Nothing found</b> is not a guarantee: a snapshot shows configuration, not behaviour.</div><table class='dash-table'>$($raRows -join '')</table></details></div>"
     }
     # NIS2 in Italy: the ACN basic measures a host shows (Get-AcnStatus, per host). A requirement tied to
     # several rows (one per group of checks) counts once: not met when one row is not met on a host.
@@ -665,6 +722,52 @@ function Get-DashboardHtml {
             $pA = 100 * $acnMet / $acnJudged
             & $w "<div class='dash-panel'><div class='dash-panel-head'>$(Get-RingSvg -Percent $pA -Big "$acnMet/$acnJudged" -Small 'from a host')<div><div class='dash-panel-title'>NIS2: ACN basic measures</div><div class='meta'>The requirements of the ACN basic security measures (Determinazione 379907/2025, D.Lgs. 138/2024; Allegato 1 soggetti importanti, Allegato 2 soggetti essenziali) that a host shows, in ACN's wording: $acnMet of $acnJudged without contrary evidence$(if ($acnBad) { ", $acnBad not met" })$(if ($acnUnknown) { ", $acnUnknown not judged" }). Governance, plans, inventories, backups, multi-factor authentication, training and incident handling need evidence a host does not hold: this is evidence for an assessment, not a compliance verdict.</div></div></div><details class='dash-more'$(if ($acnBad) { ' open' })><summary>Requirements not met or not judged ($($acnBad + $acnUnknown))</summary><ul class='dash-list'>$($acnItems -join '')</ul></details></div>"
         }
+    }
+    # Attack paths (data\attack-paths.json): the chains whose stages each have an enabling condition on
+    # the same host. A panel in the same grid as the others (the dashboard would be too long to scroll
+    # otherwise): one row per chain, drawn with the stages that have a condition filled in, worst first.
+    $apCov = @(Get-AttackPathStatus -Hosts $hostsArr -Findings $All)
+    if ($apCov.Count) {
+        $apDone = @($apCov | Where-Object { @($_.Complete).Count -gt 0 })
+        $apJudged = @($apCov | Where-Object { (@($_.Complete).Count + @($_.Partial).Count + @($_.Blocked).Count) -gt 0 })
+        $apRows = @()
+        # Worst first: chains complete somewhere, then the ones with the most stages open.
+        foreach ($p in @($apCov | Sort-Object @{ Expression = { @($_.Complete).Count }; Descending = $true }, @{ Expression = { $_.OpenSteps }; Descending = $true }, @{ Expression = { @($_.Partial).Count }; Descending = $true }, @{ Expression = { $_.Name } })) {
+            $nComplete = @($p.Complete).Count
+            # What the drawn chain says, with the stages nothing could be judged about named: a chain
+            # with a grey stage is never reported as clean.
+            $blindText = if ([int]$p.BlindSteps -gt 0) { ", $($p.BlindSteps) not judged" } else { '' }
+            $state = if ($nComplete) { "complete on $nComplete host(s)" }
+            elseif (@($p.Partial).Count) { "$($p.OpenSteps) of $($p.TotalSteps) stages open$blindText" }
+            elseif (@($p.Blocked).Count) { "nothing found$blindText" }
+            else { 'not judged' }
+            $items = @()
+            $items += "<li class='meta'>$(& $H $p.Why)</li>"
+            if ($hostsArr.Count -gt 1) { $items += "<li class='meta'>Chain drawn for $(& $H $p.DrawnHost), the worst of these hosts for it: a chain is only ever drawn for one host, because the stages of several hosts put together would show a chain none of them has.</li>" }
+            foreach ($s in @($p.Steps | Where-Object { $_.State -ne 'na' })) {
+                $head = switch ($s.State) { 'open' { 'condition present' } 'unknown' { 'not judged' } default { 'nothing found' } }
+                $onOpen = if ($hostsArr.Count -gt 1 -and @($s.OpenHosts).Count) { " on $(@($s.OpenHosts) -join ', ')" } else { '' }
+                $onBlind = if ($hostsArr.Count -gt 1 -and @($s.BlindHosts).Count) { " on $(@($s.BlindHosts) -join ', ')" } else { '' }
+                $li = "<li><b>$(& $H $s.Stage)</b> &middot; $head <span class='meta'>&middot; needs: $(& $H $s.Needs)</span>"
+                if (@($s.HitChecks).Count) { $li += "<br><span class='meta'>Reported$(& $H $onOpen): $(& $H ((@($s.HitChecks) | ForEach-Object { if ($script:CheckCatalog.Contains($_)) { $script:CheckCatalog[$_].Title } else { $_ } }) -join '; '))</span>" }
+                if (@($s.BlindChecks).Count) { $li += "<br><span class='meta'>Not judged$(& $H $onBlind): $(& $H ((@($s.BlindChecks) | ForEach-Object { if ($script:CheckCatalog.Contains($_)) { $script:CheckCatalog[$_].Title } else { $_ } }) -join '; '))</span>" }
+                $li += "<br><span class='meta'>Checks that look for it: $(& $H (@($s.Checks) -join ', '))</span></li>"
+                $items += $li
+            }
+            if ($nComplete) { $items += "<li class='meta'>Every stage has a condition on: $(& $H ((@($p.Complete)) -join ', '))</li>" }
+            if (@($p.Partial).Count) { $items += "<li class='meta'>Some stages open on: $(& $H ((@($p.Partial)) -join ', '))</li>" }
+            if (@($p.Unjudged).Count) { $items += "<li class='meta'>Nothing could be judged on: $(& $H ((@($p.Unjudged)) -join ', '))</li>" }
+            # One column: the chain, then the name with what it says. In a panel beside the others
+            # there is no room for a state column without squeezing the chain.
+            $label = "<details class='dash-more'><summary>$(& $H $p.Name) <span class='meta'>&middot; $(& $H $state)</span></summary><ul class='dash-list'>$($items -join '')</ul></details>"
+            $apRows += "<tr><td class='chain-cell'><div class='chain-wrap'>$(Get-ChainSvg -Steps $p.Steps)</div>$label</td></tr>"
+        }
+        # Green when no chain is complete anywhere: that is the state worth keeping.
+        $pP = if ($apJudged.Count) { 100 * ($apJudged.Count - $apDone.Count) / $apJudged.Count } else { 0 }
+        # Folded like the recent-attacks panel: ring, title, one line, and the chains on click.
+        $apOpen = @($apCov | Where-Object { @($_.Complete).Count -eq 0 -and @($_.Partial).Count -gt 0 }).Count
+        $apHead = "$($apDone.Count) complete, $apOpen partly open, $(@($apCov).Count - $apDone.Count - $apOpen) with nothing found or not judged"
+        & $w "<div class='dash-panel dash-paths'><details class='dash-fold'><summary><div class='dash-panel-head'>$(Get-RingSvg -Percent $pP -Big "$($apDone.Count)/$($apJudged.Count)" -Small 'complete')<div><div class='dash-panel-title'>Attack paths</div><div class='meta'>$apHead</div></div></div></summary><div class='meta'>The chains of <code>data\attack-paths.json</code> ($($apCov.Count) of them) stage by stage, drawn for one host$(if ($hostsArr.Count -gt 1) { ', the worst of these for each chain' }): a stage is filled when a check of it reports the condition it needs, <b>grey when nothing about it could be judged</b> (never clean), plain when every judged check of it is clean. <b>Complete</b> means every stage has a condition on that one host: evidence worth acting on, not proof that anyone walked the chain.</div><table class='dash-table'>$($apRows -join '')</table></details></div>"
     }
     & $w '</div>'
 
@@ -886,6 +989,11 @@ function ConvertTo-ReportHtml {
   .dash-table td.bar span.mid { background: var(--amber); } .dash-table td.bar span.low { background: var(--red); }
   .dash-panel-title { font-family: var(--display); font-weight: 800; font-size: 1.25rem; letter-spacing: -0.02em; }
   .dash-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  /* A panel that folds: the head is the summary, the rest opens on click. */
+  details.dash-fold > summary { display: flex; align-items: center; gap: 6px; border-bottom: none; padding-bottom: 0; }
+  details.dash-fold > summary .dash-panel-head { margin-bottom: 0; flex: 1; min-width: 0; }
+  details.dash-fold[open] > summary .dash-panel-head { margin-bottom: 8px; }
+  details.dash-fold > summary::before { font-size: 12px; margin-right: 2px; }
   details.dash-more { margin-top: 0; }
   details.dash-more > summary { border-bottom: none; padding-bottom: 0; }
   details.dash-more > summary::before { font-size: 10px; margin-right: 6px; }
@@ -896,6 +1004,20 @@ function ConvertTo-ReportHtml {
   .dash-table td.num { font-family: var(--mono); white-space: nowrap; text-align: right; width: 1%; }
   .dash-table td.bar { width: 34%; }
   .dash-table td.bar span { display: block; height: 9px; border: 1.5px solid var(--ink); border-radius: 6px; background: #6E8B5F; min-width: 2px; }
+  /* Attack paths: one chain per row, a box per stage. Filled = the condition for that stage is on a
+     host, dashed grey = nothing about it could be judged, plain = every judged check of it is clean. */
+  .dash-table td.chain-cell { padding: 9px 0; }
+  .chain-wrap { margin-bottom: 5px; }
+  svg.chain { display: block; max-width: 100%; height: auto; }
+  svg.chain rect { fill: var(--surface); stroke: var(--ink); stroke-width: 2; }
+  svg.chain text { font-family: var(--mono); font-size: 9.5px; fill: var(--ink); }
+  svg.chain .chain-open rect { fill: var(--red-soft); }
+  svg.chain .chain-open text { font-weight: 700; }
+  svg.chain .chain-ok rect { fill: #DCE9CE; }
+  svg.chain .chain-unk rect { fill: var(--tint); stroke-dasharray: 4 3; }
+  svg.chain .chain-unk text { fill: var(--muted); }
+  svg.chain .chain-arrow line { stroke: var(--ink); stroke-width: 2; }
+  svg.chain .chain-arrow polygon { fill: var(--ink); }
   .dash-h { margin: 30px 0 12px; font-size: 1.3rem; }
   .dash-cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
   .dash-cat { border: var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-xs); padding: 10px 14px; }
@@ -1180,6 +1302,9 @@ function filterBadgerTable(input) {
         if ($meta.Tools) { & $w "<div class=`"kv tools`"><b>Tools attackers use.</b> $(& $H $meta.Tools)</div>" }
         & $w "<div class=`"kv`"><b>Remediation.</b> $(& $H $meta.Remediation)</div>"
         if ($meta.Mitre) { & $w "<div class=`"kv`"><b>MITRE ATT&amp;CK.</b> $(Get-MitreLink $meta.Mitre)</div>" }
+        # The chains of data\attack-paths.json this check is a stage of (the Attack paths panel).
+        $apOf = @((Get-AttackPathNamesByCheck)[$t.Type] | Where-Object { $_ })
+        if ($apOf.Count) { & $w "<div class=`"kv`"><b>Attack paths it is a stage of.</b> $(& $H ($apOf -join ' | '))</div>" }
         $e8Of = @($script:E8Requirements | Where-Object { @($_.Checks) -contains $t.Type } | ForEach-Object { "$($script:E8Strategies[$_.S].Label), ML$($_.L): $($_.Req)" } | Select-Object -Unique)
         if ($e8Of.Count) { & $w "<div class=`"kv`"><b>ACSC Essential Eight.</b> $(& $H ($e8Of -join ' | '))</div>" }
         $acnOf = @($script:AcnRequirements | Where-Object { $acnOn -and @($_.Checks) -contains $t.Type } | ForEach-Object { "$($_.Code) p.$($_.P)$(if ($_.E) { ' (Allegato 2 only)' })" } | Select-Object -Unique)

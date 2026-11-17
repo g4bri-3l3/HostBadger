@@ -6,6 +6,81 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
+## [3.0] - 2026-11-17
+### Added
+- **Attack paths**: the findings read as chains instead of one weakness at a
+  time. `data\attack-paths.json` holds ten chains (hand-written, documentation
+  grade like `data\recent-attacks.json`), each a list of stages - initial
+  access, execution, privilege escalation, defence evasion, credential access,
+  lateral movement, persistence, impact - tied to the checks that look for the
+  condition that stage needs: paste-and-run to credential theft, macro document
+  to persistence, standard user to SYSTEM, vulnerable driver to the kernel and
+  the security agent, name resolution relay to lateral movement, exposed remote
+  service to session takeover, stolen laptop to the data on the disk, browser
+  extension to the session cookies, ransomware with the brakes off, and a
+  domain controller taken from the network.
+- `Get-AttackPaths`, `Get-AttackPathStatus` and `Get-AttackPathNamesByCheck`
+  (`lib\Checks.ps1`) judge them with the same three states as the recent-attack
+  panel: a stage is open when a check of it reports its condition, not judged
+  when every check of it could not be judged (not evaluated, or turned off by
+  `-PolicyFile`: never clean), clean otherwise. Checks that do not apply to the
+  role of the host are left out, and a chain that keeps fewer than two stages
+  on a host is not judged there.
+- An **Attack paths** panel in the dashboard grid, next to "Protection against
+  recent attacks", drawn stage by stage
+  (`Get-ChainSvg` in `lib\Reporting.ps1`, inline SVG, no script): filled stage =
+  the condition is there, grey dashed = nothing about it could be judged, plain
+  = every judged check of it is clean. Each chain is drawn for **one** host, the
+  worst of those in view, because the stages of several hosts put together would
+  show a chain that none of them has. The dashboard already renders once per
+  host, so the host selector switches the chains with it.
+- Each check block in the report names the chains that check is a stage of.
+- JSON Lines `host_summary`: `attack_paths_complete`, `attack_paths_partial`,
+  `attack_paths_judged`, `attack_paths_total`, `attack_paths_open_stages`, and
+  an `attackPaths` block in the report summary JSON (added, nothing renamed).
+- `COVERAGE.md` gets an **Attack paths** section generated from the data file,
+  the README a short one, and `tools\New-ReportGif.ps1` a slide for the panel.
+
+### Changed
+- The "Protection against recent attacks" panel and the new "Attack paths" panel
+  fold: closed they show the ring, the title and one line of state (how many
+  vectors exposed, how many chains complete), and the vectors, the chains and
+  the wording open on click. Both sit in the dashboard grid, so the dashboard
+  stays short enough to scan. `tools\New-ReportGif.ps1` opens them for its
+  slides.
+
+### Fixed
+- **The recent-attacks panel called hosts exposed to a vector they were not.**
+  Each vector of `data\recent-attacks.json` listed, in one `checks` list, both
+  the condition it needs and checks that only make it easier or worse, and any
+  one of them firing put the host in the exposed column. A host with shadow
+  copies working was reported exposed to "ransomware clearing the way back"
+  because Controlled Folder Access was off; one with no pasted command was
+  exposed to ClickFix because a LOLBin could reach the network; one with
+  app-bound encryption on was exposed to infostealers because a credential was
+  saved in Credential Manager. The file now separates `checks` (the condition:
+  this is what makes a host exposed) from `related` (context, reported next to
+  the vector, never exposing on its own), and all 32 vectors were re-read
+  against their checks: eleven of them had at least one check that was not the
+  condition they name. On one real host the panel went from 18 vectors exposed
+  of 32 to 7, with the other eleven reported as context. `Get-RecentAttackCoverage`
+  returns `Related`, `RelatedHit` and `RelatedHosts`, and the panel, `COVERAGE.md`
+  and the README name the two apart.
+- The vector "Office macros through a trusted location" is now "Office macros as
+  the way in (trusted locations, unsigned macros)": it is also judged on macro
+  settings left to the user, which the old name did not cover.
+- A score ring at 0% drew a dot, because the round line cap is painted even for
+  an empty arc: it read as a sliver of progress. At 0% only the empty ring is
+  drawn now. The recent-attacks ring also lost its "nothing found" caption,
+  which was wider than the ring it sat under.
+
+### Notes
+- The hardening score, the checks and the collector are unchanged: the panel is
+  a reading of findings the checks already produced, and no check exists only
+  for a chain. A complete chain is evidence worth acting on, not proof that
+  anyone walked it; a chain with a clean stage is not a guarantee either,
+  because a snapshot shows configuration, not behaviour.
+
 ## [2.9] - 2026-11-16
 ### Added
 - Eleven checks, from the vectors most reported between 2022 and 2026 and from

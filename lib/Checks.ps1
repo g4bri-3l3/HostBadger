@@ -2526,6 +2526,8 @@ function Get-RecentAttackCoverage {
     # judged (unknown), and the rest (covered: every judged check of that vector is clean). Checks that
     # do not apply to a host's role are left out for that host, and a check the policy turns off or
     # that is not evaluated counts as not judged, never as clean.
+    # Only the vector's own checks decide: the `related` ones (a missing mitigation, a condition that
+    # makes the vector easier) are reported as context and never make a host exposed by themselves.
     param($Hosts, $Findings)
     $ra = Get-RecentAttacks
     if (-not $ra) { return }
@@ -2546,9 +2548,16 @@ function Get-RecentAttackCoverage {
         $covered = New-Object System.Collections.Generic.List[string]
         $hit = New-Object System.Collections.Generic.List[string]
         $notJudged = New-Object System.Collections.Generic.List[string]
+        $relHit = New-Object System.Collections.Generic.List[string]
+        $relHosts = New-Object System.Collections.Generic.List[string]
         foreach ($h in $hostsArr) {
             $role = "$($h.Role)"
             $checks = @(@($a.checks) | Where-Object { $script:CheckCatalog.Contains($_) -and ($role -eq 'unknown' -or $script:CheckCatalog[$_].Roles -contains $role) })
+            # Context only: these never decide exposed, covered or not judged.
+            $rel = @(@($a.related) | Where-Object { $script:CheckCatalog.Contains($_) -and ($role -eq 'unknown' -or $script:CheckCatalog[$_].Roles -contains $role) })
+            $relBad = @($rel | Where-Object { $fired["$($h.Name)|$_"] })
+            foreach ($b in $relBad) { if (-not $relHit.Contains($b)) { $relHit.Add($b) } }
+            if ($relBad.Count -gt 0 -and -not $relHosts.Contains("$($h.Name)")) { $relHosts.Add("$($h.Name)") }
             if ($checks.Count -eq 0) { continue }
             $bad = @($checks | Where-Object { $fired["$($h.Name)|$_"] })
             $blind = @($checks | Where-Object { $ne["$($h.Name)"].ContainsKey($_) })
@@ -2564,11 +2573,167 @@ function Get-RecentAttackCoverage {
                 Years     = "$($a.years)"
                 Needs     = "$($a.needs)"
                 Checks    = [string[]]@($a.checks)
+                Related   = [string[]]@($a.related)
                 Exposed   = $exposed.ToArray()
                 Unknown   = $unknown.ToArray()
                 Covered   = $covered.ToArray()
                 HitChecks = $hit.ToArray()
                 BlindChecks = $notJudged.ToArray()
+                RelatedHit = $relHit.ToArray()
+                RelatedHosts = @($relHosts.ToArray() | Sort-Object)
+            })
+    }
+    return $out.ToArray()
+}
+
+function Get-AttackPaths {
+    # data\attack-paths.json: the attack chains, stage by stage, with the checks that show the
+    # condition each stage needs on a host. Hand-written; nothing is downloaded and nothing is run.
+    # $null when the file is not there (the panel and the fields are then left out).
+    if ($null -eq $script:AttackPathData) {
+        $path = Join-Path $PSScriptRoot '..\data\attack-paths.json'
+        $script:AttackPathData = if (Test-Path -LiteralPath $path) { ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText($path)) } else { $false }
+    }
+    if ($script:AttackPathData -is [bool]) { return $null }
+    return $script:AttackPathData
+}
+
+function Get-AttackPathNamesByCheck {
+    # Check type -> the names of the chains that check is a step of, so a check block in the report can
+    # name them. Built once from data\attack-paths.json.
+    if ($null -eq $script:AttackPathByCheck) {
+        $idx = @{}
+        foreach ($p in @((Get-AttackPaths).paths)) {
+            foreach ($s in @($p.steps)) {
+                foreach ($c in @($s.checks)) {
+                    $k = "$c"
+                    if (-not $idx.ContainsKey($k)) { $idx[$k] = New-Object System.Collections.Generic.List[string] }
+                    if (-not $idx[$k].Contains("$($p.name)")) { $idx[$k].Add("$($p.name)") }
+                }
+            }
+        }
+        $script:AttackPathByCheck = $idx
+    }
+    return $script:AttackPathByCheck
+}
+
+function Get-AttackPathStatus {
+    # Where the hosts stand along each chain of data\attack-paths.json. Per host and per step: the step
+    # is open when a check of it reports something, not judged when every check of it could not be
+    # judged (not evaluated, or turned off by the policy of the organization: never clean), clean
+    # otherwise. Checks that do not apply to the role of the host are left out, a step left with no
+    # check of that role is dropped on that host, and a path that keeps fewer than two steps there is
+    # not judged at all. A path is complete on a host when every step it keeps is open: that says the
+    # condition for each stage is present on that host, not that anyone walked the chain.
+    param($Hosts, $Findings)
+    $ap = Get-AttackPaths
+    if (-not $ap) { return }
+    $stageName = @{}; $stageShort = @{}
+    foreach ($st in @($ap.stages)) { $stageName["$($st.id)"] = "$($st.name)"; $stageShort["$($st.id)"] = "$($st.short)" }
+    $fired = @{}
+    foreach ($f in @($Findings | Where-Object { $_ })) { $fired["$($f.Host)|$($f.Type)"] = $true }
+    $hostsArr = @($Hosts | Where-Object { $_ })
+    $blind = @{}
+    foreach ($h in $hostsArr) {
+        $set = @{}
+        foreach ($n in @($h.NotEvaluated | Where-Object { $_ })) { $set["$($n.Type)"] = $true }
+        foreach ($o in @(@($h.OptionalOff) + @($h.PolicyOff) | Where-Object { $_ })) { $set["$o"] = $true }
+        $blind["$($h.Name)"] = $set
+    }
+    $out = New-Object System.Collections.Generic.List[object]
+    foreach ($p in @($ap.paths)) {
+        $steps = @($p.steps)
+        if ($steps.Count -lt 2) { continue }
+        # Per step, across the hosts in scope: the hosts it is open on, the checks that reported, the
+        # checks nothing could be said about, and whether any host had it clean or not judged.
+        $openHosts = @(); $hitChecks = @(); $blindChecks = @(); $blindHosts = @(); $anyClean = @(); $anyUnknown = @()
+        foreach ($s in $steps) {
+            $openHosts += , (New-Object System.Collections.Generic.List[string])
+            $hitChecks += , (New-Object System.Collections.Generic.List[string])
+            $blindChecks += , (New-Object System.Collections.Generic.List[string])
+            $blindHosts += , (New-Object System.Collections.Generic.List[string])
+            $anyClean += $false
+            $anyUnknown += $false
+        }
+        $complete = New-Object System.Collections.Generic.List[string]
+        $partial = New-Object System.Collections.Generic.List[string]
+        $blocked = New-Object System.Collections.Generic.List[string]
+        $unjudged = New-Object System.Collections.Generic.List[string]
+        # The chain is drawn for one host, the worst of them: the union of several hosts could show a
+        # complete chain that no single host has.
+        $perHost = New-Object System.Collections.Generic.List[object]
+        foreach ($h in $hostsArr) {
+            $role = "$($h.Role)"
+            if ($role -ne 'unknown' -and -not (@($p.roles) -contains $role)) { continue }
+            $name = "$($h.Name)"
+            $states = New-Object System.Collections.Generic.List[string]
+            for ($i = 0; $i -lt $steps.Count; $i++) {
+                $checks = @(@($steps[$i].checks) | Where-Object { $script:CheckCatalog.Contains($_) -and ($role -eq 'unknown' -or $script:CheckCatalog[$_].Roles -contains $role) })
+                if ($checks.Count -eq 0) { $states.Add('na'); continue }
+                $bad = @($checks | Where-Object { $fired["$name|$_"] })
+                $unk = @($checks | Where-Object { $blind[$name].ContainsKey($_) })
+                if ($bad.Count -gt 0) {
+                    $states.Add('open')
+                    if (-not $openHosts[$i].Contains($name)) { $openHosts[$i].Add($name) }
+                    foreach ($b in $bad) { if (-not $hitChecks[$i].Contains($b)) { $hitChecks[$i].Add($b) } }
+                }
+                elseif ($unk.Count -eq $checks.Count) {
+                    $states.Add('unknown')
+                    $anyUnknown[$i] = $true
+                    if (-not $blindHosts[$i].Contains($name)) { $blindHosts[$i].Add($name) }
+                    foreach ($b in $unk) { if (-not $blindChecks[$i].Contains($b)) { $blindChecks[$i].Add($b) } }
+                }
+                else {
+                    $states.Add('clean')
+                    $anyClean[$i] = $true
+                    if ($unk.Count -gt 0 -and -not $blindHosts[$i].Contains($name)) { $blindHosts[$i].Add($name) }
+                    foreach ($b in $unk) { if (-not $blindChecks[$i].Contains($b)) { $blindChecks[$i].Add($b) } }
+                }
+            }
+            $live = @($states | Where-Object { $_ -ne 'na' })
+            if ($live.Count -lt 2) { continue }
+            $nOpen = @($live | Where-Object { $_ -eq 'open' }).Count
+            $nUnknown = @($live | Where-Object { $_ -eq 'unknown' }).Count
+            $bucket = if ($nOpen -eq $live.Count) { $complete.Add($name); 0 }
+            elseif ($nOpen -gt 0) { $partial.Add($name); 1 }
+            elseif ($nUnknown -eq $live.Count) { $unjudged.Add($name); 3 }
+            else { $blocked.Add($name); 2 }
+            $perHost.Add([PSCustomObject]@{ Name = $name; States = $states.ToArray(); Open = $nOpen; Bucket = $bucket })
+        }
+        if ($perHost.Count -eq 0) { continue }
+        # Worst host first: a complete chain, then the most stages open, then by name (same order at
+        # every run).
+        $rep = @($perHost.ToArray() | Sort-Object @{ Expression = { $_.Bucket } }, @{ Expression = { - $_.Open } }, @{ Expression = { $_.Name } })[0]
+        $stepOut = New-Object System.Collections.Generic.List[object]
+        for ($i = 0; $i -lt $steps.Count; $i++) {
+            $state = "$($rep.States[$i])"
+            $stepOut.Add([PSCustomObject]@{
+                    Stage       = "$($stageName["$($steps[$i].stage)"])"
+                    Short       = "$($stageShort["$($steps[$i].stage)"])"
+                    StageId     = "$($steps[$i].stage)"
+                    Needs       = "$($steps[$i].needs)"
+                    Checks      = [string[]]@($steps[$i].checks)
+                    State       = $state
+                    OpenHosts   = [string[]]@($openHosts[$i].ToArray() | Sort-Object)
+                    HitChecks   = [string[]]@($hitChecks[$i].ToArray())
+                    BlindChecks = [string[]]@($blindChecks[$i].ToArray())
+                    BlindHosts  = [string[]]@($blindHosts[$i].ToArray() | Sort-Object)
+                })
+        }
+        $liveSteps = @($stepOut.ToArray() | Where-Object { $_.State -ne 'na' })
+        $out.Add([PSCustomObject]@{
+                Id         = "$($p.id)"
+                Name       = "$($p.name)"
+                Why        = "$($p.why)"
+                Steps      = $stepOut.ToArray()
+                DrawnHost  = "$($rep.Name)"
+                OpenSteps  = @($liveSteps | Where-Object { $_.State -eq 'open' }).Count
+                BlindSteps = @($liveSteps | Where-Object { $_.State -eq 'unknown' }).Count
+                TotalSteps = $liveSteps.Count
+                Complete   = [string[]]@($complete.ToArray() | Sort-Object)
+                Partial    = [string[]]@($partial.ToArray() | Sort-Object)
+                Blocked    = [string[]]@($blocked.ToArray() | Sort-Object)
+                Unjudged   = [string[]]@($unjudged.ToArray() | Sort-Object)
             })
     }
     return $out.ToArray()
