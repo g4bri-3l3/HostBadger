@@ -16,6 +16,7 @@ snapshots/
 remediation/
 rollback_*.json
 !examples/**
+!docs/**
 # Local, not part of the project
 CLAUDE.md
 .claude/
@@ -31,3 +32,4 @@ testhtml.txt
 *_cve.json
 *.hbx
 *.pfx
+tools/New-SitePage.ps1

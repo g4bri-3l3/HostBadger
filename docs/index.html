@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HostBadger - Windows host hardening auditor</title>
+<meta name="description" content="HostBadger reads a Windows host once, read-only, and judges the snapshot offline against CIS, DISA STIG, the ACSC Essential Eight and the ACN basic measures. 234 checks, 10 attack paths, a report you can open in a browser.">
+<style>
+  :root {
+    --paper: #F3EFE6; --surface: #FFFDF8; --tint: #E8E2D4; --ink: #161513; --muted: #5F5A51;
+    --red: #E2372A; --red-soft: #FBD9D2; --amber: #F2B632; --green: #6E8B5F;
+    --line: 3px solid var(--ink);
+    --shadow: 7px 7px 0 var(--ink); --shadow-sm: 4px 4px 0 var(--ink); --shadow-xs: 3px 3px 0 var(--ink);
+    --display: "Bahnschrift", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --body: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Helvetica, Arial, sans-serif;
+    --mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--body); line-height: 1.55; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
+  a { color: var(--ink); }
+  h1, h2, h3 { font-family: var(--display); letter-spacing: -0.03em; margin: 0 0 10px; }
+  h1 { font-size: clamp(2.4rem, 7vw, 4rem); font-weight: 800; line-height: 1; }
+  h2 { font-size: clamp(1.4rem, 3.4vw, 2rem); font-weight: 750; }
+  h3 { font-size: 1.05rem; font-weight: 700; }
+  p { margin: 0 0 14px; }
+  .meta { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+  code { background: var(--tint); border: 1.5px solid var(--ink); border-radius: 6px; padding: 0 5px; font-family: var(--mono); font-size: .92em; }
+  section { padding: 54px 0; border-top: var(--line); }
+  section:first-of-type { border-top: none; }
+
+  .hero { display: grid; grid-template-columns: auto 1fr; gap: 28px; align-items: center; padding: 56px 0 44px; }
+  .logo { font-family: var(--mono); font-size: 13px; line-height: 1.15; white-space: pre; margin: 0; border: var(--line); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); padding: 14px 18px; }
+  .pill { display: inline-block; font-family: var(--mono); font-size: 12px; font-weight: 700; border: 2px solid var(--ink); border-radius: 8px; padding: 2px 9px; background: var(--amber); box-shadow: 2px 2px 0 var(--ink); }
+  .lede { font-size: 1.2rem; max-width: 62ch; }
+  .btns { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+  .btn { display: inline-block; font-family: var(--display); font-weight: 700; font-size: 1rem; text-decoration: none; border: var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-sm); padding: 10px 18px; }
+  .btn:hover { transform: translate(-2px, -2px); box-shadow: 6px 6px 0 var(--ink); }
+  .btn.primary { background: var(--red); color: var(--surface); }
+
+  .nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
+  .num { border: var(--line); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow-xs); padding: 14px 16px; }
+  .num b { display: block; font-family: var(--display); font-size: 2.1rem; font-weight: 800; line-height: 1; }
+  .num span { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin-top: 22px; }
+  .card { border: var(--line); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow-sm); padding: 18px 20px; }
+  .card .step { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .card p:last-child { margin-bottom: 0; }
+
+  .shot { border: var(--line); border-radius: 18px; box-shadow: var(--shadow); background: var(--surface); padding: 10px; }
+  .shot img { display: block; width: 100%; height: auto; border-radius: 10px; }
+
+  .chainbox { border: var(--line); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow-sm); padding: 20px; overflow-x: auto; }
+  svg.chain { display: block; max-width: 100%; height: auto; }
+  svg.chain rect { fill: var(--surface); stroke: var(--ink); stroke-width: 2; }
+  svg.chain text { font-family: var(--mono); font-size: 12px; fill: var(--ink); }
+  svg.chain .chain-open rect { fill: var(--red-soft); }
+  svg.chain .chain-open text { font-weight: 700; }
+  svg.chain .chain-ok rect { fill: #DCE9CE; }
+  svg.chain .chain-unk rect { fill: var(--tint); stroke-dasharray: 4 3; }
+  svg.chain .chain-unk text { fill: var(--muted); }
+  svg.chain .chain-arrow line { stroke: var(--ink); stroke-width: 2; }
+  svg.chain .chain-arrow polygon { fill: var(--ink); }
+  .legend { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 14px; }
+  .legend span { font-family: var(--mono); font-size: 12px; display: flex; align-items: center; gap: 7px; }
+  .swatch { width: 16px; height: 16px; border: 2px solid var(--ink); border-radius: 5px; display: inline-block; }
+
+  ul.plain { margin: 0 0 14px; padding-left: 20px; }
+  ul.plain li { margin: 7px 0; }
+  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 26px; }
+  footer { border-top: var(--line); padding: 26px 0 50px; }
+  @media (max-width: 720px) { .hero { grid-template-columns: 1fr; } .logo { font-size: 11px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <pre class="logo" role="img" aria-label="HostBadger badger">     _.--&quot;&quot;--._
+   .&#39;  |    |  &#39;.
+  /    |    |    \
+ |  (o)|    |(o)  |
+ |     |    |     |
+  \    &#39;.__.&#39;    /
+   &#39;._   \/   _.&#39;
+      &#39;--..--&#39;</pre>
+  <div>
+    <span class="pill">v3.0 &middot; MIT &middot; PowerShell 5.1 and 7</span>
+    <h1>HostBadger</h1>
+    <p class="lede">A Windows host hardening auditor. One read-only script collects the host, the
+    analysis runs anywhere else, offline, and the report says what is weak, what it means and what
+    could not be judged at all.</p>
+    <div class="btns">
+      <a class="btn primary" href="demo/demo_report.html">Open the live report</a>
+      <a class="btn" href="https://github.com/https://github.com/g4bri-3l3/HostBadger">Code on GitHub</a>
+      <a class="btn" href="https://github.com/https://github.com/g4bri-3l3/HostBadger/archive/refs/tags/v3.0.zip">Download v3.0</a>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="nums"><div class='num'><b>234</b><span>checks</span></div><div class='num'><b>1475</b><span>DISA STIG rules</span></div><div class='num'><b>32</b><span>attack vectors mapped</span></div><div class='num'><b>10</b><span>attack paths</span></div><div class='num'><b>65</b><span>checks with a fix script</span></div><div class='num'><b>0</b><span>network calls in the analysis</span></div></div>
+  <p class="meta" style="margin-top:14px">Every number on this page is generated from the catalogs in the repository, so it cannot promise a check, a rule or a release the tool does not ship.</p>
+</section>
+
+<section>
+  <h2>See it before you run it</h2>
+  <p>The report below is the real output of HostBadger on a synthetic fleet of five hosts, shipped in
+  the repository as <code>examples\demo_report.html</code>. It is one HTML file with no server behind
+  it: open it, switch host, expand a check, read the fix script.</p>
+  <div class="shot"><img src="demo/demo_report.gif" alt="A tour of the HostBadger report, one section per slide" loading="lazy"></div>
+  <div class="btns">
+    <a class="btn primary" href="demo/demo_report.html">Open the report</a><a class='btn' href='https://youtu.be/gBmsLPddcrw'>Watch the walkthrough</a>
+    <a class="btn" href="demo/demo_report.csv">Findings as CSV</a>
+    <a class="btn" href="demo/demo_findings.jsonl">JSON Lines for a SIEM</a>
+  </div>
+</section>
+
+<section>
+  <h2>How it works</h2>
+  <div class="cards">
+    <div class="card">
+      <div class="step">1 &middot; Collect</div>
+      <h3>One file, read-only</h3>
+      <p><code>Collect-HostSnapshot.ps1</code> is a single self-contained script, so your EDR console,
+      RMM or GPO can run it as it is. It reads: no <code>Set-</code>, no <code>New-</code>, no
+      <code>Remove-</code>, no CIM method call. A section that fails is recorded as a collection
+      error, never as a clean result.</p>
+    </div>
+    <div class="card">
+      <div class="step">2 &middot; Analyse</div>
+      <h3>Anywhere, offline</h3>
+      <p>The snapshot is judged on your own machine. 234 checks across 13 categories, per
+      host and across the fleet (shared local passwords, cloned machine SIDs, configuration drift).
+      Snapshots can be encrypted with a password or a certificate before they leave the host.</p>
+    </div>
+    <div class="card">
+      <div class="step">3 &middot; Fix</div>
+      <h3>A script you can read</h3>
+      <p>65 checks come with a generated fix: one setting, the expected value, reversible,
+      previewed by default and with a rollback file. Three hardening profiles (146 settings)
+      go further when you ask for them, and every item quotes the rule it comes from.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Attack paths</h2>
+  <p>New in v3.0: the findings read as chains instead of one weakness at a time. 10 chains tie
+  each stage - initial access, execution, privilege escalation, defence evasion, credential access,
+  lateral movement, persistence, impact - to the checks that look for the condition that stage needs,
+  and the dashboard draws them per host.</p>
+  <div class="chainbox">
+    <svg class='chain' viewBox='0 0 540 42' width='540' height='42' role='img' aria-label='Initial access: condition present; Execution: condition present; Defence evasion: not judged; Credential access: condition present; Lateral movement: nothing found'><g class='chain-open'><title>Initial access: condition present</title><rect x='0' y='2' width='92' height='38' rx='9' ry='9'/><text x='46' y='25' text-anchor='middle'>Access</text></g><g class='chain-arrow'><line x1='94' y1='21' x2='106' y2='21'/><polygon points='105,18 111,21 105,24'/></g><g class='chain-open'><title>Execution: condition present</title><rect x='112' y='2' width='92' height='38' rx='9' ry='9'/><text x='158' y='25' text-anchor='middle'>Exec</text></g><g class='chain-arrow'><line x1='206' y1='21' x2='218' y2='21'/><polygon points='217,18 223,21 217,24'/></g><g class='chain-unk'><title>Defence evasion: not judged</title><rect x='224' y='2' width='92' height='38' rx='9' ry='9'/><text x='270' y='25' text-anchor='middle'>Evasion</text></g><g class='chain-arrow'><line x1='318' y1='21' x2='330' y2='21'/><polygon points='329,18 335,21 329,24'/></g><g class='chain-open'><title>Credential access: condition present</title><rect x='336' y='2' width='92' height='38' rx='9' ry='9'/><text x='382' y='25' text-anchor='middle'>Creds</text></g><g class='chain-arrow'><line x1='430' y1='21' x2='442' y2='21'/><polygon points='441,18 447,21 441,24'/></g><g class='chain-ok'><title>Lateral movement: nothing found</title><rect x='448' y='2' width='92' height='38' rx='9' ry='9'/><text x='494' y='25' text-anchor='middle'>Lateral</text></g></svg>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--red-soft)"></i> the condition is on the host</span>
+      <span><i class="swatch" style="background:var(--tint);border-style:dashed"></i> nothing could be judged</span>
+      <span><i class="swatch" style="background:#DCE9CE"></i> every judged check is clean</span>
+    </div>
+  </div>
+  <p class="meta" style="margin-top:14px">A chain is drawn for one host, the worst of those in view:
+  the stages of several hosts put together would show a chain that none of them has. A complete chain
+  means every stage has an enabling condition on that one host - evidence worth acting on, not proof
+  that anyone walked it.</p>
+  <p>The same discipline applies to the 32 attack vectors of 2022-2026 that the report maps:
+  only the checks that look for the condition a vector needs decide whether a host is exposed; a check
+  that merely makes it worse is shown as context, and never counted as exposure.</p>
+</section>
+
+<section>
+  <h2>Judged against what</h2>
+  <div class="two">
+    <div>
+      <h3>Benchmarks and baselines</h3>
+      <ul class="plain">
+        <li><b>DISA STIG</b>: 1475 registry rules, one finding each - Adobe Acrobat V2R1, Google Chrome V2R11, Defender Antivirus V2R8, Microsoft Edge V2R5, Mozilla Firefox V6R7, Windows Firewall V2R2, Microsoft 365 Apps V3R5, Windows Server 2016 V2R10, Windows Server 2019 V3R8, Windows Server 2022 V2R8, Windows Server 2025 V1R1, Windows 10 V3R6, Windows 11 V2R7.</li>
+        <li><b>CIS</b>: 83 checks follow a benchmark rule, quoted in the host's own version - CIS Microsoft Windows 11 Enterprise Benchmark v3.0.0; CIS Microsoft Windows 10 Enterprise Benchmark v3.0.0; CIS Microsoft Windows Server 2022 Benchmark v4.0.0; CIS Microsoft Windows Server 2019 Benchmark v4.0.0; CIS Microsoft Windows Server 2016 Benchmark v3.0.0.</li>
+        <li><b>ACSC Essential Eight</b>: maturity levels from what a host can actually show (ASD model, November 2023), with the requirements that need other evidence named as such.</li>
+        <li><b>NIS2 in Italy</b>: the ACN basic security measures (Determinazione 379907/2025, D.Lgs. 138/2024) a host gives evidence about, in ACN's own wording.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>And what it refuses to claim</h3>
+      <p>A snapshot is a configuration, not a stream of events. The report lists every check it could
+      <em>not</em> judge and why, instead of counting it as clean; the coverage document names the
+      kinds of attack a configuration can say nothing about; and no framework panel is presented as a
+      certification of conformity.</p>
+      <p class="meta">Full catalogue, rule by rule: <a href="https://github.com/https://github.com/g4bri-3l3/HostBadger/blob/main/COVERAGE.md">COVERAGE.md</a>.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Design rules</h2>
+  <div class="cards">
+    <div class="card">
+      <h3>Nothing leaves the host</h3>
+      <p>The analysis makes no network call. The catalogues (CISA KEV, LOLDrivers, NVD, endoflife.date)
+      are downloaded only when you pass the switch for them, from their own address and nothing else.
+      The optional AI summary is opt-in, and every host, account, service and path name is replaced by
+      a token before anything is sent - checked, not promised.</p>
+    </div>
+    <div class="card">
+      <h3>Nothing updates itself</h3>
+      <p>STIG releases, CIS versions and the Essential Eight model live in the shipped catalogues, and
+      the documents are generated from them. The tool cannot quote a release it was not built from,
+      and a developer tool reports when a newer one exists.</p>
+    </div>
+    <div class="card">
+      <h3>Nothing changes a machine by accident</h3>
+      <p>Remediation is a script you read first. It previews by default, applies only after you type
+      YES, takes a System Restore point where it can and writes a rollback file. A fix that needs an
+      organizational decision stays out of the automatic set.</p>
+    </div>
+    <div class="card">
+      <h3>It is checked, not asserted</h3>
+      <p><code>Test-HostBadgerSafety.ps1</code> parses the shipped scripts and fails on anything that
+      writes, on compiled code and on network calls outside the one file allowed to make them. The
+      regression suite runs on PowerShell 7 and on Windows PowerShell 5.1 at every change.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Who wrote it</h2>
+  <p>HostBadger is written and maintained by Gabriele Piccini. It started as the tool I wanted while
+  auditing Windows estates: something that could be handed to whoever holds the console, that collects
+  once without touching anything, and that is honest about the difference between "this is wrong" and
+  "I could not see this".</p>
+  <div class="btns"><a class='btn' href='https://github.com/https://github.com/g4bri-3l3/HostBadger'>GitHub</a><a class='btn' href='https://www.linkedin.com/in/gabriele-piccini/'>LinkedIn</a><a class='btn' href='https://youtu.be/gBmsLPddcrw'>YouTube</a></div>
+</section>
+
+</div>
+<footer>
+  <div class="wrap meta">
+    HostBadger v3.0 &middot; MIT licence &middot; built from the repository, with no tracking and
+    no third-party asset on this page. The demo report is synthetic data: no real host appears in it.
+  </div>
+</footer>
+</body>
+</html>
