@@ -16,6 +16,17 @@ A section "Coverage gaps" lists checks that could NOT be evaluated on some
 hosts. Their state is unknown: never describe those hosts as clean for those
 checks, and mention the gap where it matters.
 
+A section "Attack paths complete on a host" may list chains whose every stage
+has an enabling condition on one and the same host, stage by stage, with the
+checks that opened each stage. The tool computed them; do not invent chains,
+stages or hosts that are not listed. Use them for ordering, not for drama: a
+chain breaks as soon as ONE of its stages is closed, so for each chain say in
+the rationale of the work package that breaks it which stage it breaks and why
+that stage is the cheapest or least disruptive one to close. A host carrying a
+complete chain outranks a host with more findings but no chain. A complete
+chain means the conditions are present, not that an attack happened: never
+write that a host has been compromised.
+
 Your output is for defenders only. Describe risk in terms of impact and
 business consequence; do not write attack procedures, commands or
 exploitation steps.
@@ -76,6 +87,18 @@ Hosts (name, role, operating system, score, findings, checks not evaluated):
 - HOST-3: server, Microsoft Windows Server 2022 Standard 21H2 (build 20348.4171), score C 65/100, 3 finding(s), 0 not evaluated.
 - HOST-4: workstation, Microsoft Windows 11 Enterprise 24H2 (build 26100.6584), score C 65/100, 4 finding(s), 71 not evaluated.
 - HOST-5: workstation, Microsoft Windows 11 Enterprise 23H2 (build 22631.5909), score A 89/100, 13 finding(s), 0 not evaluated.
+
+Attack paths complete on a host (every stage has an enabling condition on that same host; breaking any one stage breaks the chain):
+- HOST-1 | paste_to_creds: initial_access [run_dialog_payload, script_files_execute_on_open, smartscreen_off] -> execution [lolbin_outbound_not_blocked, powershell_clm_off, powershell_v2_enabled, powershell_scriptblock_logging_off] -> defense_evasion [defender_tamper_off, defender_exclusion, defender_realtime_off, asr_standard_rules_missing] -> credential_access [lsa_not_protected, wdigest_cleartext, credential_guard_off, cached_logons_high] -> lateral_movement [smb_client_signing_not_required, winrm_insecure_auth]
+- HOST-1 | macro_to_persistence: initial_access [office_macro_settings_weak, office_trusted_location_risky, office_vba_object_model_trusted] -> execution [lolbin_outbound_not_blocked, script_files_execute_on_open, powershell_clm_off] -> persistence [persistence_office_hooks, persistence_powershell_profile, persistence_registry_hijack, autostart_suspicious_command, autorun_writable]
+- HOST-1 | user_to_system: privilege_escalation [service_unquoted_path, service_binary_writable, service_permissions_weak, service_path_ancestor_control, task_binary_writable, system_path_writable, program_dir_writable, always_install_elevated, autorun_writable] -> defense_evasion [uac_disabled, uac_admin_no_prompt, uac_hardening_gaps, remote_uac_token_filter_off] -> credential_access [lsa_not_protected, wdigest_cleartext, credential_guard_off] -> persistence [persistence_service_hook, persistence_dll_load_point, persistence_wmi_subscription, service_hidden, scheduled_task_hidden]
+- HOST-1 | byovd_to_agent: privilege_escalation [vulnerable_driver_present, driver_blocklist_off, boot_integrity_weakened, hvci_off, vbs_policy_gaps] -> defense_evasion [defender_service_disabled, defender_tamper_off, app_control_policy_suspect, event_logging_suppressed] -> credential_access [lsa_not_protected, credential_guard_off]
+- HOST-1 | relay_to_lateral: initial_access [llmnr_enabled, netbios_enabled, mdns_enabled, wpad_not_disabled, webclient_webdav_enabled] -> credential_access [ntlm_weak_lmcompat, lm_hash_stored, ntlm_min_session_security_weak, ntlm_audit_off] -> lateral_movement [smb_server_signing_not_required, smb_client_signing_not_required, ldap_client_signing_off]
+- HOST-1 | remote_entry_to_takeover: initial_access [rdp_enabled_workstation, rdp_nla_disabled, risky_listener, firewall_default_inbound_allow, firewall_profile_disabled, firewall_inbound_user_program, remote_access_tool] -> credential_access [credential_delegation_any_server, credssp_encryption_oracle_weak, winrm_trusted_hosts_any, remote_credential_guard_off] -> lateral_movement [remote_session_takeover, network_port_proxy, winrm_insecure_auth]
+- HOST-1 | stolen_device: initial_access [bitlocker_os_volume_off, bitlocker_data_volume_off, secure_boot_off] -> credential_access [cached_logons_high, lm_hash_stored, autologon_enabled, credential_manager_saved, windows_hello_software_keys]
+- HOST-1 | extension_to_session: initial_access [browser_extension_malicious, browser_extension_sideloaded, browser_extension_broad_access] -> credential_access [browser_cookie_protection_off, credential_manager_saved, network_credentials_stored, powershell_history_secrets]
+- HOST-1 | ransomware_brakes_off: defense_evasion [defender_tamper_off, controlled_folder_access_off, asr_standard_rules_missing, asr_other_rules_not_blocking, defender_network_protection_off] -> impact [shadow_copies_disabled, share_writable_by_everyone, event_logging_suppressed, smb_insecure_guest_auth]
+- HOST-2 | dc_reach: initial_access [spooler_on_dc, dc_netlogon_policy_weak, ldap_server_signing_off, dc_security_policy_gaps] -> credential_access [dsrm_network_logon] -> lateral_movement [user_rights_excessive, terminal_services_server_gaps, smb_server_signing_not_required]
 
 Coverage gaps (checks NOT evaluated: state unknown, not clean):
 - accessibility_binary_replaced (Logon screen accessibility program replaced): HOST-4. section 'loadPoints' not in the snapshot

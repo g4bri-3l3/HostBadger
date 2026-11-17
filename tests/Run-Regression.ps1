@@ -532,6 +532,12 @@ $apSumLap = @($parsed | Where-Object { $_.event_type -eq 'host_summary' -and $_.
 Assert-Equal (@($apSumLap.attack_paths_complete).Count) 0 'JSON Lines: a host with no complete chain says so'
 $apBlock = if ($html -match '(?s)<script type="application/json" id="hostbadger-summary">(.*?)</script>') { $Matches[1] | ConvertFrom-Json } else { $null }
 Assert-True ($apBlock -and @($apBlock.hosts | Where-Object { $null -eq $_.attackPaths -or $null -eq $_.attackPaths.total }).Count -eq 0) 'report: the overview block carries the attack paths of every host'
+# The block also carries the complete chains stage by stage: that is what -AiReport reads to build the
+# same AI prompt as the analysis, so a chain there must name a chain of the catalog and real checks.
+$apBlockChains = @(@($apBlock.hosts | Where-Object { $_.name -eq 'WKS-ACCT-017' })[0].attackPaths.chains)
+Assert-True ($apBlockChains.Count -gt 0 -and @($apBlockChains | Where-Object { -not $_.id -or @($_.stages).Count -eq 0 }).Count -eq 0) 'report: the overview block carries the complete chains with their stages'
+Assert-Equal (@($apBlockChains | ForEach-Object { "$($_.id)" } | Where-Object { @(@((Get-AttackPaths).paths) | ForEach-Object { "$($_.id)" }) -notcontains $_ }) -join ',') '' 'the overview block names only chains of attack-paths.json'
+Assert-Equal (@($apBlockChains | ForEach-Object { @($_.stages) } | ForEach-Object { @($_.checks) } | Where-Object { -not $script:CheckCatalog.Contains("$_") }) -join ',') '' 'every check in a chain of the overview block is in the catalog'
 
 # Exceptions and comparison on a second run where the weak host fixed UAC.
 $fixed = Join-Path $work 'fleet2'
@@ -879,6 +885,13 @@ $leaked = @($realNames | Where-Object { $prompt.IndexOf($_, [StringComparison]::
 Assert-Equal ($leaked -join ', ') '' 'AI prompt contains no real host, account, path, service or SID'
 Assert-True ($prompt -match 'HOST-1' -and $prompt -match 'Coverage gaps' -and $prompt -match 'PATH-\d+') 'AI prompt is tokenized and lists coverage gaps'
 Assert-True ($prompt -notmatch 'failed: ') 'collector error messages never reach the prompt'
+# The chains the tool computed reach the prompt as facts, by id: a chain title would carry words the
+# pseudonymizer replaces (a chain named "Domain controller ..." came back as "USER-9 controller").
+Assert-True ($prompt -match 'Attack paths complete on a host' -and $prompt -match '(?m)^- HOST-\d+ \| [a-z0-9_]+: [a-z0-9_]+ \[[a-z0-9_, ]+\] -> ') 'AI prompt carries the complete attack paths, by chain and stage id'
+Assert-True ($prompt -match 'breaking any one stage breaks the chain') 'AI prompt says what a chain is before listing them'
+$promptChainIds = @([regex]::Matches($prompt, '(?m)^- HOST-\d+ \| ([a-z0-9_]+): ') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+$catalogChainIds = @(@((Get-AttackPaths).paths) | ForEach-Object { "$($_.id)" })
+Assert-Equal (@($promptChainIds | Where-Object { $catalogChainIds -notcontains $_ }) -join ',') '' 'the prompt names only chains of attack-paths.json'
 Assert-True ($prompt -match 'Support ended') 'an account called "support" does not rewrite the word in the text'
 Assert-True ($prompt -match 'os_unsupported: Windows version out of support \(' -and $prompt -notmatch 'out of USER-\d') 'an account called "support" does not rewrite a check title'
 Assert-True ($prompt -match 'powershell\.exe') 'stock Windows tools stay readable'

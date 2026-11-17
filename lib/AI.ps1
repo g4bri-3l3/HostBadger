@@ -411,6 +411,17 @@ A section "Coverage gaps" lists checks that could NOT be evaluated on some
 hosts. Their state is unknown: never describe those hosts as clean for those
 checks, and mention the gap where it matters.
 
+A section "Attack paths complete on a host" may list chains whose every stage
+has an enabling condition on one and the same host, stage by stage, with the
+checks that opened each stage. The tool computed them; do not invent chains,
+stages or hosts that are not listed. Use them for ordering, not for drama: a
+chain breaks as soon as ONE of its stages is closed, so for each chain say in
+the rationale of the work package that breaks it which stage it breaks and why
+that stage is the cheapest or least disruptive one to close. A host carrying a
+complete chain outranks a host with more findings but no chain. A complete
+chain means the conditions are present, not that an attack happened: never
+write that a host has been compromised.
+
 Your output is for defenders only. Describe risk in terms of impact and
 business consequence; do not write attack procedures, commands or
 exploitation steps.
@@ -480,6 +491,22 @@ function New-AiPromptRaw {
     foreach ($h in $hostList) {
         $n = @(Get-HostItems $byHost $h.Name).Count
         $lines.Add("- $($h.Name): $($h.Role), $($h.Os), score $($h.Score.Grade) $($h.Score.Score)/100, $n finding(s), $(@($h.NotEvaluated).Count) not evaluated.")
+    }
+    # Attack paths: the chains every stage of which has an enabling condition on the same host. They are
+    # computed by the tool, not by the model; breaking one stage breaks the chain, which is what the
+    # model is asked to use when it orders the work.
+    $chainHosts = @($hostList | Where-Object { @($_.AiChains).Count -gt 0 })
+    if ($chainHosts.Count -gt 0) {
+        $lines.Add('')
+        $lines.Add('Attack paths complete on a host (every stage has an enabling condition on that same host; breaking any one stage breaks the chain):')
+        foreach ($h in $chainHosts) {
+            foreach ($c in @($h.AiChains)) {
+                # Chain and stage ids, like the check ids: a chain title would carry words (Domain,
+                # Office, Access) that the pseudonymizer replaces with a token.
+                $stages = (@($c.Stages) | ForEach-Object { "$($_.Stage) [$(@($_.Checks) -join ', ')]" }) -join ' -> '
+                $lines.Add("- $($h.Name) | $($c.Id): $stages")
+            }
+        }
     }
     $gaps = @($hostList | ForEach-Object { $_.NotEvaluated } | Where-Object { $_ })
     if ($gaps.Count -gt 0) {

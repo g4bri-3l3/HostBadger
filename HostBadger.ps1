@@ -353,7 +353,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:HostBadgerVersion = '3.0'
+$script:HostBadgerVersion = '3.1'
 . (Join-Path $PSScriptRoot 'lib\Common.ps1')
 . (Join-Path $PSScriptRoot 'lib\Checks.ps1')
 . (Join-Path $PSScriptRoot 'lib\AI.ps1')
@@ -363,7 +363,7 @@ $script:HostBadgerVersion = '3.0'
 Write-Host @'
      _.--""--._
    .'  |    |  '.
-  /    |    |    \      HostBadger v3.0
+  /    |    |    \      HostBadger v3.1
  |  (o)|    |(o)  |     Windows host hardening
  |     |    |     |     read-only snapshots, offline analysis
   \    '.__.'    /
@@ -384,6 +384,21 @@ $aiStep = {
     if ($AiIncludeStig -and @($active | Where-Object { $_.Category -eq 'DISA STIG' }).Count -gt 0) { Write-Host 'AI: DISA STIG findings included; with this many findings Gemini may time out.' -ForegroundColor Yellow }
     if ($aiFindings.Count -eq 0) { Write-Host 'No findings: AI step skipped (nothing to ground a summary on).'; return }
 
+    # The chains the report drew, computed here exactly as its summary block computes them (every
+    # active finding of the host, not just the ones the prompt carries), so that -AiReport, which
+    # reads them back from that block, builds the same prompt.
+    # @() over the host list would throw "Argument types do not match" on 5.1: it is a List[T].
+    $aiByHost = Group-ByHost $active
+    foreach ($h in $hosts.ToArray()) {
+        $apH = @(Get-AttackPathStatus -Hosts @($h) -Findings @(Get-HostItems $aiByHost $h.Name))
+        $chains = @(@($apH | Where-Object { @($_.Complete).Count -gt 0 }) | ForEach-Object {
+                [PSCustomObject]@{
+                    Id     = "$($_.Id)"
+                    Stages = @(@($_.Steps | Where-Object { $_.State -eq 'open' }) | ForEach-Object { [PSCustomObject]@{ Stage = "$($_.StageId)"; Checks = [string[]]@($_.HitChecks) } })
+                }
+            })
+        Add-Member -InputObject $h -NotePropertyName AiChains -NotePropertyValue $chains -Force
+    }
     $hostOrder = @($hosts | Sort-Object { $_.Score.Score }, Name | ForEach-Object { $_.Name })
     Step-Spinner 'Replacing names with tokens'
     $pz = New-HostPseudonymizer -Snapshots @($latest.Values) -Findings $aiFindings -HostOrder $hostOrder

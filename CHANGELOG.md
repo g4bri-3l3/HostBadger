@@ -6,6 +6,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
+## [3.1] - 2026-11-17
+### Added
+- The optional AI step now knows about the attack paths. The prompt carries, per
+  host, the chains every stage of which has an enabling condition on that same
+  host, stage by stage with the checks that opened each stage, and the system
+  instruction tells the model what a chain is: it breaks as soon as **one** stage
+  is closed, so the work package that breaks it has to say which stage it breaks
+  and why that one is the cheapest or least disruptive to close. A host carrying
+  a complete chain outranks a host with more findings and no chain. The model is
+  told not to invent chains, and that a complete chain means the conditions are
+  present, never that a host has been compromised.
+- The chains are computed by the tool, as everywhere else: the model reasons
+  about them, it does not build them. Nothing about them changes the report, the
+  score or the deterministic panel.
+- The report summary block gains `attackPaths.chains` (added, nothing renamed):
+  the complete chains with their stages and the checks that opened them, which is
+  what `-AiReport` reads back so that its prompt is byte for byte the prompt of
+  the analysis (the regression compares the two).
+
+### Fixed
+- Chains reach the prompt by **id**, not by title. A chain named "Domain
+  controller taken from the network" came back from the pseudonymizer as "USER-9
+  controller taken from the network", because the title carries words that are
+  also account names; worse, the two paths numbered that token differently, so
+  the `-AiReport` prompt and the analysis prompt were no longer identical.
+
 ## [3.0] - 2026-11-17
 ### Added
 - **Attack paths**: the findings read as chains instead of one weakness at a

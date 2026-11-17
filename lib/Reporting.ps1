@@ -398,6 +398,16 @@ function ConvertTo-ReportSummaryJson {
                         partial  = @($apH | Where-Object { @($_.Partial).Count -gt 0 }).Count
                         judged   = @($apH | Where-Object { @($_.Unjudged).Count -eq 0 }).Count
                         total    = $apH.Count
+                        # The complete chains stage by stage, with the checks that opened each stage:
+                        # what -AiReport reads back to build the same prompt as the analysis. Ids, not
+                        # titles: a chain named "Domain controller taken from the network" would have
+                        # the word Domain replaced by a token before the prompt is sent.
+                        chains   = @(@($apH | Where-Object { @($_.Complete).Count -gt 0 }) | ForEach-Object {
+                                [ordered]@{
+                                    id     = "$($_.Id)"
+                                    stages = @(@($_.Steps | Where-Object { $_.State -eq 'open' }) | ForEach-Object { [ordered]@{ stage = "$($_.StageId)"; checks = [string[]]@($_.HitChecks) } })
+                                }
+                            })
                     })
                 trend = $(if ($hostItem.Trend) { @(@($hostItem.Trend.Points) | ForEach-Object { [ordered]@{ collected = $_.Collected.ToString('yyyy-MM-dd HH:mm') + ' UTC'; score = [int]$_.Score; grade = "$($_.Grade)" } }) } else { @() })
                 scoreChange = $(if ($hostItem.Trend -and $hostItem.Trend.Previous) { [int]$hostItem.Trend.Change } else { $null })
@@ -468,7 +478,15 @@ function Import-ReportForAi {
         $ne = @(foreach ($n in @($x.notEvaluated | Where-Object { $_ })) {
                 if ($byTitle.ContainsKey("$($n.title)")) { [PSCustomObject]@{ Host = "$($x.name)"; Type = $byTitle["$($n.title)"]; Title = "$($n.title)"; Reason = "$($n.reason)" } }
             })
-        $hostList.Add([PSCustomObject]@{ Name = "$($x.name)"; Role = "$($x.role)"; Os = "$($x.os)"; Collected = "$($x.collected)"; Score = [PSCustomObject]@{ Score = [int]$x.score; Grade = "$($x.grade)" }; NotEvaluated = $ne })
+        # The attack paths complete on this host, as the analysis computed them: the AI prompt says the
+        # same thing here as it does after an analysis (the regression compares the two).
+        $chains = @(@($x.attackPaths.chains | Where-Object { $_ }) | ForEach-Object {
+                [PSCustomObject]@{
+                    Id     = "$($_.id)"
+                    Stages = @(@($_.stages | Where-Object { $_ }) | ForEach-Object { [PSCustomObject]@{ Stage = "$($_.stage)"; Checks = [string[]]@($_.checks) } })
+                }
+            })
+        $hostList.Add([PSCustomObject]@{ Name = "$($x.name)"; Role = "$($x.role)"; Os = "$($x.os)"; Collected = "$($x.collected)"; Score = [PSCustomObject]@{ Score = [int]$x.score; Grade = "$($x.grade)" }; NotEvaluated = $ne; AiChains = $chains })
     }
     $comparison = $null
     if ($summary.comparison) {
