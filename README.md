@@ -11,6 +11,11 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![OpenSSF Baseline](https://www.bestpractices.dev/projects/15495/baseline)](https://www.bestpractices.dev/projects/15495)
 
+**[Watch the walkthrough](https://youtu.be/gBmsLPddcrw)** &middot; **[Open the
+demo report](https://g4bri-3l3.github.io/HostBadger/demo/demo_report.html)** (no
+install: it is one HTML file of a synthetic fleet) &middot;
+**[Site](https://g4bri-3l3.github.io/HostBadger)**
+
 ![A tour of the demo report](examples/demo_report.gif)
 
 ## Summary
