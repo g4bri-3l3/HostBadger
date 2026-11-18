@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>HostBadger - Windows host hardening auditor</title>
-<meta name="description" content="HostBadger reads a Windows host once, read-only, and judges the snapshot offline against CIS, DISA STIG, the ACSC Essential Eight and the ACN basic measures. 234 checks, 10 attack paths, a report you can open in a browser.">
+<meta name="description" content="HostBadger reads a Windows host once, read-only, and judges the snapshot offline against CIS, DISA STIG, the ACSC Essential Eight and the ACN basic measures. 234 checks, 15 attack paths, a report you can open in a browser.">
 <style>
   :root {
     --paper: #F3EFE6; --surface: #FFFDF8; --tint: #E8E2D4; --ink: #161513; --muted: #5F5A51;
-    --red: #E2372A; --red-soft: #FBD9D2; --amber: #F2B632; --green: #6E8B5F;
+    --red: #E2372A; --red-soft: #FBD9D2; --amber: #F2B632; --green: #6E8B5F; --required: #3F6B3A;
     --line: 3px solid var(--ink);
     --shadow: 7px 7px 0 var(--ink); --shadow-sm: 4px 4px 0 var(--ink); --shadow-xs: 3px 3px 0 var(--ink);
     --display: "Bahnschrift", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
@@ -60,6 +60,8 @@
   svg.chain .chain-ok rect { fill: #DCE9CE; }
   svg.chain .chain-unk rect { fill: var(--tint); stroke-dasharray: 4 3; }
   svg.chain .chain-unk text { fill: var(--muted); }
+  svg.chain .chain-break rect { stroke-width: 4; stroke: var(--required); }
+  svg.chain .chain-break text { fill: var(--required); font-weight: 700; }
   svg.chain .chain-arrow line { stroke: var(--ink); stroke-width: 2; }
   svg.chain .chain-arrow polygon { fill: var(--ink); }
   .legend { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 14px; }
@@ -86,7 +88,7 @@
    &#39;._   \/   _.&#39;
       &#39;--..--&#39;</pre>
   <div>
-    <span class="pill">v3.1 &middot; MIT &middot; PowerShell 5.1 and 7</span>
+    <span class="pill">v3.2 &middot; MIT &middot; PowerShell 5.1 and 7</span>
     <h1>HostBadger</h1>
     <p class="lede">A Windows host hardening auditor. One read-only script collects the host, the
     analysis runs anywhere else, offline, and the report says what is weak, what it means and what
@@ -94,13 +96,13 @@
     <div class="btns">
       <a class="btn primary" href="demo/demo_report.html">Open the live report</a>
       <a class="btn" href="https://github.com/g4bri-3l3/HostBadger">Code on GitHub</a>
-      <a class="btn" href="https://github.com/g4bri-3l3/HostBadger/archive/refs/tags/v3.1.zip">Download v3.1</a>
+      <a class="btn" href="https://github.com/g4bri-3l3/HostBadger/archive/refs/tags/v3.2.zip">Download v3.2</a>
     </div>
   </div>
 </header>
 
 <section>
-  <div class="nums"><div class='num'><b>234</b><span>checks</span></div><div class='num'><b>1475</b><span>DISA STIG rules</span></div><div class='num'><b>32</b><span>attack vectors mapped</span></div><div class='num'><b>10</b><span>attack paths</span></div><div class='num'><b>65</b><span>checks with a fix script</span></div><div class='num'><b>0</b><span>network calls in the analysis</span></div></div>
+  <div class="nums"><div class='num'><b>234</b><span>checks</span></div><div class='num'><b>1475</b><span>DISA STIG rules</span></div><div class='num'><b>32</b><span>attack vectors mapped</span></div><div class='num'><b>15</b><span>attack paths</span></div><div class='num'><b>65</b><span>checks with a fix script</span></div><div class='num'><b>0</b><span>network calls in the analysis</span></div></div>
   <p class="meta" style="margin-top:14px">Every number on this page is generated from the catalogs in the repository, so it cannot promise a check, a rule or a release the tool does not ship.</p>
 </section>
 
@@ -147,10 +149,10 @@
 
 <section>
   <h2>Attack paths</h2>
-  <p>New in v3.0: the findings read as chains instead of one weakness at a time. 10 chains tie
-  each stage - initial access, execution, privilege escalation, defence evasion, credential access,
-  lateral movement, persistence, impact - to the checks that look for the condition that stage needs,
-  and the dashboard draws them per host.</p>
+  <p>The findings read as chains instead of one weakness at a time. 15 chains tie each stage -
+  initial access, execution, privilege escalation, defence evasion, credential access, lateral
+  movement, persistence, impact - to the checks that look for the condition that stage needs, and the
+  dashboard draws them per host.</p>
   <div class="chainbox">
     <svg class='chain' viewBox='0 0 540 42' width='540' height='42' role='img' aria-label='Initial access: condition present; Execution: condition present; Defence evasion: not judged; Credential access: condition present; Lateral movement: nothing found'><g class='chain-open'><title>Initial access: condition present</title><rect x='0' y='2' width='92' height='38' rx='9' ry='9'/><text x='46' y='25' text-anchor='middle'>Access</text></g><g class='chain-arrow'><line x1='94' y1='21' x2='106' y2='21'/><polygon points='105,18 111,21 105,24'/></g><g class='chain-open'><title>Execution: condition present</title><rect x='112' y='2' width='92' height='38' rx='9' ry='9'/><text x='158' y='25' text-anchor='middle'>Exec</text></g><g class='chain-arrow'><line x1='206' y1='21' x2='218' y2='21'/><polygon points='217,18 223,21 217,24'/></g><g class='chain-unk'><title>Defence evasion: not judged</title><rect x='224' y='2' width='92' height='38' rx='9' ry='9'/><text x='270' y='25' text-anchor='middle'>Evasion</text></g><g class='chain-arrow'><line x1='318' y1='21' x2='330' y2='21'/><polygon points='329,18 335,21 329,24'/></g><g class='chain-open'><title>Credential access: condition present</title><rect x='336' y='2' width='92' height='38' rx='9' ry='9'/><text x='382' y='25' text-anchor='middle'>Creds</text></g><g class='chain-arrow'><line x1='430' y1='21' x2='442' y2='21'/><polygon points='441,18 447,21 441,24'/></g><g class='chain-ok'><title>Lateral movement: nothing found</title><rect x='448' y='2' width='92' height='38' rx='9' ry='9'/><text x='494' y='25' text-anchor='middle'>Lateral</text></g></svg>
     <div class="legend">
@@ -162,7 +164,9 @@
   <p class="meta" style="margin-top:14px">A chain is drawn for one host, the worst of those in view:
   the stages of several hosts put together would show a chain that none of them has. A complete chain
   means every stage has an enabling condition on that one host - evidence worth acting on, not proof
-  that anyone walked it.</p>
+  that anyone walked it. A chain holds only while every stage of it stays open, so the report names
+  the one stage that is cheapest to close: first a stage whose findings all have a fix script, then
+  the one with the fewest settings to change.</p>
   <p>The same discipline applies to the 32 attack vectors of 2022-2026 that the report maps:
   only the checks that look for the condition a vector needs decide whether a host is exposed; a check
   that merely makes it worse is shown as context, and never counted as exposure.</p>
@@ -234,7 +238,7 @@
 </div>
 <footer>
   <div class="wrap meta">
-    HostBadger v3.1 &middot; MIT licence &middot; built from the repository, with no tracking and
+    HostBadger v3.2 &middot; MIT licence &middot; built from the repository, with no tracking and
     no third-party asset on this page. The demo report is synthetic data: no real host appears in it.
   </div>
 </footer>

@@ -61,6 +61,11 @@ Assert-Equal @($dc.Findings).Count 31 'dc: total findings'
 Assert-Equal @($part.Findings).Count 3 'partial: total findings'
 $all = @($weak.Findings) + @($hard.Findings) + @($lap.Findings) + @($dc.Findings) + @($part.Findings)
 Assert-Equal ((@('Critical', 'High', 'Medium', 'Low') | ForEach-Object { $s = $_; @($all | Where-Object { $_.Severity -eq $s }).Count }) -join '/') '2/89/150/138' 'fleet: severity split'
+# A date in a finding is the date the snapshot holds, never the one this engine formats: ConvertFrom-Json
+# turns an ISO string into a DateTime on PowerShell 7 and leaves it a string on 5.1, so interpolating
+# the value as it comes wrote "09/28/2026 23:41:00" on one engine and "2026-09-28T23:41:00Z" on the
+# other - the same snapshot gave two different reports (ConvertTo-UtcText, ConvertTo-EolDateText).
+Assert-Equal (@($all | Where-Object { "$($_.Detail) $($_.Object) $($_.Found) $($_.Expected)" -match '\b\d{1,2}/\d{1,2}/\d{4}\b' } | ForEach-Object { "$($_.Type): $($_.Detail)" } | Select-Object -First 3) -join ' | ') '' 'findings quote the dates of the snapshot, never a date this engine formatted'
 # A STIG value no policy sets, with the setting in effect compliant (the weak host's firewall profiles are on): still a finding, at Low.
 $effFw = @($weak.Findings | Where-Object { $_.Type -eq 'stig_firewall' -and $_.Found -like 'not configured (in effect:*' })
 Assert-True ($effFw.Count -eq 3 -and @($effFw | Where-Object { $_.Severity -ne 'Low' }).Count -eq 0 -and $effFw[0].Detail -match 'setting in effect is compliant') 'STIG: a rule no policy sets but compliant in effect is a Low finding that says so'
@@ -538,6 +543,46 @@ $apBlockChains = @(@($apBlock.hosts | Where-Object { $_.name -eq 'WKS-ACCT-017' 
 Assert-True ($apBlockChains.Count -gt 0 -and @($apBlockChains | Where-Object { -not $_.id -or @($_.stages).Count -eq 0 }).Count -eq 0) 'report: the overview block carries the complete chains with their stages'
 Assert-Equal (@($apBlockChains | ForEach-Object { "$($_.id)" } | Where-Object { @(@((Get-AttackPaths).paths) | ForEach-Object { "$($_.id)" }) -notcontains $_ }) -join ',') '' 'the overview block names only chains of attack-paths.json'
 Assert-Equal (@($apBlockChains | ForEach-Object { @($_.stages) } | ForEach-Object { @($_.checks) } | Where-Object { -not $script:CheckCatalog.Contains("$_") }) -join ',') '' 'every check in a chain of the overview block is in the catalog'
+# Where to break a chain: only a chain complete on the host it is drawn for carries one, the stage is
+# open there, exactly one stage is marked, and nothing cheaper was left aside (a stage every reported
+# check of which has a fix script counts first, then the fewest checks, then the earliest stage).
+$apBreak = @($apFleet | Where-Object { $_.Break })
+Assert-True ($apBreak.Count -gt 0) 'attack paths: a complete chain says which stage breaks it'
+Assert-Equal (@($apFleet | Where-Object { $_.Break -and @($_.Complete).Count -eq 0 }).Count) 0 'attack paths: a chain complete on no host names no stage to break'
+$apBreakBad = @()
+foreach ($apP in $apBreak) {
+    $apMark = @($apP.Steps | Where-Object { $_.IsBreak })
+    if ($apMark.Count -ne 1) { $apBreakBad += "$($apP.Id): $($apMark.Count) stage(s) marked"; continue }
+    if ("$($apMark[0].StageId)" -ne "$($apP.Break.StageId)") { $apBreakBad += "$($apP.Id): marks $($apMark[0].StageId)" }
+    if ("$($apMark[0].State)" -ne 'open') { $apBreakBad += "$($apP.Id): the marked stage is not open" }
+    if ((@($apMark[0].DrawnChecks) -join ',') -ne (@($apP.Break.Checks) -join ',')) { $apBreakBad += "$($apP.Id): checks other than the drawn host's" }
+    foreach ($apS in @($apP.Steps | Where-Object { $_.State -eq 'open' -and -not $_.IsBreak })) {
+        $apFixable = @(@($apS.DrawnChecks) | Where-Object { $script:FixTypes.ContainsKey("$_") }).Count -eq @($apS.DrawnChecks).Count
+        if ($apFixable -and -not [bool]$apP.Break.Scripted) { $apBreakBad += "$($apP.Id)/$($apS.StageId) has a script for every check" }
+        if ($apFixable -eq [bool]$apP.Break.Scripted -and @($apS.DrawnChecks).Count -lt @($apP.Break.Checks).Count) { $apBreakBad += "$($apP.Id)/$($apS.StageId) takes fewer settings" }
+    }
+}
+Assert-Equal ($apBreakBad -join '; ') '' 'attack paths: one open stage is marked, it names what reported on the host the chain is drawn for, and no other open stage of it is cheaper'
+$apRelay = @($apFleet | Where-Object { $_.Id -eq 'relay_to_lateral' })[0]
+Assert-Equal "$($apRelay.Break.StageId)" 'lateral_movement' 'attack paths: the relay chain is broken where signing is required, the one stage with a fix script for every check that reported'
+Assert-True ([bool]$apRelay.Break.Scripted -and [int]$apRelay.Break.FixCount -eq @($apRelay.Break.Checks).Count) 'attack paths: a stage every reported check of which has a fix script is marked as such'
+# A host the chain is not judged on (its role leaves fewer than two stages) must leave nothing in the
+# stages of the hosts it was read with, and a stage lists its checks in its own order, not in the order
+# the hosts happened to be given in.
+$apStepBad = @()
+foreach ($apP in $apFleet) {
+    $apJudgedOn = @(@($apP.Complete) + @($apP.Partial) + @($apP.Blocked) + @($apP.Unjudged))
+    foreach ($apS in @($apP.Steps)) {
+        foreach ($apN in @(@($apS.OpenHosts) + @($apS.BlindHosts))) { if ($apJudgedOn -notcontains $apN) { $apStepBad += "$($apP.Id)/$($apS.StageId): $apN" } }
+        $apOrder = @(@($apS.Checks) | Where-Object { @($apS.HitChecks) -contains $_ })
+        if ((@($apS.HitChecks) -join ',') -ne ($apOrder -join ',')) { $apStepBad += "$($apP.Id)/$($apS.StageId): order" }
+    }
+}
+Assert-Equal ($apStepBad -join '; ') '' 'attack paths: a stage names only hosts the chain is judged on, with its checks in the order of the stage'
+Assert-True ($html -match 'Break it at: ' -and $html -match "class='chain-open chain-break'" -and $html -match 'close this one first') 'report: the panel says where to break a complete chain and outlines that stage'
+Assert-True (@($apSum.attack_paths_break).Count -gt 0 -and @($apSum.attack_paths_break | Where-Object { "$_" -notmatch '^[a-z0-9_]+:[a-z0-9_]+$' }).Count -eq 0 -and @($apSum.attack_paths_break_checks).Count -gt 0) 'JSON Lines: the host summary carries the stage that breaks each complete chain and the checks to settle'
+Assert-Equal (@($apSumLap.attack_paths_break).Count) 0 'JSON Lines: a host with no complete chain names no stage to break'
+Assert-Equal (@($apBlockChains | Where-Object { -not $_.break -or @($_.breakChecks).Count -eq 0 } | ForEach-Object { "$($_.id)" }) -join ',') '' 'report: every complete chain of the overview block carries the stage that breaks it (what -AiReport reads back)'
 
 # Exceptions and comparison on a second run where the weak host fixed UAC.
 $fixed = Join-Path $work 'fleet2'
@@ -888,6 +933,9 @@ Assert-True ($prompt -notmatch 'failed: ') 'collector error messages never reach
 # The chains the tool computed reach the prompt as facts, by id: a chain title would carry words the
 # pseudonymizer replaces (a chain named "Domain controller ..." came back as "USER-9 controller").
 Assert-True ($prompt -match 'Attack paths complete on a host' -and $prompt -match '(?m)^- HOST-\d+ \| [a-z0-9_]+: [a-z0-9_]+ \[[a-z0-9_, ]+\] -> ') 'AI prompt carries the complete attack paths, by chain and stage id'
+# The stage the tool judged cheapest to close goes with the chain: the model is asked to start from it,
+# so it must be a fact of the prompt and not something the model picks on its own.
+Assert-True ($prompt -match '(?m)^- HOST-\d+ \| [a-z0-9_]+: .+ \| cheapest stage to close: [a-z0-9_]+ \(\d+ check\(s\), \d+ with a fix script\)$' -and $prompt -match 'may\s+end with "cheapest stage to close"') 'AI prompt: every complete chain carries the stage the tool judged cheapest to close, and the instruction to start from it'
 Assert-True ($prompt -match 'breaking any one stage breaks the chain') 'AI prompt says what a chain is before listing them'
 $promptChainIds = @([regex]::Matches($prompt, '(?m)^- HOST-\d+ \| ([a-z0-9_]+): ') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
 $catalogChainIds = @(@((Get-AttackPaths).paths) | ForEach-Object { "$($_.id)" })
@@ -905,6 +953,20 @@ $pzSnaps = @(Get-ChildItem $fleet -Filter *.json | ForEach-Object { Import-HostS
 $pzFind = @($all)
 $pzTest = New-HostPseudonymizer -Snapshots $pzSnaps -Findings $pzFind
 Assert-True (@(Test-AiLeak -Pz $pzTest -Text 'the account jsmith on WKS-ACCT-017').Count -ge 2) 'leak check flags names that survive'
+# The order the names are replaced in has to be total: a Hashtable hands its keys over in a different
+# order in every process (string hashing is randomized) and Sort-Object is not a stable sort, so with
+# the length as the only key the tokens came out numbered differently at every run. Two runs of the
+# same analysis then wrote two different prompts, and the prompt kept next to a report was not the
+# text that had been sent. Longest first (a name that contains a shorter one goes first), then ordinal.
+$pzOrd = @($pzTest.Ordered)
+$pzOrdBad = @()
+for ($pzI = 1; $pzI -lt $pzOrd.Count; $pzI++) {
+    $pzA = "$($pzOrd[$pzI - 1])"; $pzB = "$($pzOrd[$pzI])"
+    if ($pzB.Length -gt $pzA.Length) { $pzOrdBad += "$pzA before the longer $pzB" }
+    elseif ($pzB.Length -eq $pzA.Length -and [System.String]::CompareOrdinal($pzA, $pzB) -ge 0) { $pzOrdBad += "$pzA before $pzB" }
+}
+Assert-Equal (@($pzOrdBad | Select-Object -First 3) -join '; ') '' 'AI: the names are replaced longest first and then in ordinal order, so the same analysis numbers the tokens the same way at every run'
+Assert-Equal $pzOrd.Count @($pzTest.Candidates.Keys).Count 'AI: every candidate name is in that order, none dropped'
 # The per-user AlwaysInstallElevated policy names a profile, and the finding prints it: a name that is
 # nowhere else in the snapshot must still be tokenized before anything is sent.
 $pzAie = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_weak.json')
@@ -1933,7 +1995,10 @@ Assert-True ($pmOut.Count -eq 1 -and $pmFile.Count -eq 1 -and $pmText -match '# 
 Assert-True ($guiOut -match 'Apply question: shown Visible True, withdrawn Collapsed False') "window: the apply question is a panel in the Fix tab, not a dialog ($($guiOut -replace '\s+', ' '))"
 Assert-True ($guiOut -match 'AI offer: Send to Gemini / Dry run \(write the prompt only\) / Not now; send with a key True, without False') "window: the AI question after an analysis, no send without the key ($($guiOut -replace '\s+', ' '))"
 $aiGui = [System.IO.File]::ReadAllText((Join-Path $root 'Start-HostBadgerGui.ps1'))
-Assert-True ($aiGui -match "elseif \(\`$ok\) \{ \`$ui\.Tabs\.SelectedItem = \`$ui\.TabResults; Invoke-AiOffer \}" -and $aiGui -match "\`$ai = @\{ AiReport = \`$target; Snapshot = \`$sources \}" -and $aiGui -match 'if \(-not \$script:Kept -and -not \(Select-AiReport\)\) \{ return \}' -and $aiGui -notmatch 'analyzed again into') 'window: the AI question follows an analysis, and with no analysis in memory the AI buttons ask for a report and never analyze'
+Assert-True ($aiGui -match "elseif \(\`$ok\) \{ Invoke-AiOffer; if \(\`$script:AiRunning\) \{ \`$script:ResultsAfterAi = \`$true \} else \{ \`$ui\.Tabs\.SelectedItem = \`$ui\.TabResults \} \}" -and $aiGui -match "\`$ai = @\{ AiReport = \`$target; Snapshot = \`$sources \}" -and $aiGui -match 'if \(-not \$script:Kept -and -not \(Select-AiReport\)\) \{ return \}' -and $aiGui -notmatch 'analyzed again into') 'window: the AI question follows an analysis, the findings wait for an AI step that runs, and with no analysis in memory the AI buttons ask for a report and never analyze'
+# The log and the progress bar are on the Analyze tab (repeated on the Fix tab), not on Results: an AI
+# step runs where it can be watched, and the findings come up when it is over, not while it sends.
+Assert-True ($aiGui -match "if \(\`$ui\.Tabs\.SelectedItem -eq \`$ui\.TabResults\) \{ \`$ui\.Tabs\.SelectedItem = \`$ui\.TabRun \}" -and $aiGui -match "if \(@\(\`$t\.Lines \| Where-Object \{ \`$_ -like 'AI section added to\*' \}\)\.Count\) \{ \`$ui\.Tabs\.SelectedItem = \`$ui\.TabResults \}") 'window: an AI step runs on the tab that carries the log, and the findings follow only once its section is in the report'
 Assert-True ($guiOut -match 'Fix reuse: recent True, older False, other options False, same choices elsewhere True, other choices False') "window: Fix this machine reuses only a recent collection with the same options, and its analysis only with the same choices ($($guiOut -replace '\s+', ' '))"
 # Opening the report is offered when nothing will rewrite it any more: at the end of the AI question
 # when no AI step runs, and from the AI task itself when one does. -NoShow never shows a dialog.

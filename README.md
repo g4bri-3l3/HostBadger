@@ -720,11 +720,26 @@ produced.
 | Browser extension to the session cookies | access, credentials | workstation, server |
 | Ransomware with the brakes off | evasion, impact | all |
 | Domain controller taken from the network | access, credentials, lateral | domain controller |
+| Known-vulnerable software to code on the host | access, execution, evasion | all |
+| Anonymous access to a local administrator account | access, credentials, lateral | all |
+| Print spooler to SYSTEM | privilege escalation, persistence, evasion | all |
+| Secrets left on the disk to a privileged account | credentials, privilege escalation, lateral | all |
+| Removable media to execution | access, execution, persistence | workstation, server |
+
+**Where to break it.** A chain holds only while every stage of it stays open, so
+one stage is enough to break it. For every chain complete on the host it is
+drawn for, the report names the stage that is cheapest to close: first a stage
+whose reported checks all have a [fix script](#fix-scripts), then the one
+with the fewest checks to settle, then the earliest stage of the chain. That
+stage is outlined in the drawing and the panel says what closing it costs; the
+other open stages are listed as they were, because the cheapest stage is where
+to start, not the only one that matters.
 
 Every stage with its checks is in
 [`COVERAGE.md`](COVERAGE.md#attack-paths), and the JSON Lines host summary
 carries `attack_paths_complete`, `attack_paths_partial`, `attack_paths_judged`,
-`attack_paths_total` and `attack_paths_open_stages`.
+`attack_paths_total`, `attack_paths_open_stages`, `attack_paths_break`
+(`<chain>:<stage>`) and `attack_paths_break_checks`.
 
 ### EDR agents
 

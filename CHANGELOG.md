@@ -6,6 +6,70 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
+## [3.2] - 2026-11-18
+### Added
+- **Where to break a chain.** A chain holds only while every stage of it stays
+  open, so closing one stage is enough. For every chain complete on the host it
+  is drawn for, the analysis now names the stage that is cheapest to close: the
+  stage whose reported checks all have a generated fix script comes first, then
+  the one with the fewest checks to settle, then the earliest stage. The
+  dashboard outlines that stage in the chain, says what closing it costs ("3
+  setting(s), each with a fix script in this report") and names the checks; the
+  stages it did not pick are listed as before, so the panel suggests where to
+  start without saying the rest does not matter.
+- Five chains more in `data\attack-paths.json`, fifteen in all:
+  known-vulnerable software to code on the host, anonymous access to a local
+  administrator account, print spooler to SYSTEM (PrintNightmare and the
+  point-and-print bypasses after it), secrets left on the disk to a privileged
+  account, and removable media to execution.
+- Ten checks joined the stages of the chains that were already there
+  (`autostart_target_missing` and `safe_dll_search_off` as places to write that
+  a privileged process reads, `edr_expected_missing` as an agent that is not
+  there, `defender_threat_action_allow` and `defender_protection_features_off`
+  as ransomware brakes, plus `rdp_policy_gaps`, `office_addin_unsigned`,
+  `ldap_client_encryption_weak`, `inactivity_lock_missing` and
+  `anonymous_sam_enum`): 163 of the catalog's checks are now a stage of a chain,
+  against 115 before.
+- The AI step reads the same suggestion. Every chain line of the prompt ends
+  with the stage the tool judged cheapest to close and what it costs, and the
+  system instruction tells the model to start from it and to say why if it
+  closes another stage instead. The report summary block gains `chains[].break`,
+  `breakChecks` and `breakFixes` (added, nothing renamed), so `-AiReport` builds
+  the prompt of the analysis it reads.
+- JSON Lines, host summary: `attack_paths_break` (`<chain>:<stage>` per complete
+  chain) and `attack_paths_break_checks` (the checks to settle for them).
+
+### Fixed
+- A host a chain is not judged on (its role left fewer than two stages of it)
+  could still leave its name and its checks inside the stages of the hosts it
+  was read with. The hosts and checks of a stage are now counted only once the
+  chain is known to be judged on that host. The recent-attacks panel had the
+  same hole for the context checks of a vector whose own checks do not apply to
+  a role: it read them on a host the vector says nothing about.
+- A stage listed the checks that reported in the order the hosts happened to be
+  given in. It lists them in the order of the stage, so the same chain reads the
+  same way whatever order the hosts come in.
+- **The AI prompt was not reproducible.** The names to replace were ordered by
+  length alone, and a Hashtable hands its keys over in a different order in every
+  process (string hashing is randomized) while `Sort-Object` is not a stable
+  sort: two runs of the same analysis numbered the tokens differently, so the
+  prompt kept next to a report was not the text that had been sent. The order is
+  now total: longest first, then ordinal.
+- **The same snapshot gave a different report on 5.1 and on 7.** Two findings
+  printed a timestamp of the snapshot as it came out of `ConvertFrom-Json`, which
+  on PowerShell 7 is a `DateTime` and on 5.1 a string: the WinRE image date and
+  the code integrity policy date read "09/28/2026 23:41:00" on one engine and
+  "2026-09-28T23:41:00Z" on the other. Both go through the new
+  `ConvertTo-UtcText` (`lib\Common.ps1`), and the KEV `dateAdded` and the EPSS
+  date of a kept catalog through `ConvertTo-EolDateText`. The regression fails on
+  any finding that quotes a date the engine formatted.
+- The window no longer jumps to the Results tab before the AI step it is about
+  to start: the log and the progress bar are on the Analyze tab and the Results
+  tab has neither, so confirming a send to Gemini left the step running out of
+  sight and its outcome (the section written, or why it was not) in a log nobody
+  was looking at. The findings now come up when the section is in the report,
+  and an AI step started from the Results tab brings the window back to the log.
+
 ## [3.1] - 2026-11-17
 ### Added
 - The optional AI step now knows about the attack paths. The prompt carries, per

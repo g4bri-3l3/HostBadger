@@ -69,7 +69,7 @@ if (-not $Browser) { throw 'No Edge or Chrome found. Pass -Browser <path to msed
 $plan = @(
     @{ Sel = '.dash-hero'; Idx = 0; Text = ''; Caption = 'Dashboard: the hardening score of the fleet, findings by severity and how many have a fix script; a selector switches to one host.' }
     @{ Sel = '.dash-grid'; Idx = 0; Text = ''; Caption = 'DISA STIG compliance by product and release, CIS-based compliance, and the ACSC Essential Eight strategies the checks bear on.' }
-    @{ Sel = '.dash-paths'; Idx = 0; Text = ''; Caption = 'Attack paths: the chains the findings form, stage by stage, drawn for one host. A filled stage means the condition it needs is there, a grey one that nothing about it could be judged.' }
+    @{ Sel = '.dash-paths'; Idx = 0; Text = ''; Caption = 'Attack paths: the chains the findings form, stage by stage, drawn for one host. A filled stage means the condition it needs is there, a grey one that nothing about it could be judged, and the outlined stage is the one that is cheapest to close: a chain holds only while every stage stays open.' }
     @{ Sel = '.dash-cats'; Idx = 0; Text = ''; Caption = 'Hardening categories, then the top risks, each with the attacks it enables.' }
     @{ Sel = '.chart-row'; Idx = 0; Text = ''; Caption = 'DISA STIG and CIS compliance, findings by severity and category, administrators vs standard users, software, missing updates, hosts by grade.' }
     @{ Sel = 'summary h2'; Idx = 0; Text = 'Hosts'; Caption = 'Every host: role, operating system, grade and score, findings by severity, checks not evaluated and the EDR agent it runs.' }

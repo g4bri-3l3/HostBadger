@@ -285,8 +285,17 @@ function New-HostPseudonymizer {
         }
     }
 
-    # Longest first, so that "WKS-ACCT-017.corp.example" is replaced before "WKS-ACCT-017".
-    $pz.Ordered = @($pz.Candidates.Keys | Sort-Object { $_.Length } -Descending)
+    # Longest first, so that "WKS-ACCT-017.corp.example" is replaced before "WKS-ACCT-017", and within
+    # one length by the name itself, ordinal. The order has to be total: Sort-Object is not a stable
+    # sort, so two names of the same length came out in a different order at every run and the tokens
+    # were numbered differently each time (two runs on the same snapshot wrote two different prompts,
+    # and the prompt kept next to a report did not match the one that had been sent). The key is the
+    # length, complemented so that it sorts descending, followed by the name; [Array]::Sort with an
+    # ordinal comparer then depends on nothing but the names themselves.
+    $keys = [string[]]@($pz.Candidates.Keys)
+    $sortKeys = [string[]]@($keys | ForEach-Object { ('{0:D5}' -f (99999 - $_.Length)) + $_ })
+    [Array]::Sort($sortKeys, $keys, [System.StringComparer]::Ordinal)
+    $pz.Ordered = @($keys)
     $pz.DomainSuffixes = @($suffixes | Select-Object -Unique)
     # Hosts first, in the order of the listing, so the tokens read HOST-1, HOST-2... in the order of
     # the table.
@@ -417,7 +426,11 @@ checks that opened each stage. The tool computed them; do not invent chains,
 stages or hosts that are not listed. Use them for ordering, not for drama: a
 chain breaks as soon as ONE of its stages is closed, so for each chain say in
 the rationale of the work package that breaks it which stage it breaks and why
-that stage is the cheapest or least disruptive one to close. A host carrying a
+that stage is the cheapest or least disruptive one to close. A chain line may
+end with "cheapest stage to close": that is the tool's own count of what each
+stage costs (how many checks have to be settled, how many of them have a
+generated fix script). Start from it, and pick another stage only if you say
+why that one is better to close on that host. A host carrying a
 complete chain outranks a host with more findings but no chain. A complete
 chain means the conditions are present, not that an attack happened: never
 write that a host has been compromised.
@@ -504,7 +517,10 @@ function New-AiPromptRaw {
                 # Chain and stage ids, like the check ids: a chain title would carry words (Domain,
                 # Office, Access) that the pseudonymizer replaces with a token.
                 $stages = (@($c.Stages) | ForEach-Object { "$($_.Stage) [$(@($_.Checks) -join ', ')]" }) -join ' -> '
-                $lines.Add("- $($h.Name) | $($c.Id): $stages")
+                # The stage the tool judged cheapest to close, when it computed one: fewest checks to
+                # settle, a generated fix script for each of them where there is one.
+                $brk = if ($c.Break) { " | cheapest stage to close: $($c.Break.StageId) ($(@($c.Break.Checks).Count) check(s), $([int]$c.Break.FixCount) with a fix script)" } else { '' }
+                $lines.Add("- $($h.Name) | $($c.Id): $stages$brk")
             }
         }
     }

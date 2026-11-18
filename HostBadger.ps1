@@ -353,7 +353,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:HostBadgerVersion = '3.1'
+$script:HostBadgerVersion = '3.2'
 . (Join-Path $PSScriptRoot 'lib\Common.ps1')
 . (Join-Path $PSScriptRoot 'lib\Checks.ps1')
 . (Join-Path $PSScriptRoot 'lib\AI.ps1')
@@ -363,7 +363,7 @@ $script:HostBadgerVersion = '3.1'
 Write-Host @'
      _.--""--._
    .'  |    |  '.
-  /    |    |    \      HostBadger v3.1
+  /    |    |    \      HostBadger v3.2
  |  (o)|    |(o)  |     Windows host hardening
  |     |    |     |     read-only snapshots, offline analysis
   \    '.__.'    /
@@ -392,9 +392,13 @@ $aiStep = {
     foreach ($h in $hosts.ToArray()) {
         $apH = @(Get-AttackPathStatus -Hosts @($h) -Findings @(Get-HostItems $aiByHost $h.Name))
         $chains = @(@($apH | Where-Object { @($_.Complete).Count -gt 0 }) | ForEach-Object {
+                $br = $_.Break
                 [PSCustomObject]@{
                     Id     = "$($_.Id)"
                     Stages = @(@($_.Steps | Where-Object { $_.State -eq 'open' }) | ForEach-Object { [PSCustomObject]@{ Stage = "$($_.StageId)"; Checks = [string[]]@($_.HitChecks) } })
+                    # The stage the tool judged cheapest to close, as the report's summary block carries
+                    # it: the model is asked to use it, not to guess one.
+                    Break  = $(if ($br) { [PSCustomObject]@{ StageId = "$($br.StageId)"; Checks = [string[]]@($br.Checks); FixCount = [int]$br.FixCount } } else { $null })
                 }
             })
         Add-Member -InputObject $h -NotePropertyName AiChains -NotePropertyValue $chains -Force

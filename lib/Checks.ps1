@@ -1584,7 +1584,9 @@ function ConvertFrom-KevCatalog {
     $out = New-Object System.Collections.Generic.List[object]
     foreach ($v in @($doc.vulnerabilities | ForEach-Object { $_ })) {
         if (-not $v.cveID) { continue }
-        $out.Add([PSCustomObject]@{ Cve = "$($v.cveID)"; Vendor = "$($v.vendorProject)"; Product = "$($v.product)"; Name = "$($v.vulnerabilityName)"; DateAdded = "$($v.dateAdded)"; Ransomware = ("$($v.knownRansomwareCampaignUse)" -eq 'Known') })
+        # dateAdded is a calendar date: ConvertTo-EolDateText keeps it as the catalog wrote it, whatever
+        # ConvertFrom-Json made of it on this engine (PowerShell 7 reads it as a local DateTime).
+        $out.Add([PSCustomObject]@{ Cve = "$($v.cveID)"; Vendor = "$($v.vendorProject)"; Product = "$($v.product)"; Name = "$($v.vulnerabilityName)"; DateAdded = (ConvertTo-EolDateText $v.dateAdded); Ransomware = ("$($v.knownRansomwareCampaignUse)" -eq 'Known') })
     }
     return $out.ToArray()
 }
@@ -2083,7 +2085,9 @@ function ConvertFrom-CveCatalog {
     if ($prod.Count -eq 0) { throw 'no product in this file' }
     $epss = @{}
     foreach ($e in @($doc.epss | ForEach-Object { $_ })) { if ("$($e.cve)") { $epss["$($e.cve)"] = [double]$e.epss } }
-    return @{ Products = $prod; Epss = $epss; EpssDate = "$($doc.epssDate)" }
+    # A kept catalog read back on PowerShell 7 hands the date over as a local DateTime: keep the
+    # calendar date as the file wrote it, or the finding would quote a different day per engine.
+    return @{ Products = $prod; Epss = $epss; EpssDate = (ConvertTo-EolDateText $doc.epssDate) }
 }
 
 function ConvertTo-CveCatalogJson {
@@ -2553,12 +2557,15 @@ function Get-RecentAttackCoverage {
         foreach ($h in $hostsArr) {
             $role = "$($h.Role)"
             $checks = @(@($a.checks) | Where-Object { $script:CheckCatalog.Contains($_) -and ($role -eq 'unknown' -or $script:CheckCatalog[$_].Roles -contains $role) })
+            # A vector none of whose own checks applies to this role is not judged on this host at all:
+            # its context must not be read there either, or the panel would name a host for a vector it
+            # says nothing about.
+            if ($checks.Count -eq 0) { continue }
             # Context only: these never decide exposed, covered or not judged.
             $rel = @(@($a.related) | Where-Object { $script:CheckCatalog.Contains($_) -and ($role -eq 'unknown' -or $script:CheckCatalog[$_].Roles -contains $role) })
             $relBad = @($rel | Where-Object { $fired["$($h.Name)|$_"] })
             foreach ($b in $relBad) { if (-not $relHit.Contains($b)) { $relHit.Add($b) } }
             if ($relBad.Count -gt 0 -and -not $relHosts.Contains("$($h.Name)")) { $relHosts.Add("$($h.Name)") }
-            if ($checks.Count -eq 0) { continue }
             $bad = @($checks | Where-Object { $fired["$($h.Name)|$_"] })
             $blind = @($checks | Where-Object { $ne["$($h.Name)"].ContainsKey($_) })
             foreach ($b in $bad) { if (-not $hit.Contains($b)) { $hit.Add($b) } }
@@ -2624,7 +2631,9 @@ function Get-AttackPathStatus {
     # otherwise. Checks that do not apply to the role of the host are left out, a step left with no
     # check of that role is dropped on that host, and a path that keeps fewer than two steps there is
     # not judged at all. A path is complete on a host when every step it keeps is open: that says the
-    # condition for each stage is present on that host, not that anyone walked the chain.
+    # condition for each stage is present on that host, not that anyone walked the chain. A complete
+    # chain also carries Break: the stage that is cheapest to close on the host it is drawn for, which
+    # is enough to break the chain (every stage of it has to stay open for the chain to hold).
     param($Hosts, $Findings)
     $ap = Get-AttackPaths
     if (-not $ap) { return }
@@ -2644,16 +2653,16 @@ function Get-AttackPathStatus {
     foreach ($p in @($ap.paths)) {
         $steps = @($p.steps)
         if ($steps.Count -lt 2) { continue }
-        # Per step, across the hosts in scope: the hosts it is open on, the checks that reported, the
-        # checks nothing could be said about, and whether any host had it clean or not judged.
-        $openHosts = @(); $hitChecks = @(); $blindChecks = @(); $blindHosts = @(); $anyClean = @(); $anyUnknown = @()
+        # Per step, across the hosts in scope: the hosts it is open on, the checks that reported and
+        # the checks nothing could be said about. Only hosts the chain is judged on are counted here
+        # (a host whose role leaves fewer than two steps is dropped), so the panel never names a host
+        # for a chain it is not listed under.
+        $openHosts = @(); $hitChecks = @(); $blindChecks = @(); $blindHosts = @()
         foreach ($s in $steps) {
             $openHosts += , (New-Object System.Collections.Generic.List[string])
             $hitChecks += , (New-Object System.Collections.Generic.List[string])
             $blindChecks += , (New-Object System.Collections.Generic.List[string])
             $blindHosts += , (New-Object System.Collections.Generic.List[string])
-            $anyClean += $false
-            $anyUnknown += $false
         }
         $complete = New-Object System.Collections.Generic.List[string]
         $partial = New-Object System.Collections.Generic.List[string]
@@ -2667,43 +2676,76 @@ function Get-AttackPathStatus {
             if ($role -ne 'unknown' -and -not (@($p.roles) -contains $role)) { continue }
             $name = "$($h.Name)"
             $states = New-Object System.Collections.Generic.List[string]
+            # What this host says per step, kept aside until the chain is known to be judged on it:
+            # a host that is then dropped must leave nothing in the steps of the hosts it was read with.
+            $hitHere = @(); $unkHere = @()
             for ($i = 0; $i -lt $steps.Count; $i++) {
                 $checks = @(@($steps[$i].checks) | Where-Object { $script:CheckCatalog.Contains($_) -and ($role -eq 'unknown' -or $script:CheckCatalog[$_].Roles -contains $role) })
-                if ($checks.Count -eq 0) { $states.Add('na'); continue }
+                if ($checks.Count -eq 0) { $states.Add('na'); $hitHere += , @(); $unkHere += , @(); continue }
                 $bad = @($checks | Where-Object { $fired["$name|$_"] })
                 $unk = @($checks | Where-Object { $blind[$name].ContainsKey($_) })
-                if ($bad.Count -gt 0) {
-                    $states.Add('open')
-                    if (-not $openHosts[$i].Contains($name)) { $openHosts[$i].Add($name) }
-                    foreach ($b in $bad) { if (-not $hitChecks[$i].Contains($b)) { $hitChecks[$i].Add($b) } }
-                }
-                elseif ($unk.Count -eq $checks.Count) {
-                    $states.Add('unknown')
-                    $anyUnknown[$i] = $true
-                    if (-not $blindHosts[$i].Contains($name)) { $blindHosts[$i].Add($name) }
-                    foreach ($b in $unk) { if (-not $blindChecks[$i].Contains($b)) { $blindChecks[$i].Add($b) } }
-                }
-                else {
-                    $states.Add('clean')
-                    $anyClean[$i] = $true
-                    if ($unk.Count -gt 0 -and -not $blindHosts[$i].Contains($name)) { $blindHosts[$i].Add($name) }
-                    foreach ($b in $unk) { if (-not $blindChecks[$i].Contains($b)) { $blindChecks[$i].Add($b) } }
-                }
+                if ($bad.Count -gt 0) { $states.Add('open') }
+                elseif ($unk.Count -eq $checks.Count) { $states.Add('unknown') }
+                else { $states.Add('clean') }
+                $hitHere += , $bad
+                $unkHere += , $unk
             }
             $live = @($states | Where-Object { $_ -ne 'na' })
             if ($live.Count -lt 2) { continue }
+            for ($i = 0; $i -lt $steps.Count; $i++) {
+                if ("$($states[$i])" -eq 'open') {
+                    if (-not $openHosts[$i].Contains($name)) { $openHosts[$i].Add($name) }
+                    foreach ($b in @($hitHere[$i])) { if (-not $hitChecks[$i].Contains($b)) { $hitChecks[$i].Add($b) } }
+                }
+                elseif ("$($states[$i])" -ne 'na' -and @($unkHere[$i]).Count -gt 0) {
+                    # Nothing judged at all on this step, or a step that is clean but with a check the
+                    # snapshot could not answer: both are named apart, never as clean.
+                    if (-not $blindHosts[$i].Contains($name)) { $blindHosts[$i].Add($name) }
+                    foreach ($b in @($unkHere[$i])) { if (-not $blindChecks[$i].Contains($b)) { $blindChecks[$i].Add($b) } }
+                }
+            }
             $nOpen = @($live | Where-Object { $_ -eq 'open' }).Count
             $nUnknown = @($live | Where-Object { $_ -eq 'unknown' }).Count
             $bucket = if ($nOpen -eq $live.Count) { $complete.Add($name); 0 }
             elseif ($nOpen -gt 0) { $partial.Add($name); 1 }
             elseif ($nUnknown -eq $live.Count) { $unjudged.Add($name); 3 }
             else { $blocked.Add($name); 2 }
-            $perHost.Add([PSCustomObject]@{ Name = $name; States = $states.ToArray(); Open = $nOpen; Bucket = $bucket })
+            $perHost.Add([PSCustomObject]@{ Name = $name; States = $states.ToArray(); Hits = $hitHere; Open = $nOpen; Bucket = $bucket })
         }
         if ($perHost.Count -eq 0) { continue }
         # Worst host first: a complete chain, then the most stages open, then by name (same order at
         # every run).
         $rep = @($perHost.ToArray() | Sort-Object @{ Expression = { $_.Bucket } }, @{ Expression = { - $_.Open } }, @{ Expression = { $_.Name } })[0]
+        # The stage to close first, on the host the chain is drawn for, and only when every stage of it
+        # is open there: a chain with a stage already closed is broken where that stage is. Closing a
+        # stage means settling every check of it that reported, so the cheapest stage is the one whose
+        # reported checks all have a generated fix script, then the one with fewest of them, then the
+        # earliest (closing it stops the chain sooner). The report says what it costs; it never claims
+        # this is the only stage worth closing.
+        $break = $null
+        if ([int]$rep.Bucket -eq 0) {
+            $cand = @()
+            for ($i = 0; $i -lt $steps.Count; $i++) {
+                if ("$($rep.States[$i])" -ne 'open') { continue }
+                $hits = @(@($steps[$i].checks) | Where-Object { @($rep.Hits[$i]) -contains "$_" })
+                if ($hits.Count -eq 0) { continue }
+                $nFix = @($hits | Where-Object { $script:FixTypes -and $script:FixTypes.ContainsKey("$_") }).Count
+                $rank = if ($nFix -eq $hits.Count) { 0 } else { 1 }
+                $cand += [PSCustomObject]@{ Index = $i; Scripted = [int]$rank; Count = $hits.Count; Fix = $nFix; Checks = $hits }
+            }
+            if ($cand.Count -gt 0) {
+                $pick = @($cand | Sort-Object @{ Expression = { $_.Scripted } }, @{ Expression = { $_.Count } }, @{ Expression = { $_.Index } })[0]
+                $break = [PSCustomObject]@{
+                    StageId  = "$($steps[$pick.Index].stage)"
+                    Stage    = "$($stageName["$($steps[$pick.Index].stage)"])"
+                    Short    = "$($stageShort["$($steps[$pick.Index].stage)"])"
+                    Checks   = [string[]]@($pick.Checks)
+                    FixCount = [int]$pick.Fix
+                    Scripted = [bool]($pick.Scripted -eq 0)
+                    Index    = [int]$pick.Index
+                }
+            }
+        }
         $stepOut = New-Object System.Collections.Generic.List[object]
         for ($i = 0; $i -lt $steps.Count; $i++) {
             $state = "$($rep.States[$i])"
@@ -2715,9 +2757,15 @@ function Get-AttackPathStatus {
                     Checks      = [string[]]@($steps[$i].checks)
                     State       = $state
                     OpenHosts   = [string[]]@($openHosts[$i].ToArray() | Sort-Object)
-                    HitChecks   = [string[]]@($hitChecks[$i].ToArray())
-                    BlindChecks = [string[]]@($blindChecks[$i].ToArray())
+                    # In the order of the step, not of the hosts: the same chain reads the same way
+                    # whatever order the hosts were given in.
+                    HitChecks   = [string[]]@(@($steps[$i].checks) | Where-Object { $hitChecks[$i].Contains("$_") })
+                    BlindChecks = [string[]]@(@($steps[$i].checks) | Where-Object { $blindChecks[$i].Contains("$_") })
                     BlindHosts  = [string[]]@($blindHosts[$i].ToArray() | Sort-Object)
+                    # The checks that reported on the host the chain is drawn for, apart from the ones
+                    # the other hosts in view reported: what closing this stage there would cost.
+                    DrawnChecks = [string[]]@(@($steps[$i].checks) | Where-Object { @($rep.Hits[$i]) -contains "$_" })
+                    IsBreak     = [bool]($break -and [int]$break.Index -eq $i)
                 })
         }
         $liveSteps = @($stepOut.ToArray() | Where-Object { $_.State -ne 'na' })
@@ -2734,6 +2782,7 @@ function Get-AttackPathStatus {
                 Partial    = [string[]]@($partial.ToArray() | Sort-Object)
                 Blocked    = [string[]]@($blocked.ToArray() | Sort-Object)
                 Unjudged   = [string[]]@($unjudged.ToArray() | Sort-Object)
+                Break      = $break
             })
     }
     return $out.ToArray()
@@ -3319,7 +3368,7 @@ function Invoke-DiskChecks {
             $tpmOnly = $kp.Count -gt 0 -and $kp -contains 'Tpm' -and @($kp | Where-Object { $_ -match '(?i)pin|startupkey' }).Count -eq 0
             if ($tpmOnly -and $w.enabled -eq $true) {
                 $age = Get-AgeDays $w.imageModifiedUtc
-                $imgTxt = if ($w.imageModifiedUtc) { "The recovery image was last written $($w.imageModifiedUtc)$(if ($null -ne $age) { " ($age days before the snapshot)" })." } elseif ($w.imageReadable -eq $false) { 'The recovery image is on a partition this collection could not read, so its date is unknown.' } else { 'The date of the recovery image is unknown.' }
+                $imgTxt = if ($w.imageModifiedUtc) { "The recovery image was last written $(ConvertTo-UtcText $w.imageModifiedUtc)$(if ($null -ne $age) { " ($age days before the snapshot)" })." } elseif ($w.imageReadable -eq $false) { 'The recovery image is on a partition this collection could not read, so its date is unknown.' } else { 'The date of the recovery image is unknown.' }
                 Add-Finding -Type 'winre_bitlocker_exposure' -Object "OS volume $($osVol.mountPoint): recovery environment" -Found 'WinRE enabled, TPM-only unlock' -Expected 'a PIN or startup key, or a serviced WinRE image' -Detail "BitLocker unlocks $($osVol.mountPoint) with the TPM alone (protectors: $($kp -join ', ')) and WinRE is enabled. $imgTxt"
             }
         }
@@ -4168,7 +4217,7 @@ function Invoke-BaselineChecks {
             foreach ($pol in @($h.ciPolicies | Where-Object { $_ })) {
                 $named = @(@($pol.fileNames | Where-Object { $_ }) | Where-Object { $script:SecurityAgentBinaries -contains "$_".ToLower() } | Select-Object -Unique)
                 if ($named.Count -eq 0) { continue }
-                Add-Finding -Type 'app_control_policy_suspect' -Object "code integrity policy: $($pol.file)" -Found "names $($named -join ', ')" -Expected 'no rule about the security agent' -Detail "The policy $($pol.file)$(if ($pol.modifiedUtc) { " (written $($pol.modifiedUtc))" }) mentions $($named.Count) security agent file(s): $($named -join ', '). Read the policy to see whether these are allow or deny rules."
+                Add-Finding -Type 'app_control_policy_suspect' -Object "code integrity policy: $($pol.file)" -Found "names $($named -join ', ')" -Expected 'no rule about the security agent' -Detail "The policy $($pol.file)$(if ($pol.modifiedUtc) { " (written $(ConvertTo-UtcText $pol.modifiedUtc))" }) mentions $($named.Count) security agent file(s): $($named -join ', '). Read the policy to see whether these are allow or deny rules."
             }
         }
         $v = & $n $h.enableSmartScreen

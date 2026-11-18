@@ -384,7 +384,7 @@ The oldest chain still in use: an Office document that is allowed to run code, a
 |---|---|---|
 | Initial access | a document can run code without a prompt, or from a folder that is trusted | `office_macro_settings_weak`, `office_trusted_location_risky`, `office_vba_object_model_trusted` |
 | Execution | a signed Windows binary can fetch and run the next stage | `lolbin_outbound_not_blocked`, `script_files_execute_on_open`, `powershell_clm_off` |
-| Persistence | a load point the payload can write and that starts it again | `persistence_office_hooks`, `persistence_powershell_profile`, `persistence_registry_hijack`, `autostart_suspicious_command`, `autorun_writable` |
+| Persistence | a load point the payload can write and that starts it again | `persistence_office_hooks`, `persistence_powershell_profile`, `persistence_registry_hijack`, `autostart_suspicious_command`, `autorun_writable`, `office_addin_unsigned` |
 
 ### Standard user to SYSTEM
 
@@ -392,7 +392,7 @@ Code running as the logged-on user becomes SYSTEM by writing a file or a registr
 
 | Stage | What it needs on the host | Checks |
 |---|---|---|
-| Privilege escalation | a place a non-administrator can write that a privileged process loads or starts | `service_unquoted_path`, `service_binary_writable`, `service_permissions_weak`, `service_path_ancestor_control`, `task_binary_writable`, `system_path_writable`, `program_dir_writable`, `always_install_elevated`, `autorun_writable` |
+| Privilege escalation | a place a non-administrator can write that a privileged process loads or starts | `service_unquoted_path`, `service_binary_writable`, `service_permissions_weak`, `service_path_ancestor_control`, `task_binary_writable`, `system_path_writable`, `program_dir_writable`, `always_install_elevated`, `autorun_writable`, `autostart_target_missing`, `safe_dll_search_off` |
 | Defence evasion | elevation happens without a prompt, or the administrator token is handed over unfiltered | `uac_disabled`, `uac_admin_no_prompt`, `uac_admin_protection_off`, `uac_hardening_gaps`, `remote_uac_token_filter_off` |
 | Credential access | once elevated, the credentials in memory are readable | `lsa_not_protected`, `wdigest_cleartext`, `credential_guard_off` |
 | Persistence | a privileged load point to come back through | `persistence_service_hook`, `persistence_dll_load_point`, `persistence_wmi_subscription`, `service_hidden`, `scheduled_task_hidden` |
@@ -404,7 +404,7 @@ Bring your own vulnerable driver: a signed driver with a known flaw gives kernel
 | Stage | What it needs on the host | Checks |
 |---|---|---|
 | Privilege escalation | a vulnerable signed driver can be loaded, or the blocklist and the integrity settings are off | `vulnerable_driver_present`, `driver_blocklist_off`, `boot_integrity_weakened`, `hvci_off`, `vbs_policy_gaps` |
-| Defence evasion | the security agent or the event log can be turned off and leave no trace | `edr_agent_stopped`, `defender_service_disabled`, `defender_tamper_off`, `app_control_policy_suspect`, `event_logging_suppressed` |
+| Defence evasion | the security agent is missing or can be turned off, and the event log keeps no trace of it | `edr_agent_stopped`, `edr_expected_missing`, `defender_service_disabled`, `defender_tamper_off`, `app_control_policy_suspect`, `event_logging_suppressed` |
 | Credential access | credentials not held in an isolated process | `lsa_not_protected`, `credential_guard_off`, `credential_guard_no_lock` |
 
 ### Name resolution relay to lateral movement
@@ -415,7 +415,7 @@ A broadcast name lookup nobody needs is answered by the attacker, the authentica
 |---|---|---|
 | Initial access | a broadcast or legacy name lookup an attacker on the segment can answer | `llmnr_enabled`, `netbios_enabled`, `mdns_enabled`, `wpad_not_disabled`, `webclient_webdav_enabled` |
 | Credential access | the authentication that follows is weak enough to be used again | `ntlm_weak_lmcompat`, `lm_hash_stored`, `ntlm_min_session_security_weak`, `ntlm_audit_off` |
-| Lateral movement | a service that accepts a relayed session because nothing is signed | `smb_server_signing_not_required`, `smb_client_signing_not_required`, `ldap_client_signing_off`, `ldap_server_signing_off`, `smb_encryption_off` |
+| Lateral movement | a service that accepts a relayed session because nothing is signed | `smb_server_signing_not_required`, `smb_client_signing_not_required`, `ldap_client_signing_off`, `ldap_server_signing_off`, `ldap_client_encryption_weak`, `smb_encryption_off` |
 
 ### Exposed remote service to session takeover
 
@@ -423,7 +423,7 @@ The way in is a service that answers from the network; the way on is the credent
 
 | Stage | What it needs on the host | Checks |
 |---|---|---|
-| Initial access | a service answering from the network, or a firewall that does not stop it | `rdp_enabled_workstation`, `rdp_nla_disabled`, `risky_listener`, `firewall_default_inbound_allow`, `firewall_profile_disabled`, `firewall_inbound_user_program`, `remote_access_tool` |
+| Initial access | a service answering from the network, or a firewall that does not stop it | `rdp_enabled_workstation`, `rdp_nla_disabled`, `rdp_policy_gaps`, `risky_listener`, `firewall_default_inbound_allow`, `firewall_profile_disabled`, `firewall_inbound_user_program`, `remote_access_tool` |
 | Credential access | credentials delegated to whatever host asks, or an authentication the host does not pin | `credential_delegation_any_server`, `credssp_encryption_oracle_weak`, `winrm_trusted_hosts_any`, `remote_credential_guard_off` |
 | Lateral movement | a session to take over, a pivot to set up, or one password that opens every host | `remote_session_takeover`, `network_port_proxy`, `local_admin_password_shared`, `winrm_insecure_auth` |
 
@@ -433,7 +433,7 @@ No network is involved: the disk is read in another machine, or the recovery env
 
 | Stage | What it needs on the host | Checks |
 |---|---|---|
-| Initial access | the volume can be read without the user, or the boot chain can be changed | `bitlocker_os_volume_off`, `bitlocker_tpm_only`, `bitlocker_weak_encryption`, `bitlocker_data_volume_off`, `secure_boot_off`, `winre_bitlocker_exposure`, `bitlocker_unlock_exposure` |
+| Initial access | the volume can be read without the user, the session is left unlocked, or the boot chain can be changed | `bitlocker_os_volume_off`, `bitlocker_tpm_only`, `bitlocker_weak_encryption`, `bitlocker_data_volume_off`, `secure_boot_off`, `winre_bitlocker_exposure`, `bitlocker_unlock_exposure`, `inactivity_lock_missing` |
 | Credential access | secrets kept on that disk: cached logons, a stored password, an automatic logon | `cached_logons_high`, `lm_hash_stored`, `autologon_enabled`, `credential_manager_saved`, `windows_hello_software_keys` |
 
 ### Browser extension to the session cookies
@@ -451,7 +451,7 @@ What turns an infection into an outage is not the encryption but what is missing
 
 | Stage | What it needs on the host | Checks |
 |---|---|---|
-| Defence evasion | behaviour blocking and folder protection are not in the way | `defender_tamper_off`, `controlled_folder_access_off`, `asr_standard_rules_missing`, `asr_other_rules_not_blocking`, `defender_network_protection_off` |
+| Defence evasion | behaviour blocking and folder protection are not in the way | `defender_tamper_off`, `controlled_folder_access_off`, `asr_standard_rules_missing`, `asr_other_rules_not_blocking`, `defender_network_protection_off`, `defender_threat_action_allow`, `defender_protection_features_off` |
 | Impact | nothing to restore from, and a share to spread the damage through | `shadow_copies_disabled`, `share_writable_by_everyone`, `event_logging_suppressed`, `smb_insecure_guest_auth` |
 
 ### Domain controller taken from the network
@@ -461,8 +461,58 @@ The chain that ends a domain: a service on the controller that answers anyone, a
 | Stage | What it needs on the host | Checks |
 |---|---|---|
 | Initial access | a service on the controller that answers from the network, or a channel it does not protect | `spooler_on_dc`, `dc_netlogon_policy_weak`, `ldap_server_signing_off`, `dc_security_policy_gaps`, `secure_channel_unprotected` |
-| Credential access | authentication that can be downgraded, or a recovery account that answers from the network | `kerberos_rc4_allowed`, `lsa_not_protected`, `dsrm_network_logon`, `lsa_weak_auth_options`, `service_domain_account` |
+| Credential access | authentication that can be downgraded, accounts that can be listed without credentials, or a recovery account that answers from the network | `kerberos_rc4_allowed`, `lsa_not_protected`, `dsrm_network_logon`, `lsa_weak_auth_options`, `service_domain_account`, `anonymous_sam_enum` |
 | Lateral movement | a privileged logon nothing restricts, or a session path onto the controller itself | `user_rights_excessive`, `deny_logon_rights_missing`, `terminal_services_server_gaps`, `winrm_insecure_auth`, `smb_server_signing_not_required` |
+
+### Known-vulnerable software to code on the host
+
+The way in that needs no lure: a browser, a reader, a VPN client or a server component with a published flaw, none of the mitigations that would stop the exploit from becoming code, and an antivirus that can be set aside before the payload lands. Judged on: workstation, server, dc.
+
+| Stage | What it needs on the host | Checks |
+|---|---|---|
+| Initial access | software with a known flaw, or a version that no longer gets fixes | `software_cve`, `kev_software_match`, `software_eol`, `software_outdated`, `os_unsupported`, `updates_stale`, `updates_pending`, `ie11_enabled` |
+| Execution | none of the mitigations that would stop the exploit from turning into code | `exploit_protection_off`, `asr_standard_rules_missing`, `app_control_not_enforced`, `safe_dll_search_off`, `sehop_disabled`, `amsi_provider_signing_off` |
+| Defence evasion | an antivirus that can be set aside, does not look where the payload lands, or is told to let it run | `defender_tamper_off`, `defender_exclusion`, `defender_realtime_off`, `defender_threat_action_allow`, `defender_signatures_stale` |
+
+### Anonymous access to a local administrator account
+
+Nothing is exploited: the host answers a request that carries no credentials, says which accounts it has, accepts a password that is weak, missing or replayed, and the account that opens it opens the next host too. Judged on: workstation, server, dc.
+
+| Stage | What it needs on the host | Checks |
+|---|---|---|
+| Initial access | the host answers a request that carries no credentials | `smb1_server_enabled`, `null_session_access`, `anonymous_shares_enum`, `force_guest_sharing_model`, `guest_enabled`, `smb_insecure_guest_auth` |
+| Credential access | the accounts can be listed, and a password guessed, left blank or replayed | `anonymous_sam_enum`, `everyone_includes_anonymous`, `blank_password_network_logon`, `local_account_password_not_required`, `account_lockout_weak`, `password_policy_weak`, `lm_hash_stored`, `smb_plaintext_password` |
+| Lateral movement | the account that opens this host is privileged, and not unique to it | `local_admin_password_shared`, `laps_not_configured`, `local_privileged_group_member`, `builtin_admin_enabled`, `winrm_insecure_auth` |
+
+### Print spooler to SYSTEM
+
+PrintNightmare and the point-and-print bypasses after it: a spooler running where nothing prints, a driver a non-administrator is allowed to install, and the print load point it leaves behind starts as SYSTEM at every boot. Judged on: workstation, server, dc.
+
+| Stage | What it needs on the host | Checks |
+|---|---|---|
+| Privilege escalation | a spooler that runs where it is not needed, and a driver a non-administrator may install | `print_point_and_print_weak`, `printer_drivers_by_users`, `print_spooler_no_printers`, `spooler_on_dc` |
+| Persistence | a load point the spooler itself reads at every boot | `persistence_dll_load_point`, `persistence_registry_hijack`, `autostart_suspicious_command` |
+| Defence evasion | nothing that stops an unexpected driver from loading, or records that it did | `defender_tamper_off`, `app_control_not_enforced`, `event_logging_suppressed`, `edr_agent_stopped` |
+
+### Secrets left on the disk to a privileged account
+
+The credentials are not taken out of memory, they are found: an answer file from the deployment, a cached group policy preference, a password in the vault or a key in a profile, belonging to an account that is an administrator here and on the next host. Judged on: workstation, server, dc.
+
+| Stage | What it needs on the host | Checks |
+|---|---|---|
+| Credential access | a secret written on the disk and readable from a session on this host | `unattend_credentials`, `gpp_cpassword_cached`, `powershell_history_secrets`, `credential_manager_saved`, `network_credentials_stored`, `persistence_ssh_authorized_keys` |
+| Privilege escalation | the account that secret belongs to is privileged on this host | `local_privileged_group_member`, `local_admin_member`, `laps_not_configured`, `local_account_password_never_expires` |
+| Lateral movement | the same secret is accepted by the next host | `local_admin_password_shared`, `winrm_insecure_auth`, `smb_client_signing_not_required`, `service_domain_account` |
+
+### Removable media to execution
+
+The USB drop and the walk-up: the media runs on insert or the file runs on a double click, the interpreter is unconstrained, and a load point keeps it after the stick is gone. Judged on: workstation, server.
+
+| Stage | What it needs on the host | Checks |
+|---|---|---|
+| Initial access | media that runs on insert, or a file that runs on a double click with nothing to warn about where it came from | `autoplay_enabled`, `removable_media_execute_allowed`, `script_files_execute_on_open`, `explorer_motw_bypass`, `smartscreen_off` |
+| Execution | an interpreter that runs unconstrained, and no list of what may run | `powershell_clm_off`, `powershell_v2_enabled`, `lolbin_outbound_not_blocked`, `app_control_not_enforced` |
+| Persistence | a load point the payload can write and that starts it again | `autorun_writable`, `persistence_registry_hijack`, `autostart_suspicious_command`, `persistence_logon_script` |
 
 ## DISA STIG rules read by the stig_* checks
 

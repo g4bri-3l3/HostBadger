@@ -249,6 +249,10 @@ function Export-FindingsJsonl {
             $o['attack_paths_judged'] = @($apHost | Where-Object { @($_.Unjudged).Count -eq 0 }).Count
             $o['attack_paths_total'] = $apHost.Count
             $o['attack_paths_open_stages'] = [int](@($apHost | ForEach-Object { [int]$_.OpenSteps }) | Measure-Object -Sum).Sum
+            # Per complete chain, the stage that breaks it for the fewest settings, as "<chain>:<stage>",
+            # and the checks to settle for it: what a SIEM search can group the work by.
+            $o['attack_paths_break'] = [string[]]@($apHost | Where-Object { $_.Break } | ForEach-Object { "$($_.Id):$($_.Break.StageId)" })
+            $o['attack_paths_break_checks'] = [string[]]@(@($apHost | Where-Object { $_.Break } | ForEach-Object { @($_.Break.Checks) }) | Where-Object { $_ } | Select-Object -Unique | Sort-Object)
         }
         # NIS2 / ACN basic measures (Determinazione 379907/2025) a host shows: the requirements with a
         # finding against them, and those none of whose checks could be judged, as "<code>.<point>".
@@ -403,9 +407,15 @@ function ConvertTo-ReportSummaryJson {
                         # titles: a chain named "Domain controller taken from the network" would have
                         # the word Domain replaced by a token before the prompt is sent.
                         chains   = @(@($apH | Where-Object { @($_.Complete).Count -gt 0 }) | ForEach-Object {
+                                $br = $_.Break
                                 [ordered]@{
-                                    id     = "$($_.Id)"
-                                    stages = @(@($_.Steps | Where-Object { $_.State -eq 'open' }) | ForEach-Object { [ordered]@{ stage = "$($_.StageId)"; checks = [string[]]@($_.HitChecks) } })
+                                    id          = "$($_.Id)"
+                                    stages      = @(@($_.Steps | Where-Object { $_.State -eq 'open' }) | ForEach-Object { [ordered]@{ stage = "$($_.StageId)"; checks = [string[]]@($_.HitChecks) } })
+                                    # The stage that breaks the chain for the fewest settings, and what it
+                                    # costs: the prompt of -AiReport says the same as the analysis' own.
+                                    'break'     = $(if ($br) { "$($br.StageId)" } else { '' })
+                                    breakChecks = [string[]]@(if ($br) { @($br.Checks) })
+                                    breakFixes  = $(if ($br) { [int]$br.FixCount } else { 0 })
                                 }
                             })
                     })
@@ -481,9 +491,13 @@ function Import-ReportForAi {
         # The attack paths complete on this host, as the analysis computed them: the AI prompt says the
         # same thing here as it does after an analysis (the regression compares the two).
         $chains = @(@($x.attackPaths.chains | Where-Object { $_ }) | ForEach-Object {
+                # A report written before the break was computed has no "break" here: the chain then
+                # reaches the prompt without it, as that analysis' own prompt did.
+                $brk = if ("$($_.break)") { [PSCustomObject]@{ StageId = "$($_.break)"; Checks = [string[]]@($_.breakChecks | Where-Object { $_ }); FixCount = [int]$_.breakFixes } } else { $null }
                 [PSCustomObject]@{
                     Id     = "$($_.id)"
                     Stages = @(@($_.stages | Where-Object { $_ }) | ForEach-Object { [PSCustomObject]@{ Stage = "$($_.stage)"; Checks = [string[]]@($_.checks) } })
+                    Break  = $brk
                 }
             })
         $hostList.Add([PSCustomObject]@{ Name = "$($x.name)"; Role = "$($x.role)"; Os = "$($x.os)"; Collected = "$($x.collected)"; Score = [PSCustomObject]@{ Score = [int]$x.score; Grade = "$($x.grade)" }; NotEvaluated = $ne; AiChains = $chains })
@@ -542,18 +556,21 @@ function Get-RingSvg {
 function Get-ChainSvg {
     # The chain of one attack path: a box per stage, an arrow between them, filled by the state of that
     # stage (open: a check of it reports the condition; clean: every judged check of it is clean;
-    # not judged: nothing could be said). Stages that do not apply to these hosts are left out. Static
-    # markup: colours come from the stylesheet, so the chain follows the rest of the report.
+    # not judged: nothing could be said). Stages that do not apply to these hosts are left out. The
+    # stage the analysis judged cheapest to close (IsBreak) is outlined: closing it breaks the chain.
+    # Static markup: colours come from the stylesheet, so the chain follows the rest of the report.
     param($Steps, [int]$BoxW = 60, [int]$BoxH = 28, [int]$Gap = 13)
     $live = @(@($Steps) | Where-Object { $_ -and $_.State -ne 'na' })
     if ($live.Count -eq 0) { return '' }
     $width = ($live.Count * $BoxW) + (($live.Count - 1) * $Gap)
-    $label = (@($live | ForEach-Object { "$($_.Stage): $(switch ($_.State) { 'open' { 'condition present' } 'unknown' { 'not judged' } default { 'nothing found' } })" }) -join '; ')
+    $label = (@($live | ForEach-Object { "$($_.Stage): $(switch ($_.State) { 'open' { 'condition present' } 'unknown' { 'not judged' } default { 'nothing found' } })$(if ($_.IsBreak) { ', cheapest stage to close' })" }) -join '; ')
     $parts = New-Object System.Collections.Generic.List[string]
     $x = 0
     foreach ($s in $live) {
         $cls = switch ($s.State) { 'open' { 'open' } 'unknown' { 'unk' } default { 'ok' } }
+        if ($s.IsBreak) { $cls += ' chain-break' }
         $what = switch ($s.State) { 'open' { 'condition present' } 'unknown' { 'not judged' } default { 'nothing found' } }
+        if ($s.IsBreak) { $what += ', cheapest stage to close' }
         $parts.Add("<g class='chain-$cls'><title>$(ConvertTo-HtmlSafe "$($s.Stage): $what")</title>" +
             "<rect x='$x' y='2' width='$BoxW' height='$BoxH' rx='9' ry='9'/>" +
             "<text x='$($x + [int]($BoxW / 2))' y='$([int]($BoxH / 2) + 6)' text-anchor='middle'>$(ConvertTo-HtmlSafe $(if ($s.Short) { $s.Short } else { $s.Stage }))</text></g>")
@@ -766,11 +783,21 @@ function Get-DashboardHtml {
                 $head = switch ($s.State) { 'open' { 'condition present' } 'unknown' { 'not judged' } default { 'nothing found' } }
                 $onOpen = if ($hostsArr.Count -gt 1 -and @($s.OpenHosts).Count) { " on $(@($s.OpenHosts) -join ', ')" } else { '' }
                 $onBlind = if ($hostsArr.Count -gt 1 -and @($s.BlindHosts).Count) { " on $(@($s.BlindHosts) -join ', ')" } else { '' }
-                $li = "<li><b>$(& $H $s.Stage)</b> &middot; $head <span class='meta'>&middot; needs: $(& $H $s.Needs)</span>"
+                $li = "<li><b>$(& $H $s.Stage)</b> &middot; $head$(if ($s.IsBreak) { " &middot; <b>close this one first</b>" }) <span class='meta'>&middot; needs: $(& $H $s.Needs)</span>"
                 if (@($s.HitChecks).Count) { $li += "<br><span class='meta'>Reported$(& $H $onOpen): $(& $H ((@($s.HitChecks) | ForEach-Object { if ($script:CheckCatalog.Contains($_)) { $script:CheckCatalog[$_].Title } else { $_ } }) -join '; '))</span>" }
                 if (@($s.BlindChecks).Count) { $li += "<br><span class='meta'>Not judged$(& $H $onBlind): $(& $H ((@($s.BlindChecks) | ForEach-Object { if ($script:CheckCatalog.Contains($_)) { $script:CheckCatalog[$_].Title } else { $_ } }) -join '; '))</span>" }
                 $li += "<br><span class='meta'>Checks that look for it: $(& $H (@($s.Checks) -join ', '))</span></li>"
                 $items += $li
+            }
+            # Where to cut it: a chain holds only while every stage of it stays open, so the one stage
+            # that is cheapest to close is enough. The cost is named, and so is the rest of the chain:
+            # the panel suggests where to start, it does not say the other stages do not matter.
+            if ($p.Break) {
+                $brTitles = (@($p.Break.Checks) | ForEach-Object { if ($script:CheckCatalog.Contains($_)) { $script:CheckCatalog[$_].Title } else { $_ } }) -join '; '
+                $brCost = if ([bool]$p.Break.Scripted) { "$(@($p.Break.Checks).Count) setting(s), each with a fix script in this report" }
+                elseif ([int]$p.Break.FixCount -gt 0) { "$(@($p.Break.Checks).Count) setting(s), $($p.Break.FixCount) of them with a fix script in this report" }
+                else { "$(@($p.Break.Checks).Count) setting(s), none of them with a fix script" }
+                $items += "<li><b>Break it at: $(& $H $p.Break.Stage)$(if ($hostsArr.Count -gt 1) { " on $(& $H $p.DrawnHost)" })</b> <span class='meta'>&middot; $(& $H $brCost) &middot; $(& $H $brTitles)</span></li>"
             }
             if ($nComplete) { $items += "<li class='meta'>Every stage has a condition on: $(& $H ((@($p.Complete)) -join ', '))</li>" }
             if (@($p.Partial).Count) { $items += "<li class='meta'>Some stages open on: $(& $H ((@($p.Partial)) -join ', '))</li>" }
@@ -785,7 +812,7 @@ function Get-DashboardHtml {
         # Folded like the recent-attacks panel: ring, title, one line, and the chains on click.
         $apOpen = @($apCov | Where-Object { @($_.Complete).Count -eq 0 -and @($_.Partial).Count -gt 0 }).Count
         $apHead = "$($apDone.Count) complete, $apOpen partly open, $(@($apCov).Count - $apDone.Count - $apOpen) with nothing found or not judged"
-        & $w "<div class='dash-panel dash-paths'><details class='dash-fold'><summary><div class='dash-panel-head'>$(Get-RingSvg -Percent $pP -Big "$($apDone.Count)/$($apJudged.Count)" -Small 'complete')<div><div class='dash-panel-title'>Attack paths</div><div class='meta'>$apHead</div></div></div></summary><div class='meta'>The chains of <code>data\attack-paths.json</code> ($($apCov.Count) of them) stage by stage, drawn for one host$(if ($hostsArr.Count -gt 1) { ', the worst of these for each chain' }): a stage is filled when a check of it reports the condition it needs, <b>grey when nothing about it could be judged</b> (never clean), plain when every judged check of it is clean. <b>Complete</b> means every stage has a condition on that one host: evidence worth acting on, not proof that anyone walked the chain.</div><table class='dash-table'>$($apRows -join '')</table></details></div>"
+        & $w "<div class='dash-panel dash-paths'><details class='dash-fold'><summary><div class='dash-panel-head'>$(Get-RingSvg -Percent $pP -Big "$($apDone.Count)/$($apJudged.Count)" -Small 'complete')<div><div class='dash-panel-title'>Attack paths</div><div class='meta'>$apHead</div></div></div></summary><div class='meta'>The chains of <code>data\attack-paths.json</code> ($($apCov.Count) of them) stage by stage, drawn for one host$(if ($hostsArr.Count -gt 1) { ', the worst of these for each chain' }): a stage is filled when a check of it reports the condition it needs, <b>grey when nothing about it could be judged</b> (never clean), plain when every judged check of it is clean. <b>Complete</b> means every stage has a condition on that one host: evidence worth acting on, not proof that anyone walked the chain. A complete chain is outlined at the stage that is <b>cheapest to close</b>: the chain holds only while every stage stays open, so closing that one stage breaks it. The other open stages of it take at least as many settings, or settings this report has no script for; closing one earlier in the chain stops an attacker sooner.</div><table class='dash-table'>$($apRows -join '')</table></details></div>"
     }
     & $w '</div>'
 
@@ -1034,6 +1061,8 @@ function ConvertTo-ReportHtml {
   svg.chain .chain-ok rect { fill: #DCE9CE; }
   svg.chain .chain-unk rect { fill: var(--tint); stroke-dasharray: 4 3; }
   svg.chain .chain-unk text { fill: var(--muted); }
+  svg.chain .chain-break rect { stroke-width: 4; stroke: var(--required); }
+  svg.chain .chain-break text { fill: var(--required); font-weight: 700; }
   svg.chain .chain-arrow line { stroke: var(--ink); stroke-width: 2; }
   svg.chain .chain-arrow polygon { fill: var(--ink); }
   .dash-h { margin: 30px 0 12px; font-size: 1.3rem; }

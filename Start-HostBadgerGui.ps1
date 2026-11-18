@@ -1020,6 +1020,10 @@ $script:Kept = $false
 $script:ReportChosen = $false
 $script:ApplyAfter = $false
 $script:ForFix = $false
+# An AI step was started: the window stays on the log instead of showing the findings, and the Results
+# tab waits until that step is done (its progress and its outcome are on the Analyze tab, not there).
+$script:AiRunning = $false
+$script:ResultsAfterAi = $false
 # This machine's last collection in this window (time and options) and the analysis that wrote its fix
 # script: Fix this machine reuses them for $script:FixReuseMinutes instead of collecting again.
 $script:LastSnapshotAt = $null
@@ -2142,9 +2146,11 @@ function Invoke-Analyze {
         }
         Update-Outputs
         if ($ok) { Show-Results $script:LastReport }
-        # The fix preview prints in the log, so the window stays on it; otherwise the findings are shown.
+        # The fix preview prints in the log, so the window stays on it; otherwise the findings are shown
+        # as soon as nothing is left to run. If the AI question starts a step, that step prints here and
+        # its progress bar is here: the findings wait for it (Invoke-Ai's Done shows them).
         if ($ok -and $script:ApplyAfter) { $script:ApplyAfter = $false; Invoke-FixPreview }
-        elseif ($ok) { $ui.Tabs.SelectedItem = $ui.TabResults; Invoke-AiOffer }
+        elseif ($ok) { Invoke-AiOffer; if ($script:AiRunning) { $script:ResultsAfterAi = $true } else { $ui.Tabs.SelectedItem = $ui.TabResults } }
     }
 }
 function Write-GuiLog {
@@ -2213,6 +2219,7 @@ function Invoke-AiOffer {
     # when the settings turn the question off. Whichever way it ends, the report offer follows: right
     # away when no AI step runs, otherwise when that step is done.
     $s = Read-Settings
+    $script:AiRunning = $false
     if (($s -and "$($s.Ai)" -eq 'N') -or -not $script:Kept -or -not $script:Res -or @($script:Res.Rows).Count -eq 0) { Invoke-ReportOffer; return }
     $text = "$(@($script:Res.Rows).Count) finding(s) in $(Split-Path -Leaf $script:LastReport). The AI summary uses this analysis: nothing is analyzed or downloaded again.`n`nThe dry run writes the prompt and sends nothing, so you can read it first."
     switch (Show-Choice -Heading 'Add an AI summary?' -Text $text -Buttons (Get-AiOfferButtons)) {
@@ -2269,12 +2276,24 @@ function Invoke-Ai {
         $ai['SendToAI'] = $true
     }
     else { $ai['AiDryRun'] = $target -replace '\.html?$', '_ai_prompt.txt' }
+    # What the step prints, and the bar that says it is still running, are on the Analyze tab (repeated
+    # on the Fix tab): the Results tab shows neither, so the window goes there for the step.
+    if ($ui.Tabs.SelectedItem -eq $ui.TabResults) { $ui.Tabs.SelectedItem = $ui.TabRun }
+    $script:AiRunning = $true
     Start-GuiTask -Label $(if ($Send) { 'Sending to Gemini' } else { 'Writing the AI prompt (dry run)' }) -Work $script:RunScript -Arguments @((Join-Path $root 'HostBadger.ps1'), $ai) -Done {
         param($t)
         if (@($t.Lines | Where-Object { $_ -like 'No analysis kept*' }).Count) { $script:Kept = $false }
+        $script:AiRunning = $false
         Set-Busy $false 'Ready'
         Update-Outputs
         Show-Results $script:LastReport
+        # The findings the analysis was holding back: only once the section is in the report, and only
+        # if it is. A dry run, a refused send or a step that failed leaves the window on the log, where
+        # the line that says why is.
+        if ($script:ResultsAfterAi) {
+            $script:ResultsAfterAi = $false
+            if (@($t.Lines | Where-Object { $_ -like 'AI section added to*' }).Count) { $ui.Tabs.SelectedItem = $ui.TabResults }
+        }
         # The log may be on another tab: why a report could not be used is said here too.
         $why = @($t.Lines | Where-Object { $_ -like 'AI report:*' })
         if ($why.Count) { [void][System.Windows.MessageBox]::Show(($why[0] -replace '^AI report: ', ''), 'HostBadger') }

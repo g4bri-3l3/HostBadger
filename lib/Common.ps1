@@ -59,6 +59,19 @@ function Get-AgeDays {
     return [int][Math]::Floor(($script:RefDate - $d).TotalDays)
 }
 
+function ConvertTo-UtcText {
+    # A timestamp of a snapshot or of a catalog written for a finding, the same text on every engine.
+    # ConvertFrom-Json on PowerShell 7 turns an ISO string into a DateTime while 5.1 leaves it a
+    # string, so interpolating the value as it comes writes "09/28/2026 23:41:00" on one engine and
+    # "2026-09-28T23:41:00Z" on the other: the same snapshot then gives a different report. A value
+    # that is not a date at all is returned as it is, so nothing is lost.
+    param($Value)
+    if ($null -eq $Value -or "$Value" -eq '') { return '' }
+    $d = ConvertTo-UtcDate $Value
+    if ($null -eq $d) { return "$Value" }
+    return $d.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+}
+
 function ConvertTo-HtmlSafe {
     param([string]$Text)
     if ($null -eq $Text) { return '' }
