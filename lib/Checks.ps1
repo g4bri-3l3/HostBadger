@@ -545,6 +545,14 @@ $script:CheckCatalog = [ordered]@{
         Title = 'PowerShell module logging off'
         Description = 'EnableModuleLogging is not 1, so the pipeline execution of PowerShell modules is not written to the event log (event 4103). Together with script block logging it is what an investigation of PowerShell abuse relies on.'
         Remediation = 'Enable "Turn on Module Logging" with module name * through Group Policy or Intune, and size the PowerShell log accordingly.' }
+    powershell_module_logging_no_modules = @{ Category = 'Logging'; Severity = 'Low'; Mitre = 'T1562.002'; Needs = @('powershell'); Roles = $script:AllRoles
+        Title = 'PowerShell module logging on, with no module named'
+        Description = 'EnableModuleLogging is 1 while ModuleNames lists no module. The policy logs the modules it is given a name for, so with an empty list event 4103 is never written: the host reads as configured and logs nothing. The wildcard * is the name that covers every module.'
+        Remediation = 'Add the module name * to "Turn on Module Logging" (Show..., Value name *, Value *) through Group Policy or Intune, and size the PowerShell log accordingly.' }
+    powershell_transcription_no_dir = @{ Category = 'Logging'; Severity = 'Low'; Mitre = 'T1070'; Needs = @('powershell'); Roles = $script:AllRoles
+        Title = 'PowerShell transcription on, with no output directory'
+        Description = 'EnableTranscripting is 1 and OutputDirectory is not set, so every PowerShell process writes its transcript into the Documents folder of the user who ran it (the "Transcript output directory" field of the same policy setting). A transcript holds what the commands printed, so the output of everything PowerShell did piles up as thousands of files in a folder that is often synced to the cloud, and the user can read, alter or delete their own transcripts before anyone looks at them.'
+        Remediation = 'Set "Transcript output directory" to a folder outside the user profiles that users can write to but not read back, or to %USERPROFILE%\Documents\PSTranscripts if each user keeping their own is enough.' }
     schannel_legacy_crypto_enabled = @{ Category = 'Network Exposure'; Severity = 'Medium'; Mitre = 'T1557'; Needs = @('hardening'); Roles = $script:AllRoles
         Title = 'Legacy TLS/SSL protocol or weak cipher explicitly enabled'
         Description = 'The SCHANNEL registry keys switch on SSL 2.0/3.0, TLS 1.0/1.1 or a weak cipher (NULL, DES, RC2, RC4, 3DES), offer one of those protocols to applications by default (DisabledByDefault = 0), or the TLS cipher suite order set by policy lists a suite with NULL, EXPORT, DES, 3DES, RC4 or MD5. Only values somebody set are judged: an unset value is the Windows default. SSL and the NULL/DES/RC2/RC4/EXPORT/MD5 ciphers are Medium, TLS 1.0/1.1 and 3DES Low.'
@@ -1080,8 +1088,10 @@ $script:CheckAttacks = [ordered]@{
     os_unsupported = 'Exploitation of unpatched Windows vulnerabilities: no security fixes are released for this version, so every new flaw stays open.'
     password_policy_weak = 'Password guessing and cracking: short, simple or never-changing local passwords fall quickly to spraying, brute force or offline cracking of dumped hashes.'
     powershell_module_logging_off = 'Undetected PowerShell activity: the commands that attacker scripts and modules run are not logged.'
+    powershell_module_logging_no_modules = 'Undetected PowerShell activity: module logging is on but names no module, so the commands that attacker scripts and modules run are not logged after all.'
     powershell_scriptblock_logging_off = 'Undetected PowerShell attacks: obfuscated or in-memory scripts (download cradles, AMSI bypasses, offensive frameworks) run without the decoded code being logged.'
     powershell_transcription_off = 'Lost evidence: the input and output of PowerShell sessions an attacker opens are not recorded for investigation.'
+    powershell_transcription_no_dir = 'Evidence in the hands of whoever made it: the transcripts land in the user''s own Documents folder, where they can be read, altered or deleted before an investigation sees them, and they carry whatever the commands printed.'
     powershell_v2_enabled = 'Security bypass by downgrade: an attacker starts powershell -version 2, which has no AMSI, script block logging or constrained language mode.'
     print_point_and_print_weak = 'Privilege escalation to SYSTEM (PrintNightmare): a user installs a malicious printer driver from a server they control without an administrator prompt.'
     rdp_enabled_workstation = 'Remote access and lateral movement: RDP on a workstation is a target for password attacks and lets an attacker with credentials take over the desktop remotely.'
@@ -3124,6 +3134,10 @@ function Invoke-HostChecks {
     if ($sfc -and $null -eq $sfc.tpm) { $extra['windows_hello_software_keys'] = 'TPM not readable (administrator or SYSTEM needed)' }
     if ($sfc -and [int]$sfc.userHivesRead -eq 0) { $extra['wsl_distribution_installed'] = 'no user profile loaded (WSL distributions are registered per user)' }
     if ($Snapshot.network -and -not $Snapshot.network.PSObject.Properties['smbServerEncryptData']) { $extra['smb_encryption_off'] = 'snapshot from an older collector: field not collected' }
+    if ($Snapshot.powershell) {
+        if (-not $Snapshot.powershell.PSObject.Properties['moduleLoggingNames']) { $extra['powershell_module_logging_no_modules'] = 'snapshot from an older collector: field not collected' }
+        if (-not $Snapshot.powershell.PSObject.Properties['transcriptionDir']) { $extra['powershell_transcription_no_dir'] = 'snapshot from an older collector: field not collected' }
+    }
     # The per-user Office settings are read from the loaded profiles only.
     if ($Snapshot.loadPoints -and [int]$Snapshot.loadPoints.userHivesRead -eq 0) {
         $extra['office_vba_object_model_trusted'] = 'no user profile loaded (the Office settings are per user)'
@@ -3781,6 +3795,9 @@ function Invoke-LoggingChecks {
         if ((& $can 'powershell_module_logging_off') -and "$($p.moduleLogging)" -ne '1') {
             Add-Finding -Type 'powershell_module_logging_off' -Object 'PowerShell module logging' -Detail 'EnableModuleLogging not set to 1.'
         }
+        elseif ((& $can 'powershell_module_logging_no_modules') -and "$($p.moduleLogging)" -eq '1' -and @($p.moduleLoggingNames | Where-Object { "$_" }).Count -eq 0) {
+            Add-Finding -Type 'powershell_module_logging_no_modules' -Object 'PowerShell module logging' -Found 'no module name' -Expected '*' -Detail 'EnableModuleLogging is 1 but ModuleNames lists no module: event 4103 is never written.'
+        }
         # A registration without the engine's assembly is left over from a removed feature (older
         # snapshots have no v2EngineFile: the registration alone decides). The downgrade itself needs the
         # .NET 2.0 CLR as well: powershell -Version 2 runs on v2.0.50727, which comes with the NetFx3
@@ -4318,6 +4335,9 @@ function Invoke-BaselineChecks {
     $ps = $S.powershell
     if ($ps -and (& $can 'powershell_transcription_off') -and "$($ps.transcription)" -ne '1') {
         Add-Finding -Type 'powershell_transcription_off' -Object 'PowerShell transcription' -Found $(if ($null -eq $ps.transcription) { 'not set' } else { "$($ps.transcription)" }) -Expected '1' -Detail 'EnableTranscripting not set to 1 (CIS 18.10.86.2, Level 2).'
+    }
+    elseif ($ps -and (& $can 'powershell_transcription_no_dir') -and "$($ps.transcription)" -eq '1' -and -not "$($ps.transcriptionDir)") {
+        Add-Finding -Type 'powershell_transcription_no_dir' -Object 'PowerShell transcript folder' -Found 'not set' -Expected 'a folder outside the user profiles' -Detail 'EnableTranscripting is 1 and OutputDirectory is not set: every transcript goes to the Documents folder of the user who ran PowerShell.'
     }
     $d = $S.defender
     if ($d -and (& $can 'defender_network_protection_off') -and $null -ne $d.networkProtection -and "$($d.networkProtection)" -ne '1') {

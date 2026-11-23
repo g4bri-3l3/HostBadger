@@ -56,6 +56,12 @@ function Test-UxFix {
     return ($v -contains '*' -or $v -contains "$($Finding.Object)")
 }
 
+# Where PowerShell transcription writes, for the fix and for the Strict profile item of the same CIS
+# rule (data\remediation-profiles.json keeps its own copy; the regression checks they agree). It is a
+# REG_EXPAND_SZ, so each user's transcripts stay in their own profile: the policy value is
+# machine-wide, and a single literal folder would be one pile of everybody's command output.
+$script:PsTranscriptDir = '%USERPROFILE%\Documents\PSTranscripts'
+
 # The fixes for one finding, as data. Kind is reg, smb, mp, fw, feature, user or service. Two
 # renderings come from it: the lines of the per-host script (with rollback) and the plain PowerShell
 # snippets under each check in the report.
@@ -177,7 +183,12 @@ function Get-RemediationActions {
         }
         'security_log_small' { & $reg "$evt\Security" 'MaxSize' ([int64]$Config.MinSecurityLogKB) }
         'powershell_scriptblock_logging_off' { & $reg "$psPol\ScriptBlockLogging" 'EnableScriptBlockLogging' 1 }
-        'powershell_transcription_off' { & $reg "$psPol\Transcription" 'EnableTranscripting' 1 }
+        'powershell_transcription_off' {
+            & $reg "$psPol\Transcription" 'EnableTranscripting' 1
+            # Second value of the same policy setting: without it every PowerShell process writes its
+            # transcript (and whatever a command printed) into the user's Documents folder.
+            & $reg "$psPol\Transcription" 'OutputDirectory' $script:PsTranscriptDir 'ExpandString'
+        }
         'cmdline_audit_off' { & $reg "$sys\Audit" 'ProcessCreationIncludeCmdLine_Enabled' 1 }
         'sehop_disabled' { & $reg "$sm\kernel" 'DisableExceptionChainValidation' 0 -Restart }
         'safe_dll_search_off' { & $reg $sm 'SafeDllSearchMode' 1 -Restart }

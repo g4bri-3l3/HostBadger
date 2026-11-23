@@ -56,11 +56,11 @@ $part = Invoke-One (Join-Path $fleet 'hostsnapshot_partial.json')
 
 Assert-Equal @($weak.Findings).Count 326 'weak: total findings'
 Assert-Equal @($hard.Findings).Count 3 'hardened: total findings'
-Assert-Equal @($lap.Findings).Count 16 'laptop: total findings'
+Assert-Equal @($lap.Findings).Count 18 'laptop: total findings'
 Assert-Equal @($dc.Findings).Count 31 'dc: total findings'
 Assert-Equal @($part.Findings).Count 3 'partial: total findings'
 $all = @($weak.Findings) + @($hard.Findings) + @($lap.Findings) + @($dc.Findings) + @($part.Findings)
-Assert-Equal ((@('Critical', 'High', 'Medium', 'Low') | ForEach-Object { $s = $_; @($all | Where-Object { $_.Severity -eq $s }).Count }) -join '/') '2/89/150/138' 'fleet: severity split'
+Assert-Equal ((@('Critical', 'High', 'Medium', 'Low') | ForEach-Object { $s = $_; @($all | Where-Object { $_.Severity -eq $s }).Count }) -join '/') '2/89/150/140' 'fleet: severity split'
 # A date in a finding is the date the snapshot holds, never the one this engine formats: ConvertFrom-Json
 # turns an ISO string into a DateTime on PowerShell 7 and leaves it a string on 5.1, so interpolating
 # the value as it comes wrote "09/28/2026 23:41:00" on one engine and "2026-09-28T23:41:00Z" on the
@@ -199,6 +199,14 @@ $oldSfRes = Invoke-HostChecks -Snapshot $oldSf -Config $config
 Assert-True (@($oldSfRes.Findings | Where-Object { $surfTypes -contains $_.Type }).Count -eq 0 -and @($oldSfRes.NotEvaluated | Where-Object { $surfTypes -contains $_.Type }).Count -eq 8) 'attack surface: a snapshot from an older collector lists them as not evaluated (8 on a workstation: the spooler one is for servers, the pipes one opt-in)'
 Assert-True ((Has $weak 'reboot_overdue' 'restart' 'Medium') -and -not (Has $lap 'reboot_overdue')) 'restart: 122 days up with a restart pending is Medium; two days is not reported'
 Assert-True ((Has $weak 'log_forwarding_missing') -and (Has $dc 'sysmon_missing') -and -not (Has $dc 'log_forwarding_missing') -and -not (Has $hard 'sysmon_missing')) 'logging: no forwarding without WEF, agent or EDR; Sysmon missing when the EDR is stopped; a running EDR covers both'
+# PowerShell logging switched on and logging nothing: both halves of the policy are judged, and a
+# snapshot from a collector that never read the second half says so instead of reading as clean.
+Assert-True ((Has $lap 'powershell_module_logging_no_modules' 'PowerShell module logging' 'Low') -and (Has $lap 'powershell_transcription_no_dir' 'PowerShell transcript folder' 'Low') -and -not (Has $lap 'powershell_module_logging_off') -and -not (Has $lap 'powershell_transcription_off') -and @(@($hard.Findings) + @($weak.Findings) | Where-Object { $_.Type -in 'powershell_module_logging_no_modules', 'powershell_transcription_no_dir' }).Count -eq 0) 'PowerShell logging: module logging with no module name and transcription with no output directory are reported; a complete pair and a policy that is off are not'
+$oldPs = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_laptop.json')
+$oldPs.powershell.PSObject.Properties.Remove('moduleLoggingNames'); $oldPs.powershell.PSObject.Properties.Remove('transcriptionDir')
+$oldPsRes = Invoke-HostChecks -Snapshot $oldPs -Config $config
+$oldPsNe = @($oldPsRes.NotEvaluated | ForEach-Object { $_.Type })
+Assert-True (@(@('powershell_module_logging_no_modules', 'powershell_transcription_no_dir') | Where-Object { $oldPsNe -notcontains $_ }).Count -eq 0 -and @($oldPsRes.Findings | Where-Object { $_.Type -in 'powershell_module_logging_no_modules', 'powershell_transcription_no_dir' }).Count -eq 0) 'PowerShell logging: a snapshot from before the two fields lists both checks as not evaluated, never clean'
 $oldExp = Import-HostSnapshot (Join-Path $fleet 'hostsnapshot_weak.json')
 foreach ($sec in 'credentialExposure', 'persistence', 'certificates', 'wifi') { $oldExp.PSObject.Properties.Remove($sec) }
 $oldExp.meta.sectionsCollected = @($oldExp.meta.sectionsCollected | Where-Object { $_ -notin 'credentialExposure', 'persistence', 'certificates', 'wifi' })
@@ -435,14 +443,14 @@ Compress-Archive -LiteralPath (Join-Path $fleet 'hostsnapshot_laptop.json') -Des
 $mainArgs = @{ Snapshot = @($fleet, $zipDir); OutHtml = (Join-Path $out 'r.html'); OutJsonl = (Join-Path $out 'r.jsonl'); OutRemediation = (Join-Path $out 'rem'); Nis2Acn = $true }
 & (Join-Path $root 'HostBadger.ps1') @mainArgs *>&1 | Out-Null
 $csv = @(Import-Csv (Join-Path $out 'r.csv'))
-Assert-Equal $csv.Count 381 'end to end: findings CSV (zip read, older duplicate ignored)'
+Assert-Equal $csv.Count 383 'end to end: findings CSV (zip read, older duplicate ignored)'
 Assert-Equal @($csv | Where-Object { $_.Host -eq 'LT-SALES-112' -and $_.Type -eq 'os_support_ending' } | ForEach-Object { $_.Detail -match '39 days' }).Count 1 'newest snapshot of a host used'
 $html = [System.IO.File]::ReadAllText((Join-Path $out 'r.html'))
 Assert-True ($html -match 'Incomplete coverage' -and $html -match 'WKS-HR-004') 'report lists not evaluated checks with the host'
 Assert-True ($html -match '5 hosts' -and $html -match 'Weakest: WKS-ACCT-017') 'fleet cards'
 Assert-True ($html -notmatch '(?:href|src)\s*=\s*["'']?https?://(?!attack\.mitre\.org)' -and $html -notmatch 'url\(\s*["'']?https?:') 'report has no external links except MITRE'
 $lines = @(Get-Content (Join-Path $out 'r.jsonl'))
-Assert-Equal $lines.Count 386 'JSON Lines: 381 findings + 5 host summaries'
+Assert-Equal $lines.Count 388 'JSON Lines: 383 findings + 5 host summaries'
 $parsed = @($lines | ForEach-Object { $_ | ConvertFrom-Json })
 Assert-Equal @($parsed | Where-Object { $_.event_type -eq 'host_summary' -and $_.host -eq 'WKS-HR-004' -and $_.not_evaluated -eq 71 }).Count 1 'host summary carries the not evaluated count'
 $id1 = @($parsed | Where-Object { $_.check -eq 'uac_disabled' })[0].finding_id
@@ -602,7 +610,7 @@ $args2 = @{ Snapshot = @($fixed); OutHtml = (Join-Path $out2 'r.html'); OutJsonl
 & (Join-Path $root 'HostBadger.ps1') @args2 *>&1 | Out-Null
 $csv2 = @(Import-Csv (Join-Path $out2 'r.csv'))
 # 365 - 5 (partial host not collected; with it gone the hardened server shares its LocalAdm password with nobody) - 1 (UAC fixed) - 1 (SMBv1 accepted) - 2 (NetBIOS accepted) = 356
-Assert-Equal $csv2.Count 372 'second run: fixed, accepted and missing-host findings gone'
+Assert-Equal $csv2.Count 374 'second run: fixed, accepted and missing-host findings gone'
 Assert-True (@($csv2 | Where-Object { $_.Type -eq 'guest_enabled' }).Count -eq 1) 'expired exception ignored'
 $j2 = @(Get-Content (Join-Path $out2 'r.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })
 $resolved = @($j2 | Where-Object { $_.event_type -eq 'resolved' })
@@ -688,7 +696,7 @@ $remFiles = @(Get-ChildItem (Join-Path $out 'rem') -Filter 'remediate_*.ps1' -Er
 Assert-Equal ($remFiles.Name -join ',') 'remediate_DC01.ps1,remediate_WKS-ACCT-017.ps1' 'remediation: a script only for hosts with a fixable finding'
 $remWeak = New-RemediationScript -HostName 'WKS-ACCT-017' -Role 'workstation' -Findings $all -Config $config -CollectedUtc '2026-10-01 08:00' -ToolVersion 'test'
 $remDc = New-RemediationScript -HostName 'DC01' -Role 'dc' -Findings $all -Config $config -CollectedUtc '2026-10-01 08:00' -ToolVersion 'test'
-Assert-Equal "$($remWeak.ActionCount)/$($remWeak.FixableFindings)/$($remWeak.TotalFindings)" '91/90/326' 'remediation: weak host settings / findings with a script / findings'
+Assert-Equal "$($remWeak.ActionCount)/$($remWeak.FixableFindings)/$($remWeak.TotalFindings)" '92/90/326' 'remediation: weak host settings / findings with a script / findings'
 Assert-Equal "$($remDc.ActionCount)/$($remDc.FixableFindings)/$($remDc.TotalFindings)" '8/8/31' 'remediation: domain controller settings / findings with a script / findings'
 Assert-Equal @(New-RemediationScript -HostName 'SRV-APP-02' -Role 'server' -Findings $all -Config $config -CollectedUtc 'x' -ToolVersion 'test').ActionCount 0 'remediation: hardened server has nothing to fix'
 # Every check type that promises a script must produce one for at least one finding of the fleet. A
@@ -714,6 +722,11 @@ foreach ($rf in $remFiles) {
 $rpData = Get-RemediationProfileData
 $rpIds = @($rpData.Items | ForEach-Object { "$($_.id)" })
 Assert-True ($rpIds.Count -gt 0 -and @($rpIds | Sort-Object -Unique).Count -eq $rpIds.Count -and @($rpData.Items | Where-Object { "$($_.tier)" -notin 'essential', 'recommended', 'strict' -or "$($_.kind)" -notin 'reg', 'service', 'feature', 'fwrule', 'task', 'capability' -or "$($_.ref)" -notmatch '^(CIS \d|Essential Eight ML\d|HostBadger strict)' -or ("$($_.kind)" -eq 'reg' -and "$($_.path)" -notmatch '^HKLM:\\') }).Count -eq 0) 'remediation profiles: unique ids, known tiers and kinds, every item quotes its rule, registry under HKLM only'
+# PowerShell transcription: the policy's output directory belongs with EnableTranscripting, or every
+# transcript lands in the user's Documents folder. The fix and the Strict item must name the same one.
+$tsFix = @(Get-RemediationActions -Finding @($weak.Findings | Where-Object { $_.Type -eq 'powershell_transcription_off' })[0] -Role 'workstation' -Config $config)
+$tsItem = @($rpData.Items | Where-Object { "$($_.id)" -eq 'powershell-transcription-dir' })[0]
+Assert-True (@($tsFix | Where-Object { $_.Name -eq 'EnableTranscripting' -and $_.Value -eq 1 }).Count -eq 1 -and @($tsFix | Where-Object { $_.Name -eq 'OutputDirectory' -and $_.Type -eq 'ExpandString' -and "$($_.Value)" -eq $script:PsTranscriptDir }).Count -eq 1 -and $tsItem -and "$($tsItem.value)" -eq $script:PsTranscriptDir -and "$($tsItem.type)" -eq 'ExpandString' -and $script:PsTranscriptDir -match '^%USERPROFILE%\\') 'PowerShell transcription: the fix and the Strict profile item set the same transcript folder, a REG_EXPAND_SZ under the user profile'
 $rpE = @(Get-ProfileActions -ProfileName 'Essential' -Role 'workstation' | ForEach-Object { $_.Id })
 $rpR = @(Get-ProfileActions -ProfileName 'Recommended' -Role 'workstation' | ForEach-Object { $_.Id })
 $rpS = @(Get-ProfileActions -ProfileName 'Strict' -Role 'workstation')
@@ -848,7 +861,8 @@ try {
     foreach ($rb in $regBlocks) {
         foreach ($m in [regex]::Matches($rb, "@\{ Path = '([^']+)'; Name = '([^']+)'; Value = (.+?); Type = '(\w+)' \}")) {
             $pth = $m.Groups[1].Value.Replace('HKLM:\', "$inlineRoot\"); $nm = $m.Groups[2].Value; $vl = $m.Groups[3].Value; $ty = $m.Groups[4].Value
-            $got = (Get-ItemProperty -LiteralPath $pth -Name $nm -ErrorAction SilentlyContinue).$nm
+            # A REG_EXPAND_SZ reads back expanded unless asked otherwise; the kind must be the promised one too.
+            $got = if ($ty -eq 'ExpandString') { $rk = Get-Item -LiteralPath $pth -ErrorAction SilentlyContinue; if ($rk -and "$($rk.GetValueKind($nm))" -eq 'ExpandString') { $rk.GetValue($nm, $null, 'DoNotExpandEnvironmentNames') } } else { (Get-ItemProperty -LiteralPath $pth -Name $nm -ErrorAction SilentlyContinue).$nm }
             $ok = if ($ty -eq 'MultiString') { @($got).Count -eq 0 } elseif ($ty -eq 'DWord') { [int64]$got -eq [int64]$vl } else { "$got" -eq $vl.Trim("'") }
             if (-not $ok) { $wrong += "$nm=$got (wanted $vl)" }
         }
@@ -1184,6 +1198,20 @@ Assert-Equal $pol.systemAccess.MinimumPasswordLength 8 'secedit INF: account pol
 Assert-True (-not $pol.systemAccess.Contains('NewAdministratorName')) 'secedit INF: only the wanted account settings are kept'
 Assert-Equal @($pol.privilegeRights.SeTcbPrivilege).Count 0 'secedit INF: a right nobody holds is an empty list'
 Assert-Equal ($pol.privilegeRights.SeNetworkLogonRight -join '|') 'S-1-1-0|S-1-5-32-544|CORP\jsmith' 'secedit INF: SIDs and names kept, leading * removed'
+# Get-RegValueRaw (the collector's own, taken from its source): a REG_EXPAND_SZ comes back as it is
+# stored, so %USERPROFILE% in the transcription policy never turns into an account name in the
+# snapshot. Written and read in a private HKCU key, removed afterwards.
+$rawFn = $collectorAst.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -eq 'Get-RegValueRaw' }, $true)[0]
+. ([scriptblock]::Create($rawFn.Extent.Text))
+$rawKey = "HKCU:\Software\HostBadgerRegression_$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+New-Item -Path $rawKey -Force | Out-Null
+Set-ItemProperty -LiteralPath $rawKey -Name 'Dir' -Value '%USERPROFILE%\Documents\PSTranscripts' -Type ExpandString
+Set-ItemProperty -LiteralPath $rawKey -Name 'Plain' -Value 'C:\Logs' -Type String
+Assert-Equal (Get-RegValueRaw $rawKey 'Dir') '%USERPROFILE%\Documents\PSTranscripts' 'collector: a REG_EXPAND_SZ is read unexpanded (no account name reaches the snapshot)'
+Assert-True ((Get-ItemProperty -LiteralPath $rawKey -Name 'Dir').Dir -ne '%USERPROFILE%\Documents\PSTranscripts') 'collector: an ordinary read would have expanded it, which is why the raw read exists'
+Assert-Equal (Get-RegValueRaw $rawKey 'Plain') 'C:\Logs' 'collector: a plain string value is read as it is'
+Assert-True ($null -eq (Get-RegValueRaw $rawKey 'Missing') -and $null -eq (Get-RegValueRaw "$rawKey\NoSuchKey" 'Dir')) 'collector: a missing value or key is $null, not an error'
+Remove-Item -LiteralPath $rawKey -Recurse -Force
 Assert-Equal @($weak.Findings | Where-Object { $_.Type -in 'password_policy_weak', 'account_lockout_weak' }).Count 9 'weak: 6 password policy and 3 lockout findings'
 Assert-True (@($weak.Findings | Where-Object { $_.Type -eq 'user_rights_excessive' -and $_.Object -eq 'right: SeDebugPrivilege' -and $_.Severity -eq 'High' -and $_.Detail -match 'Users' }).Count -eq 1) 'debug right held by Users is High'
 Assert-True (@($weak.Findings | Where-Object { $_.Type -eq 'user_rights_excessive' -and $_.Object -eq 'right: SeBackupPrivilege' -and $_.Severity -eq 'Medium' }).Count -eq 1) 'Backup Operators holding the backup right is Medium'
@@ -1314,7 +1342,7 @@ $noStigRes = Invoke-HostChecks -Snapshot $noStig -Config $config
 Assert-True (@($noStigRes.NotEvaluated | Where-Object { $_.Type -like 'stig_*' -and $_.Reason -match "section 'stig' not in the snapshot" }).Count -eq 11 -and @($noStigRes.Findings | Where-Object { $_.Type -like 'stig_*' }).Count -eq 0) 'STIG: a snapshot without the stig section lists the rules as not evaluated, never as clean'
 $skipOut = Join-Path $work 'skipstig'; New-Item -ItemType Directory -Path $skipOut -Force | Out-Null
 $skipRun = & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $skipOut 'r.html') -SkipStig *>&1 | Out-String
-Assert-True (@(Import-Csv (Join-Path $skipOut 'r.csv') | Where-Object { $_.Type -like 'stig_*' }).Count -eq 0 -and @(Import-Csv (Join-Path $skipOut 'r.csv')).Count -eq 354) 'STIG: -SkipStig leaves the STIG findings out and nothing else'
+Assert-True (@(Import-Csv (Join-Path $skipOut 'r.csv') | Where-Object { $_.Type -like 'stig_*' }).Count -eq 0 -and @(Import-Csv (Join-Path $skipOut 'r.csv')).Count -eq 356) 'STIG: -SkipStig leaves the STIG findings out and nothing else'
 # The progress cursor draws only on an interactive console, moves its frame, and clears its line.
 $script:SpinEnabled = $null; $script:SpinWidth = 0; Step-Spinner 'x' 6>&1 | Out-Null
 Assert-True ($script:SpinEnabled -eq $false -or [Console]::IsOutputRedirected -eq $false) 'spinner: off when output is redirected'
@@ -1354,7 +1382,7 @@ Assert-True ($showHtml -match 'Summary by framework' -and $showHtml -match 'E8: 
 Assert-True ([regex]::Match($showHtml, '(?s)Summary by category</h2>.*?</table>').Value -notmatch '<td>DISA STIG</td>' -and [regex]::Match($showHtml, '(?s)Summary by framework</h2>.*?</table>').Value -match '<td>DISA STIG') 'report: DISA STIG is in the summary by framework, not in the summary by category'
 Assert-True ((Get-DashboardHtml -Hosts @([PSCustomObject]@{ Name = 'h'; Role = 'workstation'; Score = [PSCustomObject]@{ Score = 48; Grade = 'D' }; StigByType = @{}; NotEvaluated = @(); OptionalOff = @(); StigEvaluated = 0 }) -All @() -Shown @() -Title 't') -match 'Partial protection') 'dashboard: the verdict follows the grades (48, grade D, is partial protection)'
 Assert-True ($hideHtml -match 'DISA STIG compliance' -and $hideHtml -match 'Hidden from this report: \d+ CIS-based and 27 DISA STIG' -and $hideHtml -notmatch 'WN11 V-253260' -and $hideHtml -notmatch 'CIS 18\.10\.7\.3' -and $hideHtml.Length -lt $showHtml.Length) 'report: -HideCis -HideStig leave the findings out and keep the charts'
-Assert-Equal @(Import-Csv (Join-Path $hideOut 'hide.csv')).Count 381 'report: hidden findings stay in the CSV'
+Assert-Equal @(Import-Csv (Join-Path $hideOut 'hide.csv')).Count 383 'report: hidden findings stay in the CSV'
 $aiNo = Join-Path $hideOut 'ai_no.txt'; $aiYes = Join-Path $hideOut 'ai_yes.txt'
 & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $hideOut 'a.html') -AiDryRun $aiNo *>&1 | Out-Null
 & (Join-Path $root 'HostBadger.ps1') -Snapshot $fleet -OutHtml (Join-Path $hideOut 'b.html') -AiDryRun $aiYes -AiIncludeStig *>&1 | Out-Null

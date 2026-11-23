@@ -6,6 +6,39 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
+## [3.3] - 2026-11-23
+### Added
+- **Two checks for logging that is switched on and logs nothing.** Both halves of
+  a PowerShell logging policy have to be set, and HostBadger judged only the
+  first one, so a host could be reported clean while writing no log at all:
+  `powershell_module_logging_no_modules` (EnableModuleLogging is 1 but
+  ModuleNames lists no module, so event 4103 is never written) and
+  `powershell_transcription_no_dir` (EnableTranscripting is 1 with no
+  OutputDirectory, so every transcript goes to the Documents folder of whoever
+  ran PowerShell, where they can read, alter or delete it). The collector reads
+  the two missing values (`powershell.moduleLoggingNames`,
+  `powershell.transcriptionDir`, the latter unexpanded so no account name enters
+  the snapshot); a snapshot from an older collector lists both checks as not
+  evaluated instead of clean. 236 checks.
+- The Strict profile now switches Windows Script Host off in the 32-bit view of
+  the registry too (`wsh-off-wow`): `SysWOW64\wscript.exe` reads its own copy
+  under `WOW6432Node`, so the old item left 32-bit hosts running .vbs and .js
+  while promising they no longer would.
+
+### Fixed
+- **The PowerShell transcription fix now says where the transcripts go.** Turning
+  transcription on without an output directory (CIS 18.10.86.2 sets both) leaves
+  every PowerShell process writing its transcript into the user's Documents
+  folder, next to their own files and whatever OneDrive syncs from there - and a
+  transcript holds what the commands printed, so a thousand files of command
+  output pile up in the most shared folder of the profile. The level A fix
+  `powershell_transcription_off` and the Strict profile item now set
+  `OutputDirectory` as well, to `%USERPROFILE%\Documents\PSTranscripts` as a
+  REG_EXPAND_SZ: the policy value is machine-wide, so an expandable path keeps
+  each user's transcripts in their own profile instead of one shared pile. Both
+  halves are reversible and the rollback file already recorded the value kind, so
+  `-Restore` puts them back untouched. Machines that took the old fix keep
+  writing to Documents until the new one runs.
 ## [3.2] - 2026-11-18
 ### Added
 - **Where to break a chain.** A chain holds only while every stage of it stays

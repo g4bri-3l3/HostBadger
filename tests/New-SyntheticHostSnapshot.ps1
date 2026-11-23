@@ -199,7 +199,7 @@ $s = [ordered]@{
     laps                 = [ordered]@{ windowsLapsPolicyRoot = 'gpo'; windowsLapsBackupDirectory = 2; windowsLapsPasswordExpirationProtection = 1; legacyLapsEnabled = $null; legacyLapsCseInstalled = $false }
     uac                  = [ordered]@{ enableLua = 1; consentPromptBehaviorAdmin = 2; localAccountTokenFilterPolicy = $null; filterAdministratorToken = 1; alwaysInstallElevated = $null
         alwaysInstallElevatedUsers = @(); alwaysInstallElevatedUserHives = 1 }
-    powershell           = [ordered]@{ scriptBlockLogging = 1; moduleLogging = 1; transcription = 1; v2EngineVersion = ''; v2EngineFile = $false; v2ClrFile = $false }
+    powershell           = [ordered]@{ scriptBlockLogging = 1; moduleLogging = 1; moduleLoggingNames = @('*'); transcription = 1; transcriptionDir = '%ProgramData%\PSTranscripts'; v2EngineVersion = ''; v2EngineFile = $false; v2ClrFile = $false }
     audit                = [ordered]@{ processCreationIncludeCmdLine = 1; securityLogMaxSizeBytes = 1073741824; subcategories = $fullAudit }
     securityPolicy       = [ordered]@{
         systemAccess = [ordered]@{ PasswordHistorySize = 24; MaximumPasswordAge = 365; MinimumPasswordAge = 1; MinimumPasswordLength = 14; PasswordComplexity = 1; ClearTextPassword = 0
@@ -403,6 +403,11 @@ switch ($Scenario) {
         # on battery and the logon screen never locks the machine out.
         $s.hardening.phishingProtection = [ordered]@{ captureThreatWindow = 1; notifyMalicious = 1; notifyPasswordReuse = $null; notifyUnsafeApp = 0; serviceEnabled = 1 }
         $s.hardening.bitlockerExposure = [ordered]@{ standbyOnBattery = $null; standbyPluggedIn = 0; machineLockoutThreshold = 0 }
+        # PowerShell logging switched on from a template and left half-configured: module logging
+        # with no module name logs nothing, and transcription with no output directory writes every
+        # transcript into the Documents folder of whoever ran PowerShell.
+        $s.powershell.moduleLoggingNames = @()
+        $s.powershell.transcriptionDir = $null
         $s.remoteAccess.rdpEnabled = $false
         $s.defender.exclusionPaths = @('C:\Program Files\Contoso CAD\Projects')
         $s.localAccounts.users[0].enabled = $false
@@ -484,7 +489,7 @@ switch ($Scenario) {
         $s.uac = [ordered]@{ enableLua = 0; consentPromptBehaviorAdmin = 0; localAccountTokenFilterPolicy = 1; filterAdministratorToken = 0; alwaysInstallElevated = 1
             alwaysInstallElevatedUsers = @([ordered]@{ user = 'jsmith'; value = 1 }); alwaysInstallElevatedUserHives = 2 }
         # The 2.0 engine with the .NET 2.0 CLR it needs (this host has NetFx3 on), so the downgrade works.
-        $s.powershell = [ordered]@{ scriptBlockLogging = $null; moduleLogging = $null; transcription = $null; v2EngineVersion = '2.0'; v2EngineFile = $true; v2ClrFile = $true }
+        $s.powershell = [ordered]@{ scriptBlockLogging = $null; moduleLogging = $null; moduleLoggingNames = @(); transcription = $null; transcriptionDir = $null; v2EngineVersion = '2.0'; v2EngineFile = $true; v2ClrFile = $true }
         $s.audit = [ordered]@{ processCreationIncludeCmdLine = $null; securityLogMaxSizeBytes = 20971520
             subcategories = @($allAudit | ForEach-Object { $v = if ($_[1] -in @('Logon', 'Credential Validation')) { 1 } else { 0 }; Audit $_[0] $v $_[1] }) }
         $s.defender.puaProtection = 0

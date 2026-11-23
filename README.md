@@ -27,7 +27,7 @@ is weak. It works in two steps. A single PowerShell script takes a
 Lines for a SIEM. Hand it one snapshot or a folder with hundreds and you get
 the whole fleet in one report, or one report per host.
 
-- **234 checks** and about 1,700 settings: 221 hand-written checks plus 1475 DISA
+- **236 checks** and about 1,700 settings: 223 hand-written checks plus 1475 DISA
   STIG registry rules, with the CIS Windows 11 benchmark as the baseline, and
   the drivers matched against 2,198 known vulnerable or malicious driver files
   (LOLDrivers). The vectors of the attacks reported between 2022 and 2026 are

@@ -86,7 +86,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:CollectorVersion = '3.2'
+$script:CollectorVersion = '3.3'
 $script:SchemaVersion = 1
 $script:Errors = New-Object System.Collections.Generic.List[object]
 $script:Sections = New-Object System.Collections.Generic.List[string]
@@ -166,6 +166,18 @@ function Get-RegValue {
     try {
         $item = Get-ItemProperty -LiteralPath $Path -Name $Name -ErrorAction Stop
         return $item.$Name
+    }
+    catch { return $null }
+}
+
+function Get-RegValueRaw {
+    # As Get-RegValue, but a REG_EXPAND_SZ comes back as it is stored, so '%USERPROFILE%\...' stays
+    # what the policy says instead of being expanded into the account the collector happens to run as.
+    param([string]$Path, [string]$Name)
+    try {
+        $item = Get-Item -LiteralPath $Path -ErrorAction Stop
+        if (@($item.GetValueNames()) -notcontains $Name) { return $null }
+        return $item.GetValue($Name, $null, 'DoNotExpandEnvironmentNames')
     }
     catch { return $null }
 }
@@ -985,7 +997,13 @@ $psLogging = Invoke-Section 'powershell' {
     [ordered]@{
         scriptBlockLogging = Get-RegValue "$base\ScriptBlockLogging" 'EnableScriptBlockLogging'
         moduleLogging      = Get-RegValue "$base\ModuleLogging" 'EnableModuleLogging'
+        # Module logging writes nothing until a module name is listed under ModuleNames (the other
+        # half of the same policy setting): the names only, they are patterns, not data about the host.
+        moduleLoggingNames = @(Get-RegSubkeyValues "$base\ModuleLogging\ModuleNames" | ForEach-Object { $_.name })
         transcription      = Get-RegValue "$base\Transcription" 'EnableTranscripting'
+        # The other half of the transcription setting. Unexpanded on purpose: without it every
+        # PowerShell process writes its transcript into the Documents folder of whoever ran it.
+        transcriptionDir   = Get-RegValueRaw "$base\Transcription" 'OutputDirectory'
         # The v2 engine registers itself here while the optional feature is on, but Windows builds
         # that dropped the feature (Windows 11 24H2 and later) can leave the registration behind:
         # the engine is its assembly (System.Management.Automation 1.0.0.0 in the .NET 2.0 GAC).

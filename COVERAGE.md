@@ -1,6 +1,6 @@
 # HostBadger coverage
 
-Every check in `lib\Checks.ps1`, generated from the catalog (234 checks, of which 13 cover the 1475 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
+Every check in `lib\Checks.ps1`, generated from the catalog (236 checks, of which 13 cover the 1475 registry rules of the DISA STIGs listed at the end). Severity is the default; a few findings raise or lower it (the check's description in the report says when). Roles: W workstation, S server, DC domain controller.
 
 The CIS column gives the rule number in the *CIS Microsoft Windows 11 Enterprise Benchmark v3.0.0* and its profile level (L1 corporate, L2 high security); the descriptions are HostBadger's own. A check is a read-only comparison of the host's setting with the rule; it is not a certification of conformity, and the benchmark covers many more settings (most of the administrative templates, for instance) than HostBadger reads. On Windows 10 and on Windows Server 2022, 2019 and 2016 the findings quote the same setting in that version's CIS benchmark instead (CIS Microsoft Windows 10 Enterprise Benchmark v3.0.0; CIS Microsoft Windows Server 2022 Benchmark v4.0.0; CIS Microsoft Windows Server 2019 Benchmark v4.0.0; CIS Microsoft Windows Server 2016 Benchmark v3.0.0). Checks marked *Server* follow a rule that only the server benchmarks have.
 
@@ -217,6 +217,8 @@ The last column says whether HostBadger can write a remediation script for the c
 | `powershell_transcription_off` | Low | T1562.002 | 18.10.86.2 (L2) | W, S, DC | yes | PowerShell transcription off |
 | `ntlm_audit_off` | Low | T1557.001 | 2.3.11.11, 2.3.11.12 (L1) | W, S, DC | no | NTLM traffic not audited |
 | `powershell_module_logging_off` | Low | T1059.001 |  | W, S, DC | no | PowerShell module logging off |
+| `powershell_module_logging_no_modules` | Low | T1562.002 |  | W, S, DC | no | PowerShell module logging on, with no module named |
+| `powershell_transcription_no_dir` | Low | T1070 |  | W, S, DC | no | PowerShell transcription on, with no output directory |
 | `event_logging_suppressed` | High | T1562.002 |  | W, S, DC | no | Event logging switched off underneath |
 | `log_forwarding_missing` | Low | T1070.001 |  | W, S, DC | no | Event logs are not sent anywhere |
 | `sysmon_missing` | Low | T1562.002 |  | W, S, DC | no | No process telemetry: neither Sysmon nor an EDR |
