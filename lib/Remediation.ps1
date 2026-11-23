@@ -33,7 +33,7 @@ foreach ($k in @(
         'smb1_client_driver_enabled', 'smb1_server_enabled', 'smb_server_signing_not_required', 'smb_client_signing_not_required', 'llmnr_enabled',
         'autoplay_enabled', 'interactive_logon_gaps', 'inactivity_lock_missing', 'uac_hardening_gaps', 'uac_disabled', 'uac_admin_no_prompt',
         'remote_uac_token_filter_off', 'always_install_elevated', 'wu_auto_updates_disabled', 'smartscreen_off', 'event_logs_small', 'security_log_small',
-        'powershell_scriptblock_logging_off', 'powershell_transcription_off', 'cmdline_audit_off', 'sehop_disabled', 'safe_dll_search_off',
+        'powershell_scriptblock_logging_off', 'powershell_transcription_off', 'powershell_transcription_no_dir', 'cmdline_audit_off', 'sehop_disabled', 'safe_dll_search_off',
         'ip_stack_hardening_gaps', 'rdp_policy_gaps', 'rdp_nla_disabled', 'cached_logons_high', 'guest_enabled', 'defender_realtime_off',
         'defender_pua_off', 'defender_network_protection_off', 'firewall_profile_disabled', 'firewall_default_inbound_allow', 'firewall_drop_logging_off', 'firewall_notifications_on', 'dc_netlogon_policy_weak', 'server_baseline_gaps', 'driver_blocklist_off', 'mdns_enabled',
         'powershell_v2_enabled', 'spooler_on_dc', 'script_files_execute_on_open', 'network_credentials_stored', 'printer_drivers_by_users',
@@ -189,6 +189,9 @@ function Get-RemediationActions {
             # transcript (and whatever a command printed) into the user's Documents folder.
             & $reg "$psPol\Transcription" 'OutputDirectory' $script:PsTranscriptDir 'ExpandString'
         }
+        # Transcription is already on here, so only the missing half is set: the same value, the same
+        # kind and the same folder as the fix above.
+        'powershell_transcription_no_dir' { & $reg "$psPol\Transcription" 'OutputDirectory' $script:PsTranscriptDir 'ExpandString' }
         'cmdline_audit_off' { & $reg "$sys\Audit" 'ProcessCreationIncludeCmdLine_Enabled' 1 }
         'sehop_disabled' { & $reg "$sm\kernel" 'DisableExceptionChainValidation' 0 -Restart }
         'safe_dll_search_off' { & $reg $sm 'SafeDllSearchMode' 1 -Restart }

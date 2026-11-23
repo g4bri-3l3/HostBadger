@@ -218,7 +218,7 @@ The last column says whether HostBadger can write a remediation script for the c
 | `ntlm_audit_off` | Low | T1557.001 | 2.3.11.11, 2.3.11.12 (L1) | W, S, DC | no | NTLM traffic not audited |
 | `powershell_module_logging_off` | Low | T1059.001 |  | W, S, DC | no | PowerShell module logging off |
 | `powershell_module_logging_no_modules` | Low | T1562.002 |  | W, S, DC | no | PowerShell module logging on, with no module named |
-| `powershell_transcription_no_dir` | Low | T1070 |  | W, S, DC | no | PowerShell transcription on, with no output directory |
+| `powershell_transcription_no_dir` | Low | T1070 |  | W, S, DC | yes | PowerShell transcription on, with no output directory |
 | `event_logging_suppressed` | High | T1562.002 |  | W, S, DC | no | Event logging switched off underneath |
 | `log_forwarding_missing` | Low | T1070.001 |  | W, S, DC | no | Event logs are not sent anywhere |
 | `sysmon_missing` | Low | T1562.002 |  | W, S, DC | no | No process telemetry: neither Sysmon nor an EDR |

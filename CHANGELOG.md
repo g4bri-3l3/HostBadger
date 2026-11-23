@@ -24,6 +24,12 @@ new major if the snapshot or the JSON Lines format ever breaks.
   the registry too (`wsh-off-wow`): `SysWOW64\wscript.exe` reads its own copy
   under `WOW6432Node`, so the old item left 32-bit hosts running .vbs and .js
   while promising they no longer would.
+- **A fix script for the missing transcript folder.** `powershell_transcription_no_dir` carries a
+  level A fix of its own: transcription is already on, so it writes the one missing value,
+  `OutputDirectory` as a REG_EXPAND_SZ pointing at `%USERPROFILE%\Documents\PSTranscripts`, the same
+  folder the `powershell_transcription_off` fix and the Strict profile item set. Hosts that had
+  transcription switched on by hand, or by an older HostBadger, can be put right from the report
+  instead of by editing the policy. 66 checks come with a fix script.
 
 ### Fixed
 - **The PowerShell transcription fix now says where the transcripts go.** Turning
@@ -39,6 +45,10 @@ new major if the snapshot or the JSON Lines format ever breaks.
   halves are reversible and the rollback file already recorded the value kind, so
   `-Restore` puts them back untouched. Machines that took the old fix keep
   writing to Documents until the new one runs.
+- The ASCII badger printed `v3.2` while the version was 3.3, and a backslash in the help text of
+  `-RemediationPrivacy` had been turned into a carriage return by an earlier edit
+  (`data<CR>emediation-profiles.json` in `Get-Help`). Both say what they mean again.
+
 ## [3.2] - 2026-11-18
 ### Added
 - **Where to break a chain.** A chain holds only while every stage of it stays

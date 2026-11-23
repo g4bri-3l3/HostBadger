@@ -221,7 +221,7 @@
     reversible: they come back only from the Microsoft Store.
 .PARAMETER RemediationPrivacy
     Optional, with -OutRemediation: add the privacy and telemetry settings of
-    every profile tier (dataemediation-profiles.json, category privacy) to the
+    every profile tier (data\remediation-profiles.json, category privacy) to the
     scripts, with or without a profile. With -RemediationDebloat and no profile it
     gives "debloat and telemetry only": no hardening setting is added.
 .PARAMETER RemediationNoApps
@@ -363,7 +363,7 @@ $script:HostBadgerVersion = '3.3'
 Write-Host @'
      _.--""--._
    .'  |    |  '.
-  /    |    |    \      HostBadger v3.2
+  /    |    |    \      HostBadger v3.3
  |  (o)|    |(o)  |     Windows host hardening
  |     |    |     |     read-only snapshots, offline analysis
   \    '.__.'    /

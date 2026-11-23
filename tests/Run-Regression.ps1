@@ -693,7 +693,7 @@ Assert-True (@($polRes.PolicyOff) -contains 'app_control_not_enforced' -and $pol
 # Level A only. The scripts are generated text and HostBadger never runs them. Only hosts with a
 # fixable finding get a per-host file.
 $remFiles = @(Get-ChildItem (Join-Path $out 'rem') -Filter 'remediate_*.ps1' -ErrorAction SilentlyContinue | Sort-Object Name)
-Assert-Equal ($remFiles.Name -join ',') 'remediate_DC01.ps1,remediate_WKS-ACCT-017.ps1' 'remediation: a script only for hosts with a fixable finding'
+Assert-Equal ($remFiles.Name -join ',') 'remediate_DC01.ps1,remediate_LT-SALES-112.ps1,remediate_WKS-ACCT-017.ps1' 'remediation: a script only for hosts with a fixable finding'
 $remWeak = New-RemediationScript -HostName 'WKS-ACCT-017' -Role 'workstation' -Findings $all -Config $config -CollectedUtc '2026-10-01 08:00' -ToolVersion 'test'
 $remDc = New-RemediationScript -HostName 'DC01' -Role 'dc' -Findings $all -Config $config -CollectedUtc '2026-10-01 08:00' -ToolVersion 'test'
 Assert-Equal "$($remWeak.ActionCount)/$($remWeak.FixableFindings)/$($remWeak.TotalFindings)" '92/90/326' 'remediation: weak host settings / findings with a script / findings'
@@ -727,6 +727,10 @@ Assert-True ($rpIds.Count -gt 0 -and @($rpIds | Sort-Object -Unique).Count -eq $
 $tsFix = @(Get-RemediationActions -Finding @($weak.Findings | Where-Object { $_.Type -eq 'powershell_transcription_off' })[0] -Role 'workstation' -Config $config)
 $tsItem = @($rpData.Items | Where-Object { "$($_.id)" -eq 'powershell-transcription-dir' })[0]
 Assert-True (@($tsFix | Where-Object { $_.Name -eq 'EnableTranscripting' -and $_.Value -eq 1 }).Count -eq 1 -and @($tsFix | Where-Object { $_.Name -eq 'OutputDirectory' -and $_.Type -eq 'ExpandString' -and "$($_.Value)" -eq $script:PsTranscriptDir }).Count -eq 1 -and $tsItem -and "$($tsItem.value)" -eq $script:PsTranscriptDir -and "$($tsItem.type)" -eq 'ExpandString' -and $script:PsTranscriptDir -match '^%USERPROFILE%\\') 'PowerShell transcription: the fix and the Strict profile item set the same transcript folder, a REG_EXPAND_SZ under the user profile'
+# The fix for the missing half sets only that half: transcription is already on, so a second write of
+# EnableTranscripting would be a change the finding did not ask for.
+$tsDirFix = @(Get-RemediationActions -Finding @($lap.Findings | Where-Object { $_.Type -eq 'powershell_transcription_no_dir' })[0] -Role 'workstation' -Config $config)
+Assert-True (@($tsDirFix).Count -eq 1 -and $tsDirFix[0].Kind -eq 'reg' -and $tsDirFix[0].Name -eq 'OutputDirectory' -and $tsDirFix[0].Type -eq 'ExpandString' -and "$($tsDirFix[0].Value)" -eq $script:PsTranscriptDir -and "$($tsDirFix[0].Path)" -like 'HKLM:\*') 'PowerShell transcription: the fix for the missing output directory sets that one value, to the same folder'
 $rpE = @(Get-ProfileActions -ProfileName 'Essential' -Role 'workstation' | ForEach-Object { $_.Id })
 $rpR = @(Get-ProfileActions -ProfileName 'Recommended' -Role 'workstation' | ForEach-Object { $_.Id })
 $rpS = @(Get-ProfileActions -ProfileName 'Strict' -Role 'workstation')
@@ -1116,7 +1120,7 @@ try {
 finally { Pop-Location }
 Assert-True ($wizNo -match 'Not running as administrator|Running as administrator' -and $wizNo -notmatch 'Restart this menu as administrator') 'launcher: says up front whether it runs as administrator (the restart is offered only at an interactive console)'
 Assert-True ($wizNo -match 'Report ready:' -and -not $wizNoPrompt -and [regex]::Matches($wizNo, 'Hosts analyzed').Count -eq 1) 'launcher: after the report it offers the AI summary, and "n" does nothing more'
-Assert-True ($wizNo -match 'remediate_<host>\.ps1' -and @(Get-ChildItem (Join-Path $wizDir 'w_remediation') -Filter 'remediate_*.ps1' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name } | Sort-Object) -join ',' -eq 'remediate_DC01.ps1,remediate_WKS-ACCT-017.ps1') 'launcher: asks about per-host remediation scripts and writes them next to the report (the hosts with a fix)'
+Assert-True ($wizNo -match 'remediate_<host>\.ps1' -and @(Get-ChildItem (Join-Path $wizDir 'w_remediation') -Filter 'remediate_*.ps1' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name } | Sort-Object) -join ',' -eq 'remediate_DC01.ps1,remediate_LT-SALES-112.ps1,remediate_WKS-ACCT-017.ps1') 'launcher: asks about per-host remediation scripts and writes them next to the report (the hosts with a fix)'
 Assert-True ($wizEdit -match 'Settings for this run:' -and $wizEdit -match '\[ 4\] DISA STIG rules\s+no' -and (Test-Path (Join-Path $wizDir 'e.csv')) -and @(Import-Csv (Join-Path $wizDir 'e.csv') | Where-Object { $_.Type -like 'stig_*' }).Count -eq 0 -and @(Import-Csv (Join-Path $wizDir 'e.csv')).Count -gt 0) 'launcher: the answers are listed before the run and one can be changed (DISA STIG turned off)'
 Assert-True ((Test-Path (Join-Path $wizDir 'w_prompt.txt')) -and $wizDry -match 'Nothing sent') 'launcher: "d" after the report writes the prompt and sends nothing'
 # Logs: each menu session writes output\hostbadger-menu_<time>.log and each analysis a .log next to its
