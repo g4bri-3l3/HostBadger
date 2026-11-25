@@ -69,8 +69,8 @@
     RMM, deployment job); -EncryptCertificate avoids
     that.
 .PARAMETER EncryptCertificate
-    Encrypt the snapshot to a certificate instead (CMS, AES-256): the path of a
-    .cer file (DER or PEM), or the thumbprint of a certificate in the
+    Encrypt the snapshot to a certificate instead (CMS, AES-256): the path of
+    a .cer file (DER or PEM), or the thumbprint of a certificate in the
     LocalMachine or CurrentUser store. Only the public key is needed here; the
     analyzer opens the file with the private key (certificate store or -SnapshotPfx).
 #>
@@ -86,7 +86,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:CollectorVersion = '3.3'
+$script:CollectorVersion = '3.4'
 $script:SchemaVersion = 1
 $script:Errors = New-Object System.Collections.Generic.List[object]
 $script:Sections = New-Object System.Collections.Generic.List[string]
@@ -3523,7 +3523,7 @@ $json = $snapshot | ConvertTo-Json -Depth 10
 # Windows PowerShell 5.1 writes an empty array inside a hashtable as {}. Every empty object in this
 # snapshot is really an empty list, so we put the brackets back.
 $json = [regex]::Replace($json, '(?<=[^\\]"):\s*\{\s*\}', ': []')
-# A conditional that can produce an empty array in one branch (…$(if (cond) { @(...) } else { @() })…)
+# A conditional that can produce an empty array in one branch (...$(if (cond) { @(...) } else { @() })...)
 # can come out of ConvertTo-Json as a bare null instead of [], even on PowerShell 7, once it sits deep
 # enough inside a large nested structure. Harmless for the analyzer (every reader of these fields
 # wraps with @(... | Where-Object { $_ })), but it should read as an empty array like every other list

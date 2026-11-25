@@ -6,6 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases are numbered major.minor: a new minor for new features and fixes, a
 new major if the snapshot or the JSON Lines format ever breaks.
 
+## [3.4] - 2026-11-25
+### Added
+- **HostBadger on the PowerShell Gallery.** `Install-Module HostBadger` installs the
+  analyzer, the collector, the libraries and the catalogs, and gives each entry
+  point a command: `Invoke-HostBadger`, `New-HostSnapshot` (alias
+  `Collect-HostSnapshot`), `Start-HostBadger`, `Start-HostBadgerGui`,
+  `Test-HostBadgerSafety`, `New-SyntheticHostSnapshot`, and `Get-HostBadgerPath`
+  to reach a file of the module (the collector to copy to a host, the synthetic
+  fleet to analyze). The scripts are still the product: each function runs the
+  script file itself, in process, so the script keeps its own `$PSScriptRoot` and
+  finds `lib\` and `data\` where it always did. A SecureString parameter is easier
+  this way than from a command line: `-SnapshotPassword` no longer has to cross a
+  new PowerShell.
+- `tools\New-HostBadgerModule.ps1` builds that module under `output\module`,
+  outside the repository's own files: anyone cloning the repository still gets a
+  set of scripts with no build step and no manifest. The param block, its
+  attributes and the comment based help of every function are copied from the
+  script's own source with the PowerShell parser, so the 66 parameters of
+  `HostBadger.ps1` are never written down twice and the module cannot drift from
+  the scripts. The regression reads the generated module without running it and
+  fails if a parameter, an export or the version differs from the scripts.
+- The package leaves out what a run does not read (the demo report and its GIF,
+  the developer tools in `tools\`) and keeps `examples\fleet`, the synthetic
+  snapshots the README analyzes first.
 ## [3.3] - 2026-11-23
 ### Added
 - **Two checks for logging that is switched on and logs nothing.** Both halves of

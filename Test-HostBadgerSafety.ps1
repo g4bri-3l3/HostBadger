@@ -135,11 +135,13 @@ $dllImportRegex = '(?i)\[(?:[\w.]+\.)?DllImport\("([^"]+)"[^\]]*\)\]\s*public\s+
 $root = (Resolve-Path -LiteralPath $Path).Path
 # What HostBadger runs: the scripts in the folder itself and in lib\. A script in some other
 # subfolder (another tool copied next to it, a leftover) is never loaded by HostBadger, so it is
-# listed as "not reviewed" instead of being mixed into the verdict.
+# listed as "not reviewed" instead of being mixed into the verdict. output\ is left out of that
+# list: it holds what a run writes (reports, the generated remediation scripts, the module built
+# for the PowerShell Gallery, which is a copy of the scripts reviewed here), not code to load.
 $files = @(Get-ChildItem -LiteralPath $root -File -Filter *.ps1 | Where-Object { $_.Name -ne 'Test-HostBadgerSafety.ps1' }) +
 @(Get-ChildItem -LiteralPath (Join-Path $root 'lib') -File -Filter *.ps1 -ErrorAction SilentlyContinue)
 $reviewedPaths = @{}; foreach ($f in $files) { $reviewedPaths[$f.FullName] = $true }
-$outside = @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter *.ps1 | Where-Object { -not $reviewedPaths.ContainsKey($_.FullName) -and $_.FullName -notmatch '\\(tests|examples)\\' -and $_.Name -ne 'Test-HostBadgerSafety.ps1' })
+$outside = @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter *.ps1 | Where-Object { -not $reviewedPaths.ContainsKey($_.FullName) -and $_.FullName -notmatch '\\(tests|examples|output)\\' -and $_.Name -ne 'Test-HostBadgerSafety.ps1' })
 $problems = New-Object System.Collections.Generic.List[string]
 $used = @{}
 $writes = New-Object System.Collections.Generic.List[string]

@@ -1983,6 +1983,52 @@ Assert-Equal (& $verOf 'Collect-HostSnapshot.ps1' 'CollectorVersion') (& $verOf 
 $gitAttr = Join-Path $root '.gitattributes'
 Assert-True ((Test-Path -LiteralPath $gitAttr) -and ([System.IO.File]::ReadAllText($gitAttr) -match '(?m)^\* text=auto eol=crlf\s*$')) '.gitattributes pins the line endings'
 
+# ------------------------------------------------------------------ the PowerShell Gallery module
+# The module published to the Gallery is generated from these very scripts by
+# tools\New-HostBadgerModule.ps1. It is read here with the parser and never imported: a wrapper
+# whose parameters drifted from its script, a function the manifest does not export, or a file the
+# package forgot fails the suite instead of reaching the Gallery.
+$modOut = Join-Path $work 'module'
+& (Join-Path $root 'tools\New-HostBadgerModule.ps1') -OutDir $modOut 6>$null | Out-Null
+$modDir = Join-Path $modOut 'HostBadger'
+$modManifest = Join-Path $modDir 'HostBadger.psd1'
+$modRoot = Join-Path $modDir 'HostBadger.psm1'
+Assert-True ((Test-Path -LiteralPath $modManifest) -and (Test-Path -LiteralPath $modRoot)) 'module: the build writes a manifest and a root module'
+$modData = Test-ModuleManifest -Path $modManifest
+$modVersion = & $verOf 'HostBadger.ps1' 'HostBadgerVersion'
+Assert-Equal "$($modData.Version)" $modVersion 'module: the manifest carries the version of the analyzer'
+Assert-True ("$($modData.PrivateData.PSData.ReleaseNotes)" -match ("(?m)^## \[" + [regex]::Escape($modVersion) + "\]")) 'module: the release notes are this version''s changelog section'
+
+$psmTok = $null; $psmErr = $null
+$psmAst = [System.Management.Automation.Language.Parser]::ParseFile($modRoot, [ref]$psmTok, [ref]$psmErr)
+Assert-Equal @($psmErr).Count 0 'module: the generated root module parses'
+$psmFuncs = @($psmAst.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $false))
+$noSpace = { param($t) ($t -replace '\s+', '') }
+$drift = New-Object System.Collections.Generic.List[string]
+foreach ($pair in @(@('Invoke-HostBadger', 'HostBadger.ps1'), @('New-HostSnapshot', 'Collect-HostSnapshot.ps1'),
+        @('Start-HostBadger', 'Start-HostBadger.ps1'), @('Start-HostBadgerGui', 'Start-HostBadgerGui.ps1'),
+        @('Test-HostBadgerSafety', 'Test-HostBadgerSafety.ps1'), @('New-SyntheticHostSnapshot', 'tests\New-SyntheticHostSnapshot.ps1'))) {
+    $fn = @($psmFuncs | Where-Object { $_.Name -eq $pair[0] })
+    if ($fn.Count -ne 1) { $drift.Add("$($pair[0]): not one function"); continue }
+    $srcTok = $null; $srcErr = $null
+    $srcAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root $pair[1]), [ref]$srcTok, [ref]$srcErr)
+    if ((& $noSpace $fn[0].Body.ParamBlock.Extent.Text) -cne (& $noSpace $srcAst.ParamBlock.Extent.Text)) { $drift.Add("$($pair[0]): parameters differ from $($pair[1])") }
+    if ($fn[0].Body.Extent.Text -notmatch [regex]::Escape("'$($pair[1])'")) { $drift.Add("$($pair[0]): does not run $($pair[1])") }
+    if (-not (Test-Path -LiteralPath (Join-Path $modDir $pair[1]))) { $drift.Add("$($pair[1]): not in the package") }
+    if (-not $fn[0].GetHelpContent()) { $drift.Add("$($pair[0]): no help") }
+}
+Assert-Equal ($drift -join '; ') '' 'module: every function copies the parameters and the help of the script it runs'
+Assert-Equal ((@($modData.ExportedFunctions.Keys) | Sort-Object) -join ',') ((@($psmFuncs | ForEach-Object { $_.Name }) | Sort-Object) -join ',') 'module: the manifest exports exactly the functions the root module defines'
+Assert-Equal (@($modData.ExportedAliases.Keys) -join ',') 'Collect-HostSnapshot' 'module: the collector keeps the name it has on disk as an alias'
+
+$pkgFiles = @(Get-ChildItem -LiteralPath $modDir -Recurse -File | ForEach-Object { $_.FullName.Substring($modDir.Length + 1) } | Where-Object { $_ -ne 'HostBadger.psd1' })
+$pkgListed = @($modData.FileList | ForEach-Object { $_.Substring($modDir.Length + 1) })
+$pkgOff = @($pkgFiles | Where-Object { $pkgListed -notcontains $_ }) + @($pkgListed | Where-Object { $pkgFiles -notcontains $_ })
+Assert-Equal ($pkgOff -join ', ') '' 'module: the manifest lists every file of the package and no other'
+$pkgNeeded = @(Get-ChildItem -LiteralPath (Join-Path $root 'lib') -File -Filter *.ps1 | ForEach-Object { "lib\$($_.Name)" }) +
+@(Get-ChildItem -LiteralPath (Join-Path $root 'data') -File -Filter *.json | ForEach-Object { "data\$($_.Name)" })
+Assert-Equal (@($pkgNeeded | Where-Object { $pkgFiles -notcontains $_ }) -join ', ') '' 'module: every library and every catalog is in the package'
+
 # ------------------------------------------------------------------ the window
 # It builds on both PowerShell editions (-NoShow: built, not shown), offers the catalogs of the guided
 # menu with the same parameters, and "Check for updates" outside a git clone reads the version on the

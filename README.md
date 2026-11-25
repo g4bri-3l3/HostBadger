@@ -313,7 +313,9 @@ own pages before relying on it, especially for licensing and editions.
 | `Test-HostBadgerSafety.ps1` | anywhere | nothing | proof, read from the code, that the collector only reads |
 
 It runs on Windows PowerShell 5.1 or PowerShell 7, and there is nothing to
-install.
+install: clone the repository, or download the zip, and run the scripts. From
+the PowerShell Gallery (`Install-Module HostBadger`) the same scripts come with
+a command each; see Quick start.
 
 If you are not sure where to start, run `.\Start-HostBadger.ps1`. It is a
 small menu: collect this machine, analyze a file, a zip or a folder, analyze
@@ -495,6 +497,25 @@ On one host, as administrator:
 .\Collect-HostSnapshot.ps1                       # C:\Windows\Temp\HostBadger\hostsnapshot_<host>_<time>.zip
 .\HostBadger.ps1 -Snapshot C:\Windows\Temp\HostBadger -OutHtml report.html
 ```
+
+Or from the PowerShell Gallery, if you would rather install than clone:
+
+```powershell
+Install-Module HostBadger -Scope CurrentUser
+New-HostSnapshot                                        # the collector, as administrator
+Invoke-HostBadger -Snapshot C:\Windows\Temp\HostBadger -OutHtml report.html
+Invoke-HostBadger -Snapshot (Get-HostBadgerPath 'examples\fleet')  # a synthetic fleet to look at first
+Copy-Item (Get-HostBadgerPath 'Collect-HostSnapshot.ps1') .        # the one file to put on your hosts
+```
+
+The module is these same scripts with a command for each entry point
+(`Invoke-HostBadger`, `New-HostSnapshot`, which answers to
+`Collect-HostSnapshot` too, `Start-HostBadger`, `Start-HostBadgerGui`,
+`Test-HostBadgerSafety`, `New-SyntheticHostSnapshot`), plus
+`Get-HostBadgerPath` to reach a file inside it. Each command runs its script
+file in process, so nothing about a run changes. Everything below names the
+scripts: read `.\HostBadger.ps1` as `Invoke-HostBadger` if you installed the
+module.
 
 On many hosts, use whatever already runs scripts on them. The collector is one
 file and every parameter is optional, so any tool that can run a `.ps1` as
